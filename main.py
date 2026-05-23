@@ -274,7 +274,7 @@ HARD_QUESTIONS = [
     ("Was ist die Hauptstadt von Kanada?", ["Ottawa", "Toronto", "Vancouver", "Montreal"], 0),
 ]
 
-QUESTIONS_PER_LEVEL = 100
+QUESTIONS_PER_LEVEL = 200
 
 
 def _make_question(prompt: str, correct, wrongs) -> tuple:
@@ -299,7 +299,7 @@ def _number_question(prompt: str, correct: int, spread: int = 3) -> tuple:
 def _young_question(level_idx: int, variant: int) -> tuple:
     level = level_idx + 1
     n = variant + 1
-    kind = variant % 10
+    kind = variant % 20
     base = level * 3 + n
 
     if kind == 0:
@@ -349,6 +349,66 @@ def _young_question(level_idx: int, variant: int) -> tuple:
                     ("Spanien", "Madrid", ["Barcelona", "Lissabon", "Sevilla"])]
         country, correct, wrongs = capitals[(level + n) % len(capitals)]
         return _make_question(f"Wie heißt die Hauptstadt von {country}?", correct, wrongs)
+    if kind == 9:
+        nature = [("Was braucht eine Pflanze zum Wachsen?", "Licht", ["Steine", "Plastik", "Sand allein"]),
+                  ("Welches Tier lebt im Wasser?", "Fisch", ["Hase", "Adler", "Schnecke"]),
+                  ("Was fällt im Winter manchmal vom Himmel?", "Schnee", ["Sand", "Blätter", "Staub"]),
+                  ("Welcher Stern scheint am Tag?", "Sonne", ["Mond", "Mars", "Venus"])]
+        return _make_question(*nature[(level + n) % len(nature)])
+    if kind == 10:
+        body = [("Womit hört man?", "Ohren", ["Augen", "Nase", "Knie"]),
+                ("Womit sieht man?", "Augen", ["Ohren", "Finger", "Zähne"]),
+                ("Was schützt den Kopf?", "Helm", ["Schal", "Socke", "Handschuh"]),
+                ("Womit riecht man?", "Nase", ["Mund", "Hand", "Fuß"])]
+        return _make_question(*body[(level + n) % len(body)])
+    if kind == 11:
+        language = [("Was reimt sich auf Haus?", "Maus", ["Baum", "Sonne", "Tisch"]),
+                    ("Was ist ein anderes Wort für schnell?", "flott", ["leise", "kalt", "rund"]),
+                    ("Welches Wort ist ein Tier?", "Fuchs", ["Stuhl", "Lampe", "Wolke"]),
+                    ("Was ist das Gegenteil von laut?", "leise", ["hell", "warm", "spitz"])]
+        return _make_question(*language[(level + n) % len(language)])
+    if kind == 12:
+        safety = [("Bei welcher Farbe bleibt man an der Ampel stehen?", "Rot", ["Grün", "Blau", "Gelb"]),
+                  ("Wo läuft man sicher über die Straße?", "Zebrastreifen", ["Wiese", "Parkplatz", "Bahnsteig"]),
+                  ("Wen ruft man bei Feuer?", "Feuerwehr", ["Bäcker", "Bibliothek", "Kino"]),
+                  ("Was trägt man im Auto zur Sicherheit?", "Gurt", ["Mütze", "Rucksack", "Schal"])]
+        return _make_question(*safety[(level + n) % len(safety)])
+    if kind == 13:
+        food = [("Aus welcher Frucht macht man Apfelsaft?", "Apfel", ["Birne", "Banane", "Kirsche"]),
+                ("Welche Mahlzeit isst man oft morgens?", "Frühstück", ["Abendbrot", "Mittagessen", "Nachtisch"]),
+                ("Was ist meistens kalt und süß?", "Eis", ["Suppe", "Brot", "Reis"]),
+                ("Aus welchem Getreide macht man oft Brot?", "Weizen", ["Kakao", "Kaffee", "Pfeffer"])]
+        return _make_question(*food[(level + n) % len(food)])
+    if kind == 14:
+        music = [("Womit macht man Musik?", "Instrument", ["Lineal", "Teller", "Schlüssel"]),
+                 ("Welches Instrument hat Tasten?", "Klavier", ["Trommel", "Flöte", "Gitarre"]),
+                 ("Wie nennt man jemanden, der singt?", "Sänger", ["Maler", "Fahrer", "Bäcker"]),
+                 ("Was hört man mit den Ohren?", "Musik", ["Farbe", "Duft", "Licht"])]
+        return _make_question(*music[(level + n) % len(music)])
+    if kind == 15:
+        tech = [("Womit telefoniert man oft?", "Handy", ["Toaster", "Buch", "Stift"]),
+                ("Was macht eine Kamera?", "Fotos", ["Kaffee", "Schuhe", "Wasser"]),
+                ("Womit schreibt man am Computer?", "Tastatur", ["Gabel", "Kamm", "Ball"]),
+                ("Was braucht eine Fernbedienung meistens?", "Batterien", ["Blätter", "Sand", "Milch"])]
+        return _make_question(*tech[(level + n) % len(tech)])
+    if kind == 16:
+        seasons = [("Wann blühen viele Blumen?", "Frühling", ["Winter", "Nacht", "Herbst"]),
+                   ("Wann ist es oft sehr warm?", "Sommer", ["Winter", "Montag", "Morgen"]),
+                   ("Wann fallen viele Blätter?", "Herbst", ["Sommer", "Frühling", "Mittag"]),
+                   ("Wann baut man oft einen Schneemann?", "Winter", ["Sommer", "Herbst", "Frühling"])]
+        return _make_question(*seasons[(level + n) % len(seasons)])
+    if kind == 17:
+        logic = [("Was passt nicht dazu: Apfel, Banane, Auto, Birne?", "Auto", ["Apfel", "Banane", "Birne"]),
+                 ("Was ist größer?", "Elefant", ["Maus", "Ameise", "Frosch"]),
+                 ("Was ist leichter?", "Feder", ["Stein", "Auto", "Schrank"]),
+                 ("Was kann fliegen?", "Flugzeug", ["Fahrrad", "Boot", "Zug"])]
+        return _make_question(*logic[(level + n) % len(logic)])
+    if kind == 18:
+        space = [("Worauf leben wir?", "Erde", ["Mond", "Sonne", "Mars"]),
+                 ("Was leuchtet nachts oft am Himmel?", "Mond", ["Baum", "Auto", "Buch"]),
+                 ("Wie nennt man Menschen im Weltall?", "Astronauten", ["Piloten", "Taucher", "Maler"]),
+                 ("Was ist die Sonne?", "Stern", ["Planet", "Wolke", "Insel"])]
+        return _make_question(*space[(level + n) % len(space)])
     value = (level * 10) + (n % 10)
     return _number_question(f"Welche Zahl ist um 1 größer als {value}?", value + 1, 2)
 
@@ -356,7 +416,7 @@ def _young_question(level_idx: int, variant: int) -> tuple:
 def _mid_question(level_idx: int, variant: int) -> tuple:
     level = level_idx + 1
     n = variant + 1
-    kind = variant % 10
+    kind = variant % 20
 
     if kind == 0:
         a = level * 8 + n % 30
@@ -403,17 +463,77 @@ def _mid_question(level_idx: int, variant: int) -> tuple:
         a = n % 20 + 6
         correct = a * a
         return _number_question(f"Was ist {a} zum Quadrat?", correct, a)
-    fractions = [(1, 2, "die Hälfte"), (1, 4, "ein Viertel"), (3, 4, "drei Viertel")]
-    numerator, denominator, label = fractions[(level + n) % len(fractions)]
-    amount = denominator * (n % 20 + 5)
-    correct = amount * numerator // denominator
-    return _number_question(f"Wie viel ist {label} von {amount}?", correct, 4)
+    if kind == 9:
+        fractions = [(1, 2, "die Hälfte"), (1, 4, "ein Viertel"), (3, 4, "drei Viertel")]
+        numerator, denominator, label = fractions[(level + n) % len(fractions)]
+        amount = denominator * (n % 20 + 5)
+        correct = amount * numerator // denominator
+        return _number_question(f"Wie viel ist {label} von {amount}?", correct, 4)
+    if kind == 10:
+        media = [("Was ist ein Podcast?", "Audiosendung", ["Suchmaschine", "Bildschirm", "Passwort"]),
+                 ("Was ist ein Browser?", "Programm fürs Internet", ["Kabel", "Drucker", "Lautsprecher"]),
+                 ("Was ist ein Screenshot?", "Bild vom Bildschirm", ["Tonaufnahme", "Textfehler", "Passwort"]),
+                 ("Was bedeutet WLAN?", "drahtloses Netzwerk", ["Stromkabel", "Druckauftrag", "Lautsprecherbox"])]
+        return _make_question(*media[(level + n) % len(media)])
+    if kind == 11:
+        environment = [("Was ist Recycling?", "Wiederverwertung", ["Verbrennen", "Wegwerfen", "Vergraben"]),
+                       ("Welche Energiequelle ist erneuerbar?", "Sonne", ["Kohle", "Erdöl", "Benzin"]),
+                       ("Was entsteht bei Photosynthese unter anderem?", "Sauerstoff", ["Plastik", "Salz", "Sand"]),
+                       ("Was spart Wasser?", "kurz duschen", ["Hahn laufen lassen", "Badewanne überfüllen", "Auto täglich waschen"])]
+        return _make_question(*environment[(level + n) % len(environment)])
+    if kind == 12:
+        language = [("Was ist ein Verb?", "Tunwort", ["Namenwort", "Eigenschaftswort", "Artikel"]),
+                    ("Was ist ein Adjektiv?", "Eigenschaftswort", ["Tunwort", "Zahlwort", "Satzzeichen"]),
+                    ("Welches Satzzeichen steht oft am Ende einer Frage?", "Fragezeichen", ["Komma", "Doppelpunkt", "Ausrufezeichen"]),
+                    ("Was ist ein Synonym?", "ähnliches Wort", ["Gegenteil", "Reim", "Abkürzung"])]
+        return _make_question(*language[(level + n) % len(language)])
+    if kind == 13:
+        sports = [("Wie viele Spieler hat eine Fußballmannschaft auf dem Feld?", "11", ["7", "9", "13"]),
+                  ("Welche Sportart nutzt einen Schläger und Federball?", "Badminton", ["Handball", "Rudern", "Boxen"]),
+                  ("Wie heißt der Start im Sprint?", "Startblock", ["Sprungbrett", "Torlinie", "Mittelkreis"]),
+                  ("Welche Farbe hat die Tour-de-France-Spitzenwertung?", "gelb", ["rot", "blau", "grün"])]
+        return _make_question(*sports[(level + n) % len(sports)])
+    if kind == 14:
+        art = [("Welche Farbe erhält man aus Rot und Blau?", "Lila", ["Grün", "Orange", "Braun"]),
+               ("Was ist eine Skulptur?", "dreidimensionales Kunstwerk", ["Gedicht", "Melodie", "Landkarte"]),
+               ("Wer schrieb viele Märchen mit seinem Bruder Wilhelm?", "Jacob Grimm", ["Goethe", "Einstein", "Mozart"]),
+               ("Was ist ein Takt in der Musik?", "rhythmische Einheit", ["Farbe", "Bühnenbild", "Instrumentenkoffer"])]
+        return _make_question(*art[(level + n) % len(art)])
+    if kind == 15:
+        health = [("Was stärkt die Ausdauer?", "regelmäßige Bewegung", ["nur Süßigkeiten", "wenig Schlaf", "kein Trinken"]),
+                  ("Welcher Stoff ist wichtig für Knochen?", "Calcium", ["Helium", "Benzin", "Plastik"]),
+                  ("Was transportiert Sauerstoff im Blut?", "rote Blutkörperchen", ["Haare", "Nägel", "Zähne"]),
+                  ("Was sollte man vor dem Essen oft tun?", "Hände waschen", ["Schuhe binden", "Musik hören", "Fenster schließen"])]
+        return _make_question(*health[(level + n) % len(health)])
+    if kind == 16:
+        economy = [("Was ist ein Budget?", "geplanter Geldrahmen", ["Wetterkarte", "Sportgerät", "Musikstück"]),
+                   ("Was bedeutet sparen?", "Geld zurücklegen", ["alles ausgeben", "Geld zerreißen", "Preise erhöhen"]),
+                   ("Was ist ein Rabatt?", "Preisnachlass", ["Steuer", "Zins", "Miete"]),
+                   ("Wofür steht IBAN?", "Kontonummer", ["Passwort", "Schulnote", "WLAN-Name"])]
+        return _make_question(*economy[(level + n) % len(economy)])
+    if kind == 17:
+        logic = [("Alle Blüten sind Pflanzen. Eine Rose ist eine Blüte. Was ist eine Rose?", "Pflanze", ["Tier", "Stein", "Maschine"]),
+                 ("Was kommt in der Reihe 2, 4, 8, 16 als Nächstes?", "32", ["24", "30", "36"]),
+                 ("Welches Wort passt nicht: Geige, Trommel, Gitarre, Fahrrad?", "Fahrrad", ["Geige", "Trommel", "Gitarre"]),
+                 ("Was ist wahrscheinlicher: Münze Kopf oder Würfel 6?", "Kopf", ["Würfel 6", "gleich", "unmöglich"])]
+        return _make_question(*logic[(level + n) % len(logic)])
+    if kind == 18:
+        astronomy = [("Welcher Planet ist der Sonne am nächsten?", "Merkur", ["Venus", "Mars", "Jupiter"]),
+                     ("Wie heißt unsere Galaxie?", "Milchstraße", ["Andromeda", "Orion", "Polarstern"]),
+                     ("Was ist ein Satellit?", "Begleiter im Orbit", ["Meeresströmung", "Vulkanart", "Wolkenform"]),
+                     ("Warum gibt es Tag und Nacht?", "Erdrotation", ["Jahreszeiten", "Mondlicht", "Sonnenfinsternis"])]
+        return _make_question(*astronomy[(level + n) % len(astronomy)])
+    science_people = [("Wer entwickelte die Relativitätstheorie?", "Einstein", ["Newton", "Darwin", "Curie"]),
+                      ("Wofür ist Marie Curie bekannt?", "Radioaktivität", ["Dampfmaschine", "Internet", "Buchdruck"]),
+                      ("Wer formulierte Gesetze zur Bewegung?", "Newton", ["Mozart", "Kolumbus", "Kant"]),
+                      ("Was erforschte Charles Darwin?", "Evolution", ["Elektrizität", "Oper", "Architektur"])]
+    return _make_question(*science_people[(level + n) % len(science_people)])
 
 
 def _hard_question(level_idx: int, variant: int) -> tuple:
     level = level_idx + 1
     n = variant + 1
-    kind = variant % 10
+    kind = variant % 20
 
     if kind == 0:
         a = level + 3
@@ -460,9 +580,69 @@ def _hard_question(level_idx: int, variant: int) -> tuple:
         b = level % 7 + 2
         correct = a ** 2 + b ** 2
         return _number_question(f"Was ist {a}² + {b}²?", correct, 5)
-    value = (level + n % 15) * 6
-    correct = value // 3 + level
-    return _number_question(f"Was ist ein Drittel von {value} plus {level}?", correct, 4)
+    if kind == 9:
+        value = (level + n % 15) * 6
+        correct = value // 3 + level
+        return _number_question(f"Was ist ein Drittel von {value} plus {level}?", correct, 4)
+    if kind == 10:
+        computing = [("Was ist ein Algorithmus?", "Handlungsanweisung", ["Computerbauteil", "Bildschirmtyp", "Passwortliste"]),
+                     ("Wofür steht HTML?", "HyperText Markup Language", ["High Tech Machine Logic", "Home Tool Mail Link", "Hyper Transfer Main Line"]),
+                     ("Was ist Open Source?", "öffentlich einsehbarer Quellcode", ["verschlüsseltes WLAN", "kaputter Server", "privates Passwort"]),
+                     ("Was beschreibt eine IP-Adresse?", "Netzwerkadresse", ["Bildauflösung", "Akkustand", "Dateigröße"])]
+        return _make_question(*computing[(level + n) % len(computing)])
+    if kind == 11:
+        politics = [("Wie nennt man die Gewaltenteilung in drei Bereiche?", "Legislative, Exekutive, Judikative", ["Bund, Land, Stadt", "Import, Export, Zoll", "These, Antithese, Synthese"]),
+                    ("Welches Organ beschließt in Deutschland Bundesgesetze maßgeblich?", "Bundestag", ["Bundesbank", "Bundeswehr", "Bundesliga"]),
+                    ("Was ist eine Verfassung?", "Grundordnung eines Staates", ["Steuerbescheid", "Reisepass", "Wahlplakat"]),
+                    ("Was bedeutet Föderalismus?", "Aufteilung zwischen Bund und Ländern", ["Herrschaft einer Stadt", "reine Direktwahl", "Abschaffung von Parlamenten"])]
+        return _make_question(*politics[(level + n) % len(politics)])
+    if kind == 12:
+        literature = [("Welcher Roman beginnt mit Gregor Samsas Verwandlung?", "Die Verwandlung", ["Der Prozess", "Faust", "Effi Briest"]),
+                      ("Wer schrieb 'Der Prozess'?", "Franz Kafka", ["Thomas Mann", "Bertolt Brecht", "Hermann Hesse"]),
+                      ("Was ist ein Sonett?", "Gedichtform", ["Theaterbühne", "Romanfigur", "Musikinstrument"]),
+                      ("Wer schrieb 'Der Steppenwolf'?", "Hermann Hesse", ["Günter Grass", "Goethe", "Schiller"])]
+        return _make_question(*literature[(level + n) % len(literature)])
+    if kind == 13:
+        biology = [("Welche Zellbestandteile enthalten DNA bei Eukaryoten hauptsächlich?", "Zellkern", ["Ribosomen", "Zellwand", "Vakuole"]),
+                   ("Was ist Osmose?", "Diffusion von Wasser", ["Zellteilung", "Photosynthese", "Proteinabbau"]),
+                   ("Wie heißt die Erbinformation?", "DNA", ["ATP", "RNAse", "Insulin"]),
+                   ("Was produzieren Chloroplasten mithilfe von Licht?", "Glucose", ["Harnstoff", "Eisen", "Kochsalz"])]
+        return _make_question(*biology[(level + n) % len(biology)])
+    if kind == 14:
+        philosophy = [("Wer gilt als Autor der Ideenlehre?", "Platon", ["Aristoteles", "Kant", "Nietzsche"]),
+                      ("Was fragt die Ethik?", "Was soll ich tun?", ["Wie schnell ist Licht?", "Wie malt man Öl?", "Wie kocht man Reis?"]),
+                      ("Wer schrieb 'Kritik der reinen Vernunft'?", "Immanuel Kant", ["Hegel", "Descartes", "Sokrates"]),
+                      ("Was bedeutet Empirie?", "Erkenntnis durch Erfahrung", ["Glaubenssatz", "Rechenfehler", "Sprachmelodie"])]
+        return _make_question(*philosophy[(level + n) % len(philosophy)])
+    if kind == 15:
+        geography = [("Welche Meerenge trennt Europa und Afrika bei Gibraltar?", "Straße von Gibraltar", ["Bosporus", "Suezkanal", "Beringstraße"]),
+                     ("Welcher Fluss ist der längste Afrikas?", "Nil", ["Kongo", "Niger", "Sambesi"]),
+                     ("Welche Hauptstadt liegt am Tiber?", "Rom", ["Paris", "Prag", "Wien"]),
+                     ("Welches Gebirge trennt Europa und Asien traditionell?", "Ural", ["Alpen", "Anden", "Atlas"])]
+        return _make_question(*geography[(level + n) % len(geography)])
+    if kind == 16:
+        economics = [("Was misst das Bruttoinlandsprodukt?", "Wert aller produzierten Güter und Dienstleistungen", ["Staatsverschuldung allein", "Einwohnerzahl", "Inflation allein"]),
+                     ("Was beschreibt Inflation?", "allgemeiner Preisanstieg", ["Lohnsenkung", "Exportverbot", "Zinsfreiheit"]),
+                     ("Was ist Opportunitätskosten?", "Wert der besten Alternative", ["Mietvertrag", "Steuerart", "Bankkarte"]),
+                     ("Was bedeutet Diversifikation?", "Risikostreuung", ["Monopolbildung", "Preisbindung", "Bargeldverbot"])]
+        return _make_question(*economics[(level + n) % len(economics)])
+    if kind == 17:
+        language = [("Welche Sprache gehört zu den romanischen Sprachen?", "Spanisch", ["Deutsch", "Russisch", "Arabisch"]),
+                    ("Was ist Etymologie?", "Wortherkunftslehre", ["Satzmelodie", "Drucktechnik", "Zahlenkunde"]),
+                    ("Was ist ein Oxymoron?", "widersprüchliche Wortverbindung", ["Reimform", "Satzzeichen", "Dialekt"]),
+                    ("Was bezeichnet Syntax?", "Satzbau", ["Lautstärke", "Wortherkunft", "Schriftfarbe"])]
+        return _make_question(*language[(level + n) % len(language)])
+    if kind == 18:
+        logic = [("Wenn alle A B sind und alle B C sind, was gilt für A?", "Alle A sind C", ["Kein A ist C", "Einige C sind nie B", "Alle C sind A"]),
+                 ("Was ist die Negation von 'alle' in der Logik?", "mindestens einer nicht", ["keiner immer", "alle nicht", "genau einer"]),
+                 ("Welche Zahl folgt: 3, 6, 12, 24?", "48", ["36", "42", "54"]),
+                 ("Was ist ein Trugschluss?", "scheinbar gültiges falsches Argument", ["korrekter Beweis", "Messgerät", "Wörterbuch"])]
+        return _make_question(*logic[(level + n) % len(logic)])
+    modern_history = [("Was markiert der 9. November 1989?", "Fall der Berliner Mauer", ["Beginn des Euro", "Ende des Ersten Weltkriegs", "Gründung der UNO"]),
+                      ("Wann wurde die UNO gegründet?", "1945", ["1919", "1933", "1989"]),
+                      ("Was war die Renaissance?", "kulturelle Wiederbelebung der Antike", ["Industriekrise", "Meeresströmung", "Programmiersprache"]),
+                      ("Welche Revolution begann 1789?", "Französische Revolution", ["Russische Revolution", "Industrielle Revolution", "Digitale Revolution"])]
+    return _make_question(*modern_history[(level + n) % len(modern_history)])
 
 
 def build_level_question_bank(age: str) -> list[list[tuple]]:
