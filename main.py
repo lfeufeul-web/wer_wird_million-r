@@ -9,10 +9,41 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 
+import requests
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+except ImportError:
+    firebase_admin = None
+    credentials = None
+    firestore = None
+
 # ---------- Persistent Database ----------
 DB_FILE = "user_data.json"
 ENV_FILE = ".env"
 CODE_REQUEST_COOLDOWN_SECONDS = 10
+FIREBASE_SERVICE_ACCOUNT_FILE = "firebase-service-account.json"
+FIREBASE_WEB_API_KEY_ENV = "FIREBASE_WEB_API_KEY"
+FIREBASE_APP_COLLECTION = "_app"
+FIREBASE_GLOBAL_STATS_DOC = "global_stats"
+
+
+DEFAULT_GLOBAL_STATS = {
+    "games_played": 0,
+    "correct_answers": 0,
+    "questions_answered": 0,
+    "highest_money": "0 €",
+    "highest_money_level": -1,
+}
+
+DEFAULT_USER_STATS = {
+    "games_played": 0,
+    "correct_answers": 0,
+    "questions_answered": 0,
+    "highest_money": "0 €",
+    "highest_money_level": -1,
+}
 
 
 def load_env_file():
@@ -183,6 +214,187 @@ THEMES = {
     },
 }
 DEFAULT_USER_SETTINGS = {"theme": "classic"}
+
+
+def default_db() -> dict:
+    return {
+        "current_user_email": None,
+        "global_stats": DEFAULT_GLOBAL_STATS.copy(),
+        "users": {},
+    }
+
+
+def default_user(email: str, uid: str | None = None) -> dict:
+    user = {
+        "email": email,
+        "name": email.split("@")[0].capitalize(),
+        "settings": DEFAULT_USER_SETTINGS.copy(),
+        "stats": DEFAULT_USER_STATS.copy(),
+    }
+    if uid:
+        user["uid"] = uid
+    return user
+
+
+def get_firestore_client():
+    if firebase_admin is None:
+        return None
+
+    try:
+        if not firebase_admin._apps:
+            service_account_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+            service_account_file = os.getenv("FIREBASE_SERVICE_ACCOUNT_FILE", FIREBASE_SERVICE_ACCOUNT_FILE).strip()
+
+            if service_account_json:
+                cred = credentials.Certificate(json.loads(service_account_json))
+            elif os.path.exists(service_account_file):
+                cred = credentials.Certificate(service_account_file)
+            else:
+                return None
+
+            firebase_admin.initialize_app(cred)
+        return firestore.client()
+    except Exception as e:
+        print(f"Firebase init error: {e}")
+        return None
+
+
+def load_local_db() -> dict:
+    if not os.path.exists(DB_FILE):
+        return default_db()
+
+    try:
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            db = json.load(f)
+            db.setdefault("current_user_email", None)
+            db.setdefault("global_stats", DEFAULT_GLOBAL_STATS.copy())
+            db.setdefault("users", {})
+            for key, value in DEFAULT_GLOBAL_STATS.items():
+                db["global_stats"].setdefault(key, value)
+            return db
+    except Exception:
+        return default_db()
+
+
+def load_db() -> dict:
+    client = get_firestore_client()
+    if client is None:
+        return load_local_db()
+
+    db = default_db()
+    try:
+        global_doc = client.collection(FIREBASE_APP_COLLECTION).document(FIREBASE_GLOBAL_STATS_DOC).get()
+        if global_doc.exists:
+            db["global_stats"].update(global_doc.to_dict() or {})
+
+        for user_doc in client.collection("users").stream():
+            user_data = user_doc.to_dict() or {}
+            email = user_data.get("email")
+            if not email:
+                continue
+            user_data["uid"] = user_doc.id
+            user_data.setdefault("settings", DEFAULT_USER_SETTINGS.copy())
+            user_data.setdefault("stats", DEFAULT_USER_STATS.copy())
+            for key, value in DEFAULT_USER_SETTINGS.items():
+                user_data["settings"].setdefault(key, value)
+            for key, value in DEFAULT_USER_STATS.items():
+                user_data["stats"].setdefault(key, value)
+            db["users"][email] = user_data
+        return db
+    except Exception as e:
+        print(f"Firebase load error: {e}")
+        return load_local_db()
+
+
+def save_db(db: dict):
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(db, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving db: {e}")
+
+    client = get_firestore_client()
+    if client is None:
+        return
+
+    try:
+        client.collection(FIREBASE_APP_COLLECTION).document(FIREBASE_GLOBAL_STATS_DOC).set(
+            db.get("global_stats", DEFAULT_GLOBAL_STATS.copy()),
+            merge=True,
+        )
+        for email, user in db.get("users", {}).items():
+            uid = user.get("uid")
+            if not uid:
+                continue
+            payload = user.copy()
+            payload["email"] = payload.get("email", email)
+            client.collection("users").document(uid).set(payload, merge=True)
+    except Exception as e:
+        print(f"Firebase save error: {e}")
+
+
+def get_firebase_web_api_key() -> str:
+    return os.getenv(FIREBASE_WEB_API_KEY_ENV, "").strip()
+
+
+def firebase_auth_request(action: str, email: str, password: str) -> dict:
+    api_key = get_firebase_web_api_key()
+    if not api_key:
+        raise RuntimeError("FIREBASE_WEB_API_KEY fehlt in .env oder bei Render.")
+
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:{action}?key={api_key}"
+    response = requests.post(
+        url,
+        json={
+            "email": email,
+            "password": password,
+            "returnSecureToken": True,
+        },
+        timeout=20,
+    )
+    data = response.json()
+    if response.status_code >= 400:
+        error_code = data.get("error", {}).get("message", "UNKNOWN_ERROR")
+        raise RuntimeError(firebase_auth_error_message(error_code))
+    return data
+
+
+def firebase_auth_error_message(error_code: str) -> str:
+    messages = {
+        "EMAIL_EXISTS": "Diese E-Mail ist bereits registriert.",
+        "EMAIL_NOT_FOUND": "Kein Konto mit dieser E-Mail gefunden.",
+        "INVALID_PASSWORD": "Das Passwort ist falsch.",
+        "INVALID_LOGIN_CREDENTIALS": "E-Mail oder Passwort ist falsch.",
+        "WEAK_PASSWORD : Password should be at least 6 characters": "Das Passwort muss mindestens 6 Zeichen haben.",
+        "MISSING_PASSWORD": "Bitte gib ein Passwort ein.",
+        "INVALID_EMAIL": "Bitte gib eine gueltige E-Mail-Adresse ein.",
+    }
+    return messages.get(error_code, f"Firebase Login-Fehler: {error_code}")
+
+
+def ensure_firebase_user(uid: str, email: str) -> dict:
+    user = default_user(email, uid)
+    client = get_firestore_client()
+    if client is None:
+        return user
+
+    ref = client.collection("users").document(uid)
+    doc = ref.get()
+    if doc.exists:
+        stored = doc.to_dict() or {}
+        user.update(stored)
+        user["uid"] = uid
+        user["email"] = stored.get("email", email)
+
+    user.setdefault("settings", DEFAULT_USER_SETTINGS.copy())
+    user.setdefault("stats", DEFAULT_USER_STATS.copy())
+    for key, value in DEFAULT_USER_SETTINGS.items():
+        user["settings"].setdefault(key, value)
+    for key, value in DEFAULT_USER_STATS.items():
+        user["stats"].setdefault(key, value)
+
+    ref.set(user, merge=True)
+    return user
 
 
 def ensure_user_settings(db: dict, email: str):
@@ -803,6 +1015,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
 
     def on_logout(e):
         state["current_user_email"] = None
+        state["current_user_uid"] = None
         open_main_menu(e.page, state)
 
     def resume_game(e):
@@ -1342,7 +1555,7 @@ def _show_win_screen(page: ft.Page, state: dict):
 
 
 # ---------- Authentication & Profile Views ----------
-def show_login_view(page: ft.Page, state: dict):
+def show_legacy_email_code_login_view(page: ft.Page, state: dict):
     db = load_db()
     
     email_input = ft.TextField(
@@ -1539,6 +1752,136 @@ def show_login_view(page: ft.Page, state: dict):
                 ft.Container(height=10),
                 ft.TextButton(
                     "← Zurück",
+                    on_click=lambda e: show_stats(e.page, state),
+                    style=ft.ButtonStyle(color="white"),
+                )
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14)
+        )
+    )
+    page.update()
+
+
+def show_login_view(page: ft.Page, state: dict):
+    theme = get_theme(state)
+
+    email_input = ft.TextField(
+        label="E-Mail-Adresse",
+        width=300,
+        bgcolor=theme["panel"],
+        border_color=theme["border"],
+        color="white",
+    )
+
+    password_input = ft.TextField(
+        label="Passwort",
+        width=300,
+        password=True,
+        can_reveal_password=True,
+        bgcolor=theme["panel"],
+        border_color=theme["border"],
+        color="white",
+    )
+
+    status_text = ft.Text("", color="red", size=14, text_align="center")
+
+    def finish_login(auth_data: dict):
+        uid = auth_data["localId"]
+        email = auth_data["email"]
+        user = ensure_firebase_user(uid, email)
+
+        db = load_db()
+        db["users"][email] = user
+        save_db(db)
+
+        state["current_user_email"] = email
+        state["current_user_uid"] = uid
+        show_stats(page, state)
+
+    def validate_inputs() -> tuple[str | None, str | None]:
+        email = email_input.value.strip()
+        password = password_input.value.strip()
+        if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
+            status_text.value = "Bitte eine gueltige E-Mail eingeben."
+            status_text.color = "red"
+            page.update()
+            return None, None
+        if len(password) < 6:
+            status_text.value = "Das Passwort muss mindestens 6 Zeichen haben."
+            status_text.color = "red"
+            page.update()
+            return None, None
+        return email, password
+
+    def run_auth(action: str):
+        email, password = validate_inputs()
+        if not email or not password:
+            return
+
+        status_text.value = "Verbindung mit Firebase..."
+        status_text.color = theme["gold"]
+        page.update()
+
+        try:
+            finish_login(firebase_auth_request(action, email, password))
+        except Exception as ex:
+            status_text.value = str(ex)
+            status_text.color = "red"
+            page.update()
+
+    def on_login(e):
+        run_auth("signInWithPassword")
+
+    def on_register(e):
+        run_auth("signUp")
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("Anmelden", size=30, weight="bold", color="white"),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Column([
+                        email_input,
+                        password_input,
+                        ft.Container(
+                            content=ft.Text("Einloggen", size=16, weight="bold", color="white"),
+                            on_click=on_login,
+                            bgcolor=theme["success"],
+                            border_radius=30,
+                            padding=ft.Padding(30, 12, 30, 12),
+                            alignment=ft.Alignment(0, 0),
+                            width=220,
+                        ),
+                        ft.Container(
+                            content=ft.Text("Registrieren", size=16, weight="bold", color="white"),
+                            on_click=on_register,
+                            bgcolor=theme["accent"],
+                            border_radius=30,
+                            padding=ft.Padding(30, 12, 30, 12),
+                            alignment=ft.Alignment(0, 0),
+                            width=220,
+                        ),
+                        status_text,
+                    ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor=theme["panel"],
+                    border_radius=16,
+                    padding=24,
+                    border=ft.border.Border.all(2, theme["border"]),
+                    width=360,
+                ),
+                ft.Container(height=10),
+                ft.TextButton(
+                    "Zurueck",
                     on_click=lambda e: show_stats(e.page, state),
                     style=ft.ButtonStyle(color="white"),
                 )
@@ -1806,6 +2149,7 @@ def main(page: ft.Page):
         "correct": 0,
         "jokers_used": 0,
         "current_user_email": None,
+        "current_user_uid": None,
     }
 
     page.title = "Wer wird Millionär?"
