@@ -821,7 +821,14 @@ def show_next_question(page: ft.Page, state: dict):
         ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
     # ----- Question box (text filled by animation) -----
-    question_text = ft.Text("", size=18 if is_mobile else 22, weight="bold", color="#2C1654", text_align="center")
+    question_text = ft.Text(
+        "",
+        size=18 if is_mobile else 22,
+        weight="bold",
+        color="#2C1654",
+        text_align="center",
+        max_lines=4 if is_mobile else 3,
+    )
     question_box = ft.Container(
         content=ft.Column([
             ft.Container(
@@ -830,13 +837,18 @@ def show_next_question(page: ft.Page, state: dict):
                 border_radius=20,
                 padding=ft.Padding(14 if is_mobile else 16, 6, 14 if is_mobile else 16, 6),
             ),
-            question_text,
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+            ft.Container(
+                content=question_text,
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+                width=900,
+            ),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
         bgcolor="white",
         border_radius=20,
         padding=ft.Padding(18 if is_mobile else 24, 18 if is_mobile else 20, 18 if is_mobile else 24, 18 if is_mobile else 20),
         shadow=ft.BoxShadow(blur_radius=20, color="#30000000"),
-        height=132 if is_mobile else 150,
+        height=150 if is_mobile else 170,
         alignment=ft.Alignment(0, 0),
     )
 
@@ -896,11 +908,12 @@ def show_next_question(page: ft.Page, state: dict):
     # ----- Typing animation for question -----
     async def type_question():
         total_ms = 1500
-        char_interval = max(15, int(total_ms / max(len(question), 1)))
-        for i in range(len(question)):
-            question_text.value = question[:i + 1]
+        words = question.split()
+        word_interval = max(35, int(total_ms / max(len(words), 1)))
+        for i in range(len(words)):
+            question_text.value = " ".join(words[:i + 1])
             page.update()
-            await asyncio.sleep(char_interval / 1000)
+            await asyncio.sleep(word_interval / 1000)
 
     page.run_task(type_question)
 
