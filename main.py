@@ -157,6 +157,57 @@ def save_db(db: dict):
     except Exception as e:
         print(f"Error saving db: {e}")
 
+
+THEMES = {
+    "classic": {
+        "label": "Klassisch",
+        "gradient": ["#2C1654", "#6B2FA0", "#C2185B"],
+        "panel": "#1A0A30",
+        "border": "#9B59B6",
+        "accent": "#9B59B6",
+        "accent_2": "#F4A460",
+        "success": "#2ECC71",
+        "danger": "#C2185B",
+        "gold": "#FFD700",
+    },
+    "ocean": {
+        "label": "Ocean",
+        "gradient": ["#062A38", "#0E7490", "#14B8A6"],
+        "panel": "#06202A",
+        "border": "#38BDF8",
+        "accent": "#0891B2",
+        "accent_2": "#22C55E",
+        "success": "#10B981",
+        "danger": "#E11D48",
+        "gold": "#FDE68A",
+    },
+}
+DEFAULT_USER_SETTINGS = {"theme": "classic"}
+
+
+def ensure_user_settings(db: dict, email: str):
+    user = db.get("users", {}).get(email)
+    if not user:
+        return
+    settings = user.setdefault("settings", {})
+    for key, value in DEFAULT_USER_SETTINGS.items():
+        settings.setdefault(key, value)
+
+
+def get_user_settings(state: dict) -> dict:
+    db = load_db()
+    email = state.get("current_user_email")
+    if email and email in db.get("users", {}):
+        ensure_user_settings(db, email)
+        save_db(db)
+        return db["users"][email]["settings"]
+    return DEFAULT_USER_SETTINGS.copy()
+
+
+def get_theme(state: dict) -> dict:
+    theme_name = get_user_settings(state).get("theme", "classic")
+    return THEMES.get(theme_name, THEMES["classic"])
+
 def update_game_stats(correct: int, answered: int, money: str, money_level_idx: int, email: str | None = None):
     db = load_db()
     
@@ -740,6 +791,7 @@ def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
 def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     """Styled welcome / main menu screen."""
     db = load_db()
+    theme = get_theme(state)
     email = state.get("current_user_email")
     if email and email in db["users"]:
         username = db["users"][email].get("name", email)
@@ -794,9 +846,9 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4),
             padding=30,
             border_radius=24,
-            bgcolor="#1A0A30",
+            bgcolor=theme["panel"],
             shadow=ft.BoxShadow(blur_radius=40, color="#80FFD700"),
-            border=ft.border.Border.all(3, "#FFD700"),
+            border=ft.border.Border.all(3, theme["gold"]),
         ),
         ft.Container(height=10),
         ft.Text(greeting, size=18, weight="bold", color="#E0D0F0", text_align="center"),
@@ -826,7 +878,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         gradient=ft.LinearGradient(
             begin=ft.Alignment(-1, -1),
             end=ft.Alignment(1, 1),
-            colors=["#2C1654", "#6B2FA0", "#C2185B"],
+            colors=theme["gradient"],
         ),
         alignment=ft.Alignment(0, 0),
         content=ft.Column(
@@ -852,6 +904,7 @@ def _menu_button(label: str, on_click, color: str) -> ft.Control:
 # ---------- Age Selection ----------
 def start_new_game(page: ft.Page, state: dict):
     """Reset state and ask for age group."""
+    theme = get_theme(state)
     state.update({
         "money": "0 €",
         "questions_answered": 0,
@@ -873,7 +926,7 @@ def start_new_game(page: ft.Page, state: dict):
             gradient=ft.LinearGradient(
                 begin=ft.Alignment(-1, -1),
                 end=ft.Alignment(1, 1),
-                colors=["#2C1654", "#6B2FA0", "#C2185B"],
+                colors=theme["gradient"],
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
@@ -923,6 +976,7 @@ def show_next_question(page: ft.Page, state: dict):
         _show_win_screen(page, state)
         return
 
+    theme = get_theme(state)
     question, options, correct_idx = state["questions"][state["question_index"]]
     q_num = state["question_index"] + 1
     total_q = len(state["questions"])
@@ -1045,7 +1099,7 @@ def show_next_question(page: ft.Page, state: dict):
                     ft.Text("Spiel unterbrechen", size=13, weight="bold", color="white"),
                 ], spacing=4),
                 on_click=lambda e: show_exit_confirmation(page, state),
-                bgcolor="#C2185B",
+                bgcolor=theme["danger"],
                 border_radius=30,
                 padding=ft.Padding(16, 8, 16, 8),
             )
@@ -1078,7 +1132,7 @@ def show_next_question(page: ft.Page, state: dict):
             gradient=ft.LinearGradient(
                 begin=ft.Alignment(-1, -1),
                 end=ft.Alignment(1, 1),
-                colors=["#2C1654", "#6B2FA0", "#C2185B"],
+                colors=theme["gradient"],
             ),
             padding=ft.Padding(12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20),
             content=main_content,
@@ -1419,6 +1473,7 @@ def show_login_view(page: ft.Page, state: dict):
             default_name = email.split("@")[0].capitalize()
             db["users"][email] = {
                 "name": default_name,
+                "settings": DEFAULT_USER_SETTINGS.copy(),
                 "stats": {
                     "games_played": 0,
                     "correct_answers": 0,
@@ -1427,6 +1482,7 @@ def show_login_view(page: ft.Page, state: dict):
                     "highest_money_level": -1
                 }
             }
+        ensure_user_settings(db, email)
         save_db(db)
         show_stats(page, state)
         
@@ -1501,16 +1557,33 @@ def show_edit_profile_view(page: ft.Page, state: dict):
         open_main_menu(page, state)
         return
         
+    ensure_user_settings(db, email)
+    save_db(db)
+    theme = get_theme(state)
     user_info = db["users"].get(email, {})
     current_name = user_info.get("name", "")
+    current_theme = user_info.get("settings", {}).get("theme", "classic")
     
     name_input = ft.TextField(
         label="Dein Anzeigename",
         value=current_name,
         width=300,
-        bgcolor="#1A0A30",
-        border_color="#9B59B6",
+        bgcolor=theme["panel"],
+        border_color=theme["border"],
         color="white",
+    )
+
+    theme_dropdown = ft.Dropdown(
+        label="Design",
+        value=current_theme,
+        width=300,
+        bgcolor=theme["panel"],
+        border_color=theme["border"],
+        color="white",
+        options=[
+            ft.dropdown.Option(key=key, text=value["label"])
+            for key, value in THEMES.items()
+        ],
     )
     
     status_text = ft.Text("", size=14, text_align="center")
@@ -1526,7 +1599,11 @@ def show_edit_profile_view(page: ft.Page, state: dict):
         db = load_db()
         if email in db["users"]:
             db["users"][email]["name"] = new_name
+            ensure_user_settings(db, email)
+            selected_theme = theme_dropdown.value if theme_dropdown.value in THEMES else "classic"
+            db["users"][email]["settings"]["theme"] = selected_theme
             save_db(db)
+            state["theme"] = selected_theme
             status_text.value = "✓ Erfolgreich gespeichert!"
             status_text.color = "#2ECC71"
             page.update()
@@ -1543,7 +1620,7 @@ def show_edit_profile_view(page: ft.Page, state: dict):
             gradient=ft.LinearGradient(
                 begin=ft.Alignment(-1, -1),
                 end=ft.Alignment(1, 1),
-                colors=["#2C1654", "#6B2FA0", "#C2185B"],
+                colors=theme["gradient"],
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
@@ -1553,10 +1630,11 @@ def show_edit_profile_view(page: ft.Page, state: dict):
                     content=ft.Column([
                         ft.Text(f"Konto: {email}", size=13, color="#E0D0F0"),
                         name_input,
+                        theme_dropdown,
                         ft.Container(
                             content=ft.Text("Speichern", size=16, weight="bold", color="white"),
                             on_click=on_save,
-                            bgcolor="#2ECC71",
+                            bgcolor=theme["success"],
                             border_radius=30,
                             padding=ft.Padding(30, 12, 30, 12),
                             alignment=ft.Alignment(0, 0),
@@ -1564,10 +1642,10 @@ def show_edit_profile_view(page: ft.Page, state: dict):
                         ),
                         status_text,
                     ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor="#1A0A30",
+                    bgcolor=theme["panel"],
                     border_radius=16,
                     padding=24,
-                    border=ft.border.Border.all(2, "#9B59B6"),
+                    border=ft.border.Border.all(2, theme["border"]),
                     width=360,
                 ),
                 ft.Container(height=10),
@@ -1587,6 +1665,7 @@ def show_edit_profile_view(page: ft.Page, state: dict):
 # ---------- Statistics Screen ----------
 def show_stats(page: ft.Page, state: dict):
     db = load_db()
+    theme = get_theme(state)
     page_width = page.width or page.window.width or 1100
     is_mobile = page_width < 720
     card_width = None if is_mobile else 320
@@ -1600,17 +1679,17 @@ def show_stats(page: ft.Page, state: dict):
     
     global_card = ft.Container(
         content=ft.Column([
-            ft.Text("🌍 Globale Statistik", size=18, weight="bold", color="#FFD700"),
-            ft.Divider(color="#9B59B6", thickness=1),
+            ft.Text("🌍 Globale Statistik", size=18, weight="bold", color=theme["gold"]),
+            ft.Divider(color=theme["border"], thickness=1),
             _stat_row("🎮 Spiele gesamt", str(g_games)),
             _stat_row("📝 Beantwortete Fragen", str(g_answered)),
             _stat_row("✅ Richtige Antworten", f"{g_correct} ({g_rate})"),
             _stat_row("🏆 Höchster Gewinn", g_money),
         ], spacing=12),
-        bgcolor="#1A0A30",
+        bgcolor=theme["panel"],
         border_radius=16,
         padding=20,
-        border=ft.border.Border.all(2, "#9B59B6"),
+        border=ft.border.Border.all(2, theme["border"]),
         width=card_width,
     )
     
@@ -1635,10 +1714,10 @@ def show_stats(page: ft.Page, state: dict):
                 _stat_row("✅ Richtige Antworten", f"{u_correct} ({u_rate})"),
                 _stat_row("🏆 Dein Rekord", u_money),
             ], spacing=12),
-            bgcolor="#1A0A30",
+            bgcolor=theme["panel"],
             border_radius=16,
             padding=20,
-            border=ft.border.Border.all(2, "#2ECC71"),
+            border=ft.border.Border.all(2, theme["success"]),
             width=card_width,
         )
     else:
@@ -1656,14 +1735,14 @@ def show_stats(page: ft.Page, state: dict):
                 ft.Container(
                     content=ft.Text("🔑 Anmelden", size=16, weight="bold", color="white"),
                     on_click=lambda e: show_login_view(e.page, state),
-                    bgcolor="#9B59B6",
+                    bgcolor=theme["accent"],
                     border_radius=30,
                     padding=ft.Padding(30, 12, 30, 12),
                     alignment=ft.Alignment(0, 0),
                     width=200,
                 ),
             ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor="#1A0A30",
+            bgcolor=theme["panel"],
             border_radius=16,
             padding=20,
             border=ft.border.Border.all(2, "#CCCCCC"),
@@ -1687,7 +1766,7 @@ def show_stats(page: ft.Page, state: dict):
             gradient=ft.LinearGradient(
                 begin=ft.Alignment(-1, -1),
                 end=ft.Alignment(1, 1),
-                colors=["#2C1654", "#6B2FA0", "#C2185B"],
+                colors=theme["gradient"],
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
@@ -1698,7 +1777,7 @@ def show_stats(page: ft.Page, state: dict):
                 ft.Container(
                     content=ft.Text("← Zurück", size=16, weight="bold", color="white"),
                     on_click=lambda e: open_main_menu(e.page, state),
-                    bgcolor="#9B59B6",
+                    bgcolor=theme["accent"],
                     border_radius=50,
                     padding=ft.Padding(30, 12, 30, 12),
                 ),
