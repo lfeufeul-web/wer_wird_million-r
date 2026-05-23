@@ -550,6 +550,37 @@ def update_game_stats(correct: int, answered: int, money: str, money_level_idx: 
             
     save_db(db)
 
+
+def save_current_game(state: dict):
+    email = state.get("current_user_email")
+    if not email:
+        return
+
+    db = load_db()
+    if email not in db.get("users", {}):
+        return
+
+    db["users"][email]["saved_game"] = {
+        "money": state.get("money", "0 €"),
+        "questions_answered": state.get("questions_answered", 0),
+        "correct": state.get("correct", 0),
+        "jokers_used": state.get("jokers_used", 0),
+        "question_index": state.get("question_index", 0),
+        "questions": state.get("questions", []),
+    }
+    save_db(db)
+
+
+def clear_saved_game(state: dict):
+    email = state.get("current_user_email")
+    if not email:
+        return
+
+    db = load_db()
+    if email in db.get("users", {}) and "saved_game" in db["users"][email]:
+        db["users"][email].pop("saved_game", None)
+        save_db(db)
+
 # ---------- Constants ----------
 MONEY_LEVELS = [
     "50 €",
@@ -1154,6 +1185,11 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         _menu_button("📊  Statistiken",
                      lambda e: show_stats(e.page, state), "#9B59B6")
     )
+    if not logged_in:
+        menu_buttons.append(
+            _menu_button("Anmelden",
+                         lambda e: show_login_view(e.page, state), "#2ECC71")
+        )
 
     menu_items = [
         ft.Container(
@@ -1237,6 +1273,7 @@ def start_new_game(page: ft.Page, state: dict):
     def choose_age(e: ft.ControlEvent):
         age = e.control.data
         state["questions"] = create_game_questions(age)
+        save_current_game(state)
         show_next_question(page, state)
 
     page.controls.clear()
@@ -1473,6 +1510,7 @@ def show_exit_confirmation(page: ft.Page, state: dict):
 
     def on_confirm_exit(e):
         if logged_in:
+            save_current_game(state)
             db_current = load_db()
             if email in db_current["users"]:
                 db_current["users"][email]["saved_game"] = {
@@ -1543,6 +1581,7 @@ def show_exit_confirmation(page: ft.Page, state: dict):
 def _show_correct_screen(page: ft.Page, state: dict):
     def next_q(e):
         state["question_index"] += 1
+        save_current_game(state)
         show_next_question(e.page, state)
 
     page.controls.clear()
@@ -1578,6 +1617,7 @@ def _show_correct_screen(page: ft.Page, state: dict):
 
 
 def _show_wrong_screen(page: ft.Page, state: dict):
+    clear_saved_game(state)
     # Update persistent stats
     correct = state.get("correct", 0)
     answered = state.get("questions_answered", 0)
@@ -1620,6 +1660,7 @@ def _show_wrong_screen(page: ft.Page, state: dict):
 
 
 def _show_win_screen(page: ft.Page, state: dict):
+    clear_saved_game(state)
     # Update persistent stats
     correct = state.get("correct", 0)
     answered = state.get("questions_answered", 0)
@@ -2186,7 +2227,7 @@ def show_stats(page: ft.Page, state: dict):
                 ft.Text("👤 Persönliche Statistik", size=18, weight="bold", color="#CCCCCC"),
                 ft.Divider(color="#CCCCCC", thickness=1),
                 ft.Text(
-                    "Melde dich an, um deine persönlichen Statistiken dauerhaft zu sichern!",
+                    "Melde dich im Hauptmenü an, um deine persönlichen Statistiken dauerhaft zu sichern!",
                     size=13,
                     color="#CCCCCC",
                     text_align="center",
@@ -2196,6 +2237,7 @@ def show_stats(page: ft.Page, state: dict):
                     content=ft.Text("🔑 Anmelden", size=16, weight="bold", color="white"),
                     on_click=lambda e: show_login_view(e.page, state),
                     bgcolor=theme["accent"],
+                    visible=False,
                     border_radius=30,
                     padding=ft.Padding(30, 12, 30, 12),
                     alignment=ft.Alignment(0, 0),
