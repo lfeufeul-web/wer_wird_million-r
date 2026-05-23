@@ -276,7 +276,7 @@ HARD_QUESTIONS = [
 
 
 # ---------- Build money ladder column ----------
-def build_money_ladder(state: dict) -> ft.Control:
+def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
     """Build the right-side money ladder as a normal Column (no overlay)."""
     items = []
     correct = state.get("correct", 0)
@@ -301,15 +301,15 @@ def build_money_ladder(state: dict) -> ft.Control:
 
         row_num = ft.Text(
             str(len(MONEY_LEVELS) - i),
-            size=12,
+            size=11 if compact else 12,
             color=txt_color,
             weight=weight,
-            width=22,
+            width=18 if compact else 22,
             text_align="right",
         )
         row_money = ft.Text(
             level,
-            size=13,
+            size=12 if compact else 13,
             color=txt_color,
             weight=weight,
             expand=True,
@@ -317,7 +317,7 @@ def build_money_ladder(state: dict) -> ft.Control:
         )
         item = ft.Container(
             content=ft.Row([row_num, row_money], spacing=6),
-            padding=ft.Padding(8, 3, 8, 3),
+            padding=ft.Padding(8, 2 if compact else 3, 8, 2 if compact else 3),
             border_radius=8,
             bgcolor=bg,
         )
@@ -327,8 +327,8 @@ def build_money_ladder(state: dict) -> ft.Control:
         content=ft.Column(
             [
                 ft.Row([
-                    ft.Text("👑", size=20),
-                    ft.Text("PREISSTUFEN", size=14, weight="bold", color="#FFD700"),
+                    ft.Text("👑", size=18 if compact else 20),
+                    ft.Text("PREISSTUFEN", size=13 if compact else 14, weight="bold", color="#FFD700"),
                 ], alignment=ft.MainAxisAlignment.CENTER),
                 ft.Divider(color="#9B59B6", thickness=1),
                 *items,
@@ -336,7 +336,8 @@ def build_money_ladder(state: dict) -> ft.Control:
             spacing=2,
             scroll=ft.ScrollMode.AUTO,
         ),
-        width=180,
+        width=None if compact else 180,
+        height=230 if compact else None,
         padding=10,
         bgcolor="#1A0A30",
         border_radius=16,
@@ -541,6 +542,8 @@ def show_next_question(page: ft.Page, state: dict):
     question, options, correct_idx = state["questions"][state["question_index"]]
     q_num = state["question_index"] + 1
     total_q = len(state["questions"])
+    page_width = page.width or page.window.width or 1100
+    is_mobile = page_width < 720
 
     # ----- Answer button state tracking -----
     answer_buttons: list[ft.Control] = []
@@ -583,20 +586,20 @@ def show_next_question(page: ft.Page, state: dict):
         box = ft.Container(
             content=ft.Row([
                 ft.Container(
-                    content=ft.Text(letter, size=16, weight="bold", color="white"),
-                    width=36,
-                    height=36,
-                    border_radius=18,
+                    content=ft.Text(letter, size=15 if is_mobile else 16, weight="bold", color="white"),
+                    width=34 if is_mobile else 36,
+                    height=34 if is_mobile else 36,
+                    border_radius=17 if is_mobile else 18,
                     bgcolor=color,
                     alignment=ft.Alignment(0, 0),
                 ),
-                ft.Text(text, size=16, color="#2C1654", weight="bold", expand=True),
-            ], spacing=10),
+                ft.Text(text, size=14 if is_mobile else 16, color="#2C1654", weight="bold", expand=True),
+            ], spacing=8 if is_mobile else 10),
             data=idx,
             on_click=handle_answer,
             bgcolor="white",
-            border_radius=50,
-            padding=ft.Padding(12, 10, 20, 10),
+            border_radius=22 if is_mobile else 50,
+            padding=ft.Padding(12, 10, 14 if is_mobile else 20, 10),
             border=ft.border.Border.all(2, "#E0D0F0"),
             shadow=ft.BoxShadow(blur_radius=6, color="#20000000"),
             expand=True,
@@ -604,39 +607,37 @@ def show_next_question(page: ft.Page, state: dict):
         answer_buttons.append(box)
         return box
 
-    # Row A+B and Row C+D
-    answer_row1 = ft.Row([
-        make_answer_box(0, options[0]),
-        make_answer_box(1, options[1]),
-    ], spacing=16)
-
-    answer_row2 = ft.Row([
-        make_answer_box(2, options[2]),
-        make_answer_box(3, options[3]),
-    ], spacing=16)
+    answer_boxes = [make_answer_box(i, option) for i, option in enumerate(options)]
+    if is_mobile:
+        answer_layout = ft.Column(answer_boxes, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+    else:
+        answer_layout = ft.Column([
+            ft.Row([answer_boxes[0], answer_boxes[1]], spacing=16),
+            ft.Row([answer_boxes[2], answer_boxes[3]], spacing=16),
+        ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
     # ----- Question box (text filled by animation) -----
-    question_text = ft.Text("", size=22, weight="bold", color="#2C1654", text_align="center")
+    question_text = ft.Text("", size=18 if is_mobile else 22, weight="bold", color="#2C1654", text_align="center")
     question_box = ft.Container(
         content=ft.Column([
             ft.Container(
-                content=ft.Text(f"FRAGE {q_num}", size=14, weight="bold", color="white"),
+                content=ft.Text(f"FRAGE {q_num}", size=13 if is_mobile else 14, weight="bold", color="white"),
                 bgcolor="#9B59B6",
                 border_radius=20,
-                padding=ft.Padding(16, 6, 16, 6),
+                padding=ft.Padding(14 if is_mobile else 16, 6, 14 if is_mobile else 16, 6),
             ),
             question_text,
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
         bgcolor="white",
         border_radius=20,
-        padding=ft.Padding(24, 20, 24, 20),
+        padding=ft.Padding(18 if is_mobile else 24, 18 if is_mobile else 20, 18 if is_mobile else 24, 18 if is_mobile else 20),
         shadow=ft.BoxShadow(blur_radius=20, color="#30000000"),
-        height=150,
+        height=132 if is_mobile else 150,
         alignment=ft.Alignment(0, 0),
     )
 
-    # ----- Money ladder (always visible on the right) -----
-    ladder = build_money_ladder(state)
+    # ----- Money ladder -----
+    ladder = build_money_ladder(state, compact=is_mobile)
 
     # ----- Layout: left game area + right ladder -----
     game_area = ft.Column([
@@ -653,20 +654,25 @@ def show_next_question(page: ft.Page, state: dict):
             )
         ], alignment=ft.MainAxisAlignment.START),
         question_box,
-        answer_row1,
-        answer_row2,
+        answer_layout,
         ft.Row([
             ft.Text(f"Frage {q_num} von {total_q}", size=13, color="#E0D0F0"),
             ft.Text(f"💰 {state.get('money', '0 €')}", size=13,
                     color="#FFD700", weight="bold"),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-    ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, width=700)
+    ], spacing=12 if is_mobile else 16, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, width=None if is_mobile else 700)
 
-    main_row = ft.Row([
-        ft.Container(content=game_area, expand=True, alignment=ft.Alignment(0, -1)),
-        ft.Container(width=16),
-        ladder,
-    ], expand=True, vertical_alignment=ft.CrossAxisAlignment.START)
+    if is_mobile:
+        main_content = ft.Column([
+            game_area,
+            ladder,
+        ], spacing=14, scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+    else:
+        main_content = ft.Row([
+            ft.Container(content=game_area, expand=True, alignment=ft.Alignment(0, -1)),
+            ft.Container(width=16),
+            ladder,
+        ], expand=True, vertical_alignment=ft.CrossAxisAlignment.START)
 
     page.controls.clear()
     page.add(
@@ -677,8 +683,8 @@ def show_next_question(page: ft.Page, state: dict):
                 end=ft.Alignment(1, 1),
                 colors=["#2C1654", "#6B2FA0", "#C2185B"],
             ),
-            padding=ft.Padding(20, 20, 20, 20),
-            content=main_row,
+            padding=ft.Padding(12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20),
+            content=main_content,
         )
     )
     page.update()
@@ -1195,6 +1201,9 @@ def show_edit_profile_view(page: ft.Page, state: dict):
 # ---------- Statistics Screen ----------
 def show_stats(page: ft.Page, state: dict):
     db = load_db()
+    page_width = page.width or page.window.width or 1100
+    is_mobile = page_width < 720
+    card_width = None if is_mobile else 320
     
     g_stats = db.get("global_stats", {})
     g_games = g_stats.get("games_played", 0)
@@ -1216,7 +1225,7 @@ def show_stats(page: ft.Page, state: dict):
         border_radius=16,
         padding=20,
         border=ft.border.Border.all(2, "#9B59B6"),
-        width=320,
+        width=card_width,
     )
     
     email = state.get("current_user_email")
@@ -1244,7 +1253,7 @@ def show_stats(page: ft.Page, state: dict):
             border_radius=16,
             padding=20,
             border=ft.border.Border.all(2, "#2ECC71"),
-            width=320,
+            width=card_width,
         )
     else:
         personal_card = ft.Container(
@@ -1272,9 +1281,19 @@ def show_stats(page: ft.Page, state: dict):
             border_radius=16,
             padding=20,
             border=ft.border.Border.all(2, "#CCCCCC"),
-            width=320,
+            width=card_width,
         )
         
+    stats_cards = ft.Column(
+        [global_card, personal_card],
+        spacing=14,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+    ) if is_mobile else ft.Row([
+        global_card,
+        ft.Container(width=16),
+        personal_card,
+    ], alignment=ft.MainAxisAlignment.CENTER)
+
     page.controls.clear()
     page.add(
         ft.Container(
@@ -1286,13 +1305,9 @@ def show_stats(page: ft.Page, state: dict):
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("📊 Statistiken", size=32, weight="bold", color="white"),
+                ft.Text("📊 Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
                 ft.Container(height=10),
-                ft.Row([
-                    global_card,
-                    ft.Container(width=16),
-                    personal_card,
-                ], alignment=ft.MainAxisAlignment.CENTER),
+                stats_cards,
                 ft.Container(height=20),
                 ft.Container(
                     content=ft.Text("← Zurück", size=16, weight="bold", color="white"),
@@ -1303,7 +1318,9 @@ def show_stats(page: ft.Page, state: dict):
                 ),
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=14),
+               spacing=14,
+               scroll=ft.ScrollMode.AUTO),
+            padding=ft.Padding(12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20),
         )
     )
     page.update()
