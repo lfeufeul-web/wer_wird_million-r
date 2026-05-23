@@ -822,12 +822,13 @@ def show_next_question(page: ft.Page, state: dict):
 
     # ----- Question box (text filled by animation) -----
     question_text = ft.Text(
-        "",
+        question,
         size=18 if is_mobile else 22,
         weight="bold",
         color="#2C1654",
         text_align="center",
         max_lines=4 if is_mobile else 3,
+        no_wrap=False,
     )
     question_box = ft.Container(
         content=ft.Column([
@@ -904,18 +905,6 @@ def show_next_question(page: ft.Page, state: dict):
         )
     )
     page.update()
-
-    # ----- Typing animation for question -----
-    async def type_question():
-        total_ms = 1500
-        words = question.split()
-        word_interval = max(35, int(total_ms / max(len(words), 1)))
-        for i in range(len(words)):
-            question_text.value = " ".join(words[:i + 1])
-            page.update()
-            await asyncio.sleep(word_interval / 1000)
-
-    page.run_task(type_question)
 
 
 def show_exit_confirmation(page: ft.Page, state: dict):
