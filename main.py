@@ -274,6 +274,217 @@ HARD_QUESTIONS = [
     ("Was ist die Hauptstadt von Kanada?", ["Ottawa", "Toronto", "Vancouver", "Montreal"], 0),
 ]
 
+QUESTIONS_PER_LEVEL = 100
+
+
+def _make_question(prompt: str, correct, wrongs) -> tuple:
+    options = [str(correct), *[str(w) for w in wrongs]]
+    deduped = []
+    for option in options:
+        if option not in deduped:
+            deduped.append(option)
+    while len(deduped) < 4:
+        deduped.append(str(correct + len(deduped) + 1) if isinstance(correct, int) else f"Option {len(deduped) + 1}")
+    choices = deduped[:4]
+    random.shuffle(choices)
+    return (prompt, choices, choices.index(str(correct)))
+
+
+def _number_question(prompt: str, correct: int, spread: int = 3) -> tuple:
+    wrongs = [correct + spread, correct - spread, correct + spread * 2]
+    wrongs = [value if value != correct else value + 1 for value in wrongs]
+    return _make_question(prompt, correct, wrongs)
+
+
+def _young_question(level_idx: int, variant: int) -> tuple:
+    level = level_idx + 1
+    n = variant + 1
+    kind = variant % 10
+    base = level * 3 + n
+
+    if kind == 0:
+        a = base % 40 + 3
+        b = (level + n) % 30 + 2
+        return _number_question(f"Was ist {a} + {b}?", a + b)
+    if kind == 1:
+        a = base % 50 + 20
+        b = (level + n) % 18 + 1
+        return _number_question(f"Was ist {a} - {b}?", a - b)
+    if kind == 2:
+        a = level % 8 + 2
+        b = n % 9 + 2
+        return _number_question(f"Was ist {a} x {b}?", a * b, 2)
+    if kind == 3:
+        b = n % 8 + 2
+        a = b * (level % 9 + 2)
+        return _number_question(f"Was ist {a} : {b}?", a // b, 2)
+    if kind == 4:
+        colors = [("Blau und Gelb", "Grün", ["Rot", "Lila", "Braun"]),
+                  ("Rot und Gelb", "Orange", ["Grün", "Blau", "Weiß"]),
+                  ("Rot und Blau", "Lila", ["Gelb", "Orange", "Schwarz"])]
+        mix, correct, wrongs = colors[(level + n) % len(colors)]
+        return _make_question(f"Welche Farbe entsteht aus {mix}?", correct, wrongs)
+    if kind == 5:
+        animals = [("bellt", "Hund", ["Katze", "Kuh", "Pferd"]),
+                   ("miaut", "Katze", ["Hund", "Ente", "Schaf"]),
+                   ("wiehert", "Pferd", ["Kuh", "Huhn", "Fisch"]),
+                   ("summt", "Biene", ["Maus", "Frosch", "Adler"])]
+        sound, correct, wrongs = animals[(level + n) % len(animals)]
+        return _make_question(f"Welches Tier {sound}?", correct, wrongs)
+    if kind == 6:
+        weekdays = [("Montag", "Dienstag"), ("Dienstag", "Mittwoch"), ("Mittwoch", "Donnerstag"),
+                    ("Donnerstag", "Freitag"), ("Freitag", "Samstag"), ("Samstag", "Sonntag")]
+        day, correct = weekdays[(level + n) % len(weekdays)]
+        return _make_question(f"Welcher Tag kommt nach {day}?", correct, ["Montag", "Freitag", "Sonntag"])
+    if kind == 7:
+        facts = [("Wie viele Monate hat ein Jahr?", "12", ["10", "11", "13"]),
+                 ("Wie viele Tage hat eine Woche?", "7", ["5", "6", "8"]),
+                 ("Wie viele Beine hat eine Spinne?", "8", ["6", "4", "10"]),
+                 ("Welche Form hat ein Ball meistens?", "rund", ["eckig", "flach", "spitz"])]
+        return _make_question(*facts[(level + n) % len(facts)])
+    if kind == 8:
+        capitals = [("Deutschland", "Berlin", ["München", "Hamburg", "Köln"]),
+                    ("Frankreich", "Paris", ["Lyon", "Rom", "Madrid"]),
+                    ("Italien", "Rom", ["Mailand", "Paris", "Athen"]),
+                    ("Spanien", "Madrid", ["Barcelona", "Lissabon", "Sevilla"])]
+        country, correct, wrongs = capitals[(level + n) % len(capitals)]
+        return _make_question(f"Wie heißt die Hauptstadt von {country}?", correct, wrongs)
+    value = (level * 10) + (n % 10)
+    return _number_question(f"Welche Zahl ist um 1 größer als {value}?", value + 1, 2)
+
+
+def _mid_question(level_idx: int, variant: int) -> tuple:
+    level = level_idx + 1
+    n = variant + 1
+    kind = variant % 10
+
+    if kind == 0:
+        a = level * 8 + n % 30
+        b = level * 3 + n % 20
+        return _number_question(f"Was ist {a} + {b}?", a + b, 4)
+    if kind == 1:
+        a = level * 12 + 80 + n
+        b = level * 4 + n % 35
+        return _number_question(f"Was ist {a} - {b}?", a - b, 5)
+    if kind == 2:
+        a = level + 5
+        b = n % 12 + 3
+        return _number_question(f"Was ist {a} x {b}?", a * b, 3)
+    if kind == 3:
+        percent = [10, 20, 25, 50][(level + n) % 4]
+        amount = (n % 12 + 4) * 20
+        correct = amount * percent // 100
+        return _number_question(f"Wie viel sind {percent}% von {amount}?", correct, 5)
+    if kind == 4:
+        countries = [("Japan", "Tokio", ["Seoul", "Peking", "Bangkok"]),
+                     ("Kanada", "Ottawa", ["Toronto", "Vancouver", "Montreal"]),
+                     ("Australien", "Canberra", ["Sydney", "Melbourne", "Perth"]),
+                     ("Österreich", "Wien", ["Graz", "Salzburg", "Linz"]),
+                     ("Polen", "Warschau", ["Krakau", "Danzig", "Posen"])]
+        country, correct, wrongs = countries[(level + n) % len(countries)]
+        return _make_question(f"Was ist die Hauptstadt von {country}?", correct, wrongs)
+    if kind == 5:
+        science = [("Welches chemische Symbol hat Wasserstoff?", "H", ["O", "He", "N"]),
+                   ("Welches chemische Symbol hat Sauerstoff?", "O", ["Au", "Ag", "C"]),
+                   ("Wie nennt man den roten Blutfarbstoff?", "Hämoglobin", ["Insulin", "Kollagen", "Keratin"]),
+                   ("Welches Organ pumpt Blut?", "Herz", ["Leber", "Lunge", "Niere"])]
+        return _make_question(*science[(level + n) % len(science)])
+    if kind == 6:
+        history = [("In welchem Jahr begann der Erste Weltkrieg?", "1914", ["1912", "1918", "1939"]),
+                   ("In welchem Jahr fiel die Berliner Mauer?", "1989", ["1961", "1991", "1975"]),
+                   ("In welchem Jahr sank die Titanic?", "1912", ["1905", "1918", "1920"])]
+        return _make_question(*history[(level + n) % len(history)])
+    if kind == 7:
+        geo = [("Welcher Fluss fließt durch Dresden?", "Elbe", ["Rhein", "Donau", "Main"]),
+               ("Welches Meer liegt nördlich von Deutschland?", "Nordsee", ["Mittelmeer", "Schwarzes Meer", "Rotes Meer"]),
+               ("Wie viele Bundesländer hat Deutschland?", "16", ["12", "14", "18"])]
+        return _make_question(*geo[(level + n) % len(geo)])
+    if kind == 8:
+        a = n % 20 + 6
+        correct = a * a
+        return _number_question(f"Was ist {a} zum Quadrat?", correct, a)
+    fractions = [(1, 2, "die Hälfte"), (1, 4, "ein Viertel"), (3, 4, "drei Viertel")]
+    numerator, denominator, label = fractions[(level + n) % len(fractions)]
+    amount = denominator * (n % 20 + 5)
+    correct = amount * numerator // denominator
+    return _number_question(f"Wie viel ist {label} von {amount}?", correct, 4)
+
+
+def _hard_question(level_idx: int, variant: int) -> tuple:
+    level = level_idx + 1
+    n = variant + 1
+    kind = variant % 10
+
+    if kind == 0:
+        a = level + 3
+        b = n % 20 + 5
+        c = level * 2 + n % 9
+        return _number_question(f"Was ist {a} x {b} + {c}?", a * b + c, 7)
+    if kind == 1:
+        a = level + 4
+        b = n % 13 + 3
+        c = n % 8 + 2
+        return _number_question(f"Was ist ({a} + {b}) x {c}?", (a + b) * c, 6)
+    if kind == 2:
+        x = level + n % 12
+        result = 3 * x + 7
+        return _number_question(f"Löse: 3x + 7 = {result}. Wie groß ist x?", x, 2)
+    if kind == 3:
+        speed = (level + 4) * 10
+        time_hours = n % 5 + 1
+        return _number_question(f"Ein Zug fährt {speed} km/h. Wie weit fährt er in {time_hours} h?", speed * time_hours, 20)
+    if kind == 4:
+        physics = [("Welche Einheit misst elektrische Spannung?", "Volt", ["Watt", "Ampere", "Newton"]),
+                   ("Welche Einheit misst Kraft?", "Newton", ["Pascal", "Joule", "Volt"]),
+                   ("Was beschreibt der Doppler-Effekt?", "Frequenzänderung", ["Massenverlust", "Ladungstrennung", "Wärmeleitung"]),
+                   ("Was ist die Lichtgeschwindigkeit ungefähr?", "300.000 km/s", ["30.000 km/s", "3.000 km/s", "150.000 km/s"])]
+        return _make_question(*physics[(level + n) % len(physics)])
+    if kind == 5:
+        chemistry = [("Welche Formel hat Wasser?", "H2O", ["CO2", "NaCl", "O2"]),
+                     ("Welches Element hat das Symbol Au?", "Gold", ["Silber", "Argon", "Aluminium"]),
+                     ("Welches Element hat die Ordnungszahl 6?", "Kohlenstoff", ["Sauerstoff", "Stickstoff", "Helium"]),
+                     ("Welcher pH-Wert ist neutral?", "7", ["1", "5", "14"])]
+        return _make_question(*chemistry[(level + n) % len(chemistry)])
+    if kind == 6:
+        culture = [("Wer schrieb 'Faust'?", "Goethe", ["Schiller", "Kafka", "Heine"]),
+                   ("Wer komponierte 'Die Zauberflöte'?", "Mozart", ["Beethoven", "Bach", "Wagner"]),
+                   ("Wer malte die Mona Lisa?", "Leonardo da Vinci", ["Michelangelo", "Raffael", "Picasso"])]
+        return _make_question(*culture[(level + n) % len(culture)])
+    if kind == 7:
+        advanced = [("Wie heißt der tiefste bekannte Meeresgraben?", "Marianengraben", ["Tongagraben", "Kermadecgraben", "Atacamagraben"]),
+                    ("Welche Währung hatte Spanien vor dem Euro?", "Peseta", ["Lira", "Franc", "Escudo"]),
+                    ("Was ist ein Lichtjahr?", "Entfernung", ["Zeit", "Masse", "Temperatur"])]
+        return _make_question(*advanced[(level + n) % len(advanced)])
+    if kind == 8:
+        a = n % 9 + 2
+        b = level % 7 + 2
+        correct = a ** 2 + b ** 2
+        return _number_question(f"Was ist {a}² + {b}²?", correct, 5)
+    value = (level + n % 15) * 6
+    correct = value // 3 + level
+    return _number_question(f"Was ist ein Drittel von {value} plus {level}?", correct, 4)
+
+
+def build_level_question_bank(age: str) -> list[list[tuple]]:
+    builders = {
+        "young": _young_question,
+        "mid": _mid_question,
+        "old": _hard_question,
+    }
+    builder = builders.get(age, _mid_question)
+    return [
+        [builder(level_idx, variant) for variant in range(QUESTIONS_PER_LEVEL)]
+        for level_idx in range(len(MONEY_LEVELS))
+    ]
+
+
+def create_game_questions(age: str) -> list[tuple]:
+    bank = build_level_question_bank(age)
+    questions = []
+    for level_questions in bank:
+        questions.append(random.choice(level_questions))
+    return questions
+
 
 # ---------- Build money ladder column ----------
 def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
@@ -472,14 +683,7 @@ def start_new_game(page: ft.Page, state: dict):
 
     def choose_age(e: ft.ControlEvent):
         age = e.control.data
-        if age == "young":
-            pool = EASY_QUESTIONS.copy()
-        elif age == "mid":
-            pool = MEDIUM_QUESTIONS.copy()
-        else:
-            pool = HARD_QUESTIONS.copy()
-        random.shuffle(pool)
-        state["questions"] = pool[:15]
+        state["questions"] = create_game_questions(age)
         show_next_question(page, state)
 
     page.controls.clear()
