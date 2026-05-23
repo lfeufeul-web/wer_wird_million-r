@@ -5,6 +5,7 @@ import json
 import os
 import time
 import re
+import inspect
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -27,6 +28,10 @@ FIREBASE_SERVICE_ACCOUNT_FILE = "firebase-service-account.json"
 FIREBASE_WEB_API_KEY_ENV = "FIREBASE_WEB_API_KEY"
 FIREBASE_APP_COLLECTION = "_app"
 FIREBASE_GLOBAL_STATS_DOC = "global_stats"
+AUTH_STORAGE_PREFIX = "wer_wird_millionaer.auth."
+AUTH_EMAIL_KEY = AUTH_STORAGE_PREFIX + "email"
+AUTH_UID_KEY = AUTH_STORAGE_PREFIX + "uid"
+AUTH_REFRESH_TOKEN_KEY = AUTH_STORAGE_PREFIX + "refresh_token"
 
 
 DEFAULT_GLOBAL_STATS = {
@@ -359,6 +364,26 @@ def firebase_auth_request(action: str, email: str, password: str) -> dict:
     return data
 
 
+def firebase_refresh_auth(refresh_token: str) -> dict:
+    api_key = get_firebase_web_api_key()
+    if not api_key:
+        raise RuntimeError("FIREBASE_WEB_API_KEY fehlt in .env oder bei Render.")
+
+    response = requests.post(
+        f"https://securetoken.googleapis.com/v1/token?key={api_key}",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        },
+        timeout=20,
+    )
+    data = response.json()
+    if response.status_code >= 400:
+        error_code = data.get("error", {}).get("message", "UNKNOWN_ERROR")
+        raise RuntimeError(firebase_auth_error_message(error_code))
+    return data
+
+
 def firebase_auth_error_message(error_code: str) -> str:
     messages = {
         "EMAIL_EXISTS": "Diese E-Mail ist bereits registriert.",
@@ -395,6 +420,87 @@ def ensure_firebase_user(uid: str, email: str) -> dict:
 
     ref.set(user, merge=True)
     return user
+
+
+def get_page_storage(page: ft.Page):
+    return getattr(page, "shared_preferences", None) or getattr(page, "client_storage", None)
+
+
+async def call_storage_method(method, *args):
+    result = method(*args)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
+async def storage_get(page: ft.Page, key: str):
+    storage = get_page_storage(page)
+    if storage is None:
+        return None
+    return await call_storage_method(storage.get, key)
+
+
+async def storage_set(page: ft.Page, key: str, value):
+    storage = get_page_storage(page)
+    if storage is None:
+        return
+    await call_storage_method(storage.set, key, value)
+
+
+async def storage_remove(page: ft.Page, key: str):
+    storage = get_page_storage(page)
+    if storage is None:
+        return
+    await call_storage_method(storage.remove, key)
+
+
+async def save_remembered_login(page: ft.Page, auth_data: dict, remember: bool):
+    if not remember:
+        await clear_remembered_login(page)
+        return
+
+    refresh_token = auth_data.get("refreshToken")
+    uid = auth_data.get("localId")
+    email = auth_data.get("email")
+    if not refresh_token or not uid or not email:
+        return
+
+    await storage_set(page, AUTH_EMAIL_KEY, email)
+    await storage_set(page, AUTH_UID_KEY, uid)
+    await storage_set(page, AUTH_REFRESH_TOKEN_KEY, refresh_token)
+
+
+async def clear_remembered_login(page: ft.Page):
+    await storage_remove(page, AUTH_EMAIL_KEY)
+    await storage_remove(page, AUTH_UID_KEY)
+    await storage_remove(page, AUTH_REFRESH_TOKEN_KEY)
+
+
+async def restore_remembered_login(page: ft.Page, state: dict):
+    refresh_token = await storage_get(page, AUTH_REFRESH_TOKEN_KEY)
+    email = await storage_get(page, AUTH_EMAIL_KEY)
+    uid = await storage_get(page, AUTH_UID_KEY)
+    if not refresh_token or not email or not uid:
+        return
+
+    try:
+        refreshed = firebase_refresh_auth(refresh_token)
+        uid = refreshed.get("user_id", uid)
+        refresh_token = refreshed.get("refresh_token", refresh_token)
+        user = ensure_firebase_user(uid, email)
+
+        db = load_db()
+        db["users"][email] = user
+        save_db(db)
+
+        state["current_user_email"] = email
+        state["current_user_uid"] = uid
+        await storage_set(page, AUTH_UID_KEY, uid)
+        await storage_set(page, AUTH_REFRESH_TOKEN_KEY, refresh_token)
+        open_main_menu(page, state)
+    except Exception as e:
+        print(f"Auto-login failed: {e}")
+        await clear_remembered_login(page)
 
 
 def ensure_user_settings(db: dict, email: str):
@@ -1016,6 +1122,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     def on_logout(e):
         state["current_user_email"] = None
         state["current_user_uid"] = None
+        page.run_task(clear_remembered_login, e.page)
         open_main_menu(e.page, state)
 
     def resume_game(e):
@@ -1784,6 +1891,14 @@ def show_login_view(page: ft.Page, state: dict):
         color="white",
     )
 
+    remember_checkbox = ft.Checkbox(
+        label="Angemeldet bleiben",
+        value=True,
+        fill_color=theme["accent"],
+        check_color="white",
+        label_style=ft.TextStyle(color="#E0D0F0", size=13),
+    )
+
     status_text = ft.Text("", color="red", size=14, text_align="center")
 
     def finish_login(auth_data: dict):
@@ -1797,6 +1912,7 @@ def show_login_view(page: ft.Page, state: dict):
 
         state["current_user_email"] = email
         state["current_user_uid"] = uid
+        page.run_task(save_remembered_login, page, auth_data, bool(remember_checkbox.value))
         show_stats(page, state)
 
     def validate_inputs() -> tuple[str | None, str | None]:
@@ -1853,6 +1969,7 @@ def show_login_view(page: ft.Page, state: dict):
                     content=ft.Column([
                         email_input,
                         password_input,
+                        remember_checkbox,
                         ft.Container(
                             content=ft.Text("Einloggen", size=16, weight="bold", color="white"),
                             on_click=on_login,
@@ -2159,6 +2276,7 @@ def main(page: ft.Page):
     page.window.width = 1100
     page.window.height = 680
     page.add(build_welcome_view(page, app_state))
+    page.run_task(restore_remembered_login, page, app_state)
     page.update()
 
 

@@ -39,24 +39,24 @@ exit /b
 :python_found
 echo Python gefunden: %PYTHON_EXE%
 echo.
-echo Status: Ueberpruefe Flet-Bibliothek...
+echo Status: Ueberpruefe Python-Bibliotheken...
 echo.
 
-:: Check if flet is installed
-"%PYTHON_EXE%" -c "import flet" 2>nul
-if errorlevel 1 goto install_flet
+:: Check if required libraries are installed
+"%PYTHON_EXE%" -c "import flet, firebase_admin, requests" 2>nul
+if errorlevel 1 goto install_requirements
 goto start_app
 
-:install_flet
-echo [INFO] Flet-Bibliothek fehlt. Versuche Installation...
-"%PYTHON_EXE%" -m pip install flet
-if errorlevel 1 goto flet_install_failed
+:install_requirements
+echo [INFO] Bibliotheken fehlen. Installiere requirements.txt...
+"%PYTHON_EXE%" -m pip install -r requirements.txt
+if errorlevel 1 goto requirements_install_failed
 goto start_app
 
-:flet_install_failed
+:requirements_install_failed
 echo.
-echo [FEHLER] Flet konnte nicht ueber pip installiert werden.
-echo Bitte installiere flet manuell.
+echo [FEHLER] Die Bibliotheken konnten nicht ueber pip installiert werden.
+echo Bitte installiere requirements.txt manuell.
 pause
 exit /b
 

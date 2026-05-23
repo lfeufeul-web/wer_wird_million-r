@@ -1,3 +1,5 @@
 @echo off
-"C:\Users\maxim\AppData\Local\Programs\Python\Python312\Scripts\flet.exe" run main.py
+set "PYTHON_EXE=C:\Users\maxim\AppData\Local\Programs\Python\Python312\python.exe"
+"%PYTHON_EXE%" -m pip install -r requirements.txt
+"%PYTHON_EXE%" -m flet run main.py
 pause
