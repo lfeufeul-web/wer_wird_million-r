@@ -714,7 +714,7 @@ def save_friend_request(state: dict, target_code: str) -> str:
     if not target_email or not target:
         return "Kein Nutzer mit diesem Freundescode gefunden."
     if target_email == email:
-        return "Du kannst dich nicht selbst hinzufügen."
+        return "Du kannst nicht mit dir selbst befreundet sein."
     if target_email in user.get("friends", []):
         return "Ihr seid bereits Freunde."
 
@@ -749,7 +749,15 @@ def respond_friend_request(state: dict, requester_email: str, accept: bool):
 def friend_qr_base64(code: str) -> str | None:
     if qrcode is None:
         return None
-    img = qrcode.make(f"WWMFRIEND:{code}")
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(normalize_friend_code(code))
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     return base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -1585,11 +1593,6 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     """Styled welcome / main menu screen."""
     db = load_db()
     theme = get_theme(state)
-    answer_palette = theme.get("answer_colors", ANSWER_COLORS)
-    question_bg = theme_value(theme, "question_bg", "white")
-    question_text_color = theme_value(theme, "question_text", "#2C1654")
-    answer_bg = theme_value(theme, "answer_bg", "white")
-    answer_text_color = theme_value(theme, "answer_text", "#2C1654")
     email = state.get("current_user_email")
     if email and email in db["users"]:
         username = db["users"][email].get("name", email)
@@ -1855,6 +1858,11 @@ def show_next_question(page: ft.Page, state: dict):
         return
 
     theme = get_theme(state)
+    answer_palette = theme.get("answer_colors", ANSWER_COLORS)
+    question_bg = theme_value(theme, "question_bg", "white")
+    question_text_color = theme_value(theme, "question_text", "#2C1654")
+    answer_bg = theme_value(theme, "answer_bg", "white")
+    answer_text_color = theme_value(theme, "answer_text", "#2C1654")
     question, options, correct_idx = state["questions"][state["question_index"]]
     q_num = state["question_index"] + 1
     total_q = len(state["questions"])
@@ -2780,7 +2788,7 @@ def show_design_view(page: ft.Page, state: dict):
     page.update()
 
 
-def show_friends_view(page: ft.Page, state: dict):
+def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
     theme = get_theme(state)
     db, email, user = current_user_entry(state)
     if not email or not user:
@@ -2794,18 +2802,26 @@ def show_friends_view(page: ft.Page, state: dict):
         border_color=theme["border"],
         color="white",
     )
-    status_text = ft.Text("", size=13, text_align="center")
+    status_text = ft.Text(
+        status_message,
+        size=13,
+        text_align="center",
+        color=theme["success"] if "gesendet" in status_message else theme["danger"],
+    )
 
     def send_request(e):
         message = save_friend_request(state, code_input.value)
-        status_text.value = message
-        status_text.color = theme["success"] if "gesendet" in message else theme["danger"]
-        show_friends_view(e.page, state)
+        show_friends_view(e.page, state, message)
 
     friend_code = user.get("friend_code", "")
     qr_data = friend_qr_base64(friend_code)
     qr_control = (
-        ft.Image(src=f"data:image/png;base64,{qr_data}", width=150, height=150)
+        ft.Container(
+            content=ft.Image(src=f"data:image/png;base64,{qr_data}", width=220, height=220),
+            bgcolor="white",
+            padding=12,
+            border_radius=12,
+        )
         if qr_data
         else ft.Text("QR-Code wird lokal angezeigt, sobald qrcode installiert ist.", size=12, color="#CCCCCC", text_align="center")
     )
