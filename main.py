@@ -1540,9 +1540,15 @@ def show_next_question(page: ft.Page, state: dict):
                 state["correct"] += 1
                 state["money"] = MONEY_LEVELS[min(state["correct"] - 1, len(MONEY_LEVELS) - 1)]
                 state["questions_answered"] += 1
-                _show_correct_screen(page, state)
+                state["question_index"] += 1
+                if state["question_index"] >= len(state["questions"]):
+                    _show_win_screen(page, state)
+                else:
+                    save_current_game(state)
+                    _show_correct_screen(page, state)
             else:
                 state["questions_answered"] += 1
+                clear_saved_game(state)
                 _show_wrong_screen(page, state)
 
         page.run_task(_next)
@@ -1753,8 +1759,6 @@ def show_exit_confirmation(page: ft.Page, state: dict):
 # ---------- Result Screens ----------
 def _show_correct_screen(page: ft.Page, state: dict):
     def next_q(e):
-        state["question_index"] += 1
-        save_current_game(state)
         show_next_question(e.page, state)
 
     page.controls.clear()
