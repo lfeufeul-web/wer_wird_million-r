@@ -8,6 +8,7 @@ import re
 import inspect
 import smtplib
 import ssl
+from datetime import datetime, timezone
 from email.message import EmailMessage
 
 import requests
@@ -48,6 +49,16 @@ DEFAULT_USER_STATS = {
     "questions_answered": 0,
     "highest_money": "0 €",
     "highest_money_level": -1,
+}
+EXTRA_STATS_DEFAULTS = {
+    "games_won": 0,
+    "games_lost": 0,
+    "wrong_answers": 0,
+    "total_money_level": 0,
+    "perfect_games": 0,
+    "jokers_used": 0,
+    "best_streak": 0,
+    "current_streak": 0,
 }
 
 
@@ -230,11 +241,14 @@ def default_db() -> dict:
 
 
 def default_user(email: str, uid: str | None = None) -> dict:
+    stats = DEFAULT_USER_STATS.copy()
+    stats.update(EXTRA_STATS_DEFAULTS)
     user = {
         "email": email,
         "name": email.split("@")[0].capitalize(),
         "settings": DEFAULT_USER_SETTINGS.copy(),
-        "stats": DEFAULT_USER_STATS.copy(),
+        "stats": stats,
+        "game_history": [],
     }
     if uid:
         user["uid"] = uid
@@ -300,10 +314,10 @@ def load_db() -> dict:
             user_data["uid"] = user_doc.id
             user_data.setdefault("settings", DEFAULT_USER_SETTINGS.copy())
             user_data.setdefault("stats", DEFAULT_USER_STATS.copy())
+            user_data.setdefault("game_history", [])
             for key, value in DEFAULT_USER_SETTINGS.items():
                 user_data["settings"].setdefault(key, value)
-            for key, value in DEFAULT_USER_STATS.items():
-                user_data["stats"].setdefault(key, value)
+            ensure_stats_defaults(user_data["stats"])
             db["users"][email] = user_data
         return db
     except Exception as e:
@@ -413,10 +427,10 @@ def ensure_firebase_user(uid: str, email: str) -> dict:
 
     user.setdefault("settings", DEFAULT_USER_SETTINGS.copy())
     user.setdefault("stats", DEFAULT_USER_STATS.copy())
+    user.setdefault("game_history", [])
     for key, value in DEFAULT_USER_SETTINGS.items():
         user["settings"].setdefault(key, value)
-    for key, value in DEFAULT_USER_STATS.items():
-        user["stats"].setdefault(key, value)
+    ensure_stats_defaults(user["stats"])
 
     ref.set(user, merge=True)
     return user
@@ -512,6 +526,13 @@ def ensure_user_settings(db: dict, email: str):
         settings.setdefault(key, value)
 
 
+def ensure_stats_defaults(stats: dict):
+    for key, value in DEFAULT_USER_STATS.items():
+        stats.setdefault(key, value)
+    for key, value in EXTRA_STATS_DEFAULTS.items():
+        stats.setdefault(key, value)
+
+
 def get_user_settings(state: dict) -> dict:
     db = load_db()
     email = state.get("current_user_email")
@@ -526,27 +547,59 @@ def get_theme(state: dict) -> dict:
     theme_name = get_user_settings(state).get("theme", "classic")
     return THEMES.get(theme_name, THEMES["classic"])
 
-def update_game_stats(correct: int, answered: int, money: str, money_level_idx: int, email: str | None = None):
+def money_level_value(money_level_idx: int) -> int:
+    if money_level_idx < 0:
+        return 0
+    return money_level_idx + 1
+
+
+def update_stats_block(stats: dict, correct: int, answered: int, money: str, money_level_idx: int, won: bool, jokers_used: int):
+    ensure_stats_defaults(stats)
+    wrong = max(answered - correct, 0)
+    stats["games_played"] += 1
+    stats["correct_answers"] += correct
+    stats["questions_answered"] += answered
+    stats["wrong_answers"] += wrong
+    stats["total_money_level"] += money_level_value(money_level_idx)
+    stats["jokers_used"] += jokers_used
+    if won:
+        stats["games_won"] += 1
+        stats["perfect_games"] += 1 if wrong == 0 else 0
+        stats["current_streak"] += 1
+        stats["best_streak"] = max(stats.get("best_streak", 0), stats["current_streak"])
+    else:
+        stats["games_lost"] += 1
+        stats["current_streak"] = 0
+    if money_level_idx > stats.get("highest_money_level", -1):
+        stats["highest_money"] = money
+        stats["highest_money_level"] = money_level_idx
+
+
+def build_game_history_entry(correct: int, answered: int, money: str, money_level_idx: int, won: bool, jokers_used: int) -> dict:
+    return {
+        "played_at": datetime.now(timezone.utc).isoformat(),
+        "won": won,
+        "money": money,
+        "money_level": money_level_idx,
+        "correct_answers": correct,
+        "wrong_answers": max(answered - correct, 0),
+        "questions_answered": answered,
+        "jokers_used": jokers_used,
+    }
+
+
+def update_game_stats(correct: int, answered: int, money: str, money_level_idx: int, email: str | None = None, won: bool = False, jokers_used: int = 0):
     db = load_db()
-    
-    # 1. Update Global Stats
+
     g = db["global_stats"]
-    g["games_played"] += 1
-    g["correct_answers"] += correct
-    g["questions_answered"] += answered
-    if money_level_idx > g.get("highest_money_level", -1):
-        g["highest_money"] = money
-        g["highest_money_level"] = money_level_idx
-        
-    # 2. Update Personal Stats if logged in
+    update_stats_block(g, correct, answered, money, money_level_idx, won, jokers_used)
+
     if email and email in db["users"]:
         u = db["users"][email]["stats"]
-        u["games_played"] += 1
-        u["correct_answers"] += correct
-        u["questions_answered"] += answered
-        if money_level_idx > u.get("highest_money_level", -1):
-            u["highest_money"] = money
-            u["highest_money_level"] = money_level_idx
+        update_stats_block(u, correct, answered, money, money_level_idx, won, jokers_used)
+        history = db["users"][email].setdefault("game_history", [])
+        history.append(build_game_history_entry(correct, answered, money, money_level_idx, won, jokers_used))
+        db["users"][email]["game_history"] = history[-30:]
             
     save_db(db)
 
@@ -1625,7 +1678,15 @@ def _show_wrong_screen(page: ft.Page, state: dict):
     money_idx = -1
     if money in MONEY_LEVELS:
         money_idx = MONEY_LEVELS.index(money)
-    update_game_stats(correct, answered, money, money_idx, state.get("current_user_email"))
+    update_game_stats(
+        correct,
+        answered,
+        money,
+        money_idx,
+        state.get("current_user_email"),
+        won=False,
+        jokers_used=state.get("jokers_used", 0),
+    )
 
     page.controls.clear()
     page.add(
@@ -1668,7 +1729,15 @@ def _show_win_screen(page: ft.Page, state: dict):
     money_idx = -1
     if money in MONEY_LEVELS:
         money_idx = MONEY_LEVELS.index(money)
-    update_game_stats(correct, answered, money, money_idx, state.get("current_user_email"))
+    update_game_stats(
+        correct,
+        answered,
+        money,
+        money_idx,
+        state.get("current_user_email"),
+        won=True,
+        jokers_used=state.get("jokers_used", 0),
+    )
 
     page.controls.clear()
     page.add(
@@ -2164,7 +2233,7 @@ def show_edit_profile_view(page: ft.Page, state: dict):
 
 
 # ---------- Statistics Screen ----------
-def show_stats(page: ft.Page, state: dict):
+def show_stats_legacy(page: ft.Page, state: dict):
     db = load_db()
     theme = get_theme(state)
     page_width = page.width or page.window.width or 1100
@@ -2278,6 +2347,213 @@ def show_stats(page: ft.Page, state: dict):
                 ft.Container(height=20),
                 ft.Container(
                     content=ft.Text("← Zurück", size=16, weight="bold", color="white"),
+                    on_click=lambda e: open_main_menu(e.page, state),
+                    bgcolor=theme["accent"],
+                    border_radius=50,
+                    padding=ft.Padding(30, 12, 30, 12),
+                ),
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14,
+               scroll=ft.ScrollMode.AUTO),
+            padding=ft.Padding(12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20),
+        )
+    )
+    page.update()
+
+
+def _pct(part: int, total: int) -> str:
+    return f"{int(part / total * 100)}%" if total else "0%"
+
+
+def _avg_level_label(stats: dict) -> str:
+    games = stats.get("games_played", 0)
+    if not games:
+        return "0"
+    return f"Frage {stats.get('total_money_level', 0) / games:.1f}"
+
+
+def _level_label(level_idx: int) -> str:
+    return "Keine" if level_idx < 0 else f"Frage {level_idx + 1}"
+
+
+def _format_history_date(value: str) -> str:
+    if not value:
+        return "-"
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%d.%m.%Y")
+    except Exception:
+        return value[:10]
+
+
+def _stats_card(title: str, rows: list[tuple[str, str]], theme: dict, accent: str, width=None) -> ft.Control:
+    return ft.Container(
+        content=ft.Column([
+            ft.Text(title, size=18, weight="bold", color=accent),
+            ft.Divider(color=theme["border"], thickness=1),
+            *[_stat_row(label, value) for label, value in rows],
+        ], spacing=10),
+        bgcolor=theme["panel"],
+        border_radius=16,
+        padding=20,
+        border=ft.border.Border.all(2, accent),
+        width=width,
+    )
+
+
+def _recent_games_card(history: list[dict], theme: dict, width=None) -> ft.Control:
+    recent = list(reversed(history[-8:]))
+    if recent:
+        rows = [
+            _stat_row(
+                f"{_format_history_date(game.get('played_at', ''))} - {'Sieg' if game.get('won') else 'Aus'}",
+                f"{game.get('money', '0 €')} - {game.get('correct_answers', 0)}/{game.get('questions_answered', 0)}",
+            )
+            for game in recent
+        ]
+    else:
+        rows = [ft.Text("Noch keine abgeschlossenen Spiele.", size=13, color="#CCCCCC", text_align="center")]
+
+    return ft.Container(
+        content=ft.Column([
+            ft.Text("Letzte Spiele", size=18, weight="bold", color=theme["accent_2"]),
+            ft.Divider(color=theme["border"], thickness=1),
+            *rows,
+        ], spacing=10),
+        bgcolor=theme["panel"],
+        border_radius=16,
+        padding=20,
+        border=ft.border.Border.all(2, theme["accent_2"]),
+        width=width,
+    )
+
+
+def show_stats(page: ft.Page, state: dict):
+    db = load_db()
+    theme = get_theme(state)
+    page_width = page.width or page.window.width or 1100
+    is_mobile = page_width < 720
+    card_width = None if is_mobile else 340
+
+    g_stats = db.get("global_stats", {})
+    ensure_stats_defaults(g_stats)
+    global_card = _stats_card(
+        "Globale Statistik",
+        [
+            ("Spiele gesamt", str(g_stats.get("games_played", 0))),
+            ("Siege / Niederlagen", f"{g_stats.get('games_won', 0)} / {g_stats.get('games_lost', 0)}"),
+            ("Trefferquote", _pct(g_stats.get("correct_answers", 0), g_stats.get("questions_answered", 0))),
+            ("Höchster Gewinn", g_stats.get("highest_money", "0 €")),
+            ("Höchste Frage", _level_label(g_stats.get("highest_money_level", -1))),
+            ("Durchschnitt", _avg_level_label(g_stats)),
+        ],
+        theme,
+        theme["gold"],
+        card_width,
+    )
+
+    email = state.get("current_user_email")
+    if email and email in db.get("users", {}):
+        u_info = db["users"][email]
+        u_name = u_info.get("name", email)
+        u_stats = u_info.get("stats", {})
+        ensure_stats_defaults(u_stats)
+        history = u_info.get("game_history", [])
+        games = u_stats.get("games_played", 0)
+
+        cards = [
+            global_card,
+            _stats_card(
+                f"Statistik: {u_name}",
+                [
+                    ("Konto", email),
+                    ("Deine Spiele", str(games)),
+                    ("Siege / Niederlagen", f"{u_stats.get('games_won', 0)} / {u_stats.get('games_lost', 0)}"),
+                    ("Winrate", _pct(u_stats.get("games_won", 0), games)),
+                    ("Dein Rekord", u_stats.get("highest_money", "0 €")),
+                    ("Höchste Frage", _level_label(u_stats.get("highest_money_level", -1))),
+                ],
+                theme,
+                theme["success"],
+                card_width,
+            ),
+            _stats_card(
+                "Antworten",
+                [
+                    ("Beantwortet", str(u_stats.get("questions_answered", 0))),
+                    ("Richtig", str(u_stats.get("correct_answers", 0))),
+                    ("Falsch", str(u_stats.get("wrong_answers", 0))),
+                    ("Trefferquote", _pct(u_stats.get("correct_answers", 0), u_stats.get("questions_answered", 0))),
+                    ("Durchschnitt richtig", f"{u_stats.get('correct_answers', 0) / games:.1f}" if games else "0"),
+                    ("Durchschnitt Frage", _avg_level_label(u_stats)),
+                ],
+                theme,
+                theme["accent"],
+                card_width,
+            ),
+            _stats_card(
+                "Rekorde",
+                [
+                    ("Beste Siegesserie", str(u_stats.get("best_streak", 0))),
+                    ("Aktuelle Siegesserie", str(u_stats.get("current_streak", 0))),
+                    ("Perfekte Spiele", str(u_stats.get("perfect_games", 0))),
+                    ("Joker genutzt", str(u_stats.get("jokers_used", 0))),
+                    ("Verlauf gespeichert", str(len(history))),
+                ],
+                theme,
+                theme["accent_2"],
+                card_width,
+            ),
+            _recent_games_card(history, theme, card_width),
+        ]
+    else:
+        cards = [
+            global_card,
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Persönliche Statistik", size=18, weight="bold", color="#CCCCCC"),
+                    ft.Divider(color="#CCCCCC", thickness=1),
+                    ft.Text(
+                        "Melde dich im Hauptmenü an, um deine persönlichen Statistiken dauerhaft zu sichern!",
+                        size=13,
+                        color="#CCCCCC",
+                        text_align="center",
+                    ),
+                ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                bgcolor=theme["panel"],
+                border_radius=16,
+                padding=20,
+                border=ft.border.Border.all(2, "#CCCCCC"),
+                width=card_width,
+            ),
+        ]
+
+    if is_mobile:
+        stats_cards = ft.Column(cards, spacing=14, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+    else:
+        rows = [
+            ft.Row(cards[i:i + 2], alignment=ft.MainAxisAlignment.CENTER, spacing=16)
+            for i in range(0, len(cards), 2)
+        ]
+        stats_cards = ft.Column(rows, spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
+                ft.Container(height=10),
+                stats_cards,
+                ft.Container(height=20),
+                ft.Container(
+                    content=ft.Text("Zurück", size=16, weight="bold", color="white"),
                     on_click=lambda e: open_main_menu(e.page, state),
                     bgcolor=theme["accent"],
                     border_radius=50,
