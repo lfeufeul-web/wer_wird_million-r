@@ -634,6 +634,47 @@ def clear_saved_game(state: dict):
         db["users"][email].pop("saved_game", None)
         save_db(db)
 
+
+def get_saved_game_for_state(state: dict) -> dict | None:
+    email = state.get("current_user_email")
+    if not email:
+        return None
+
+    db = load_db()
+    saved = db.get("users", {}).get(email, {}).get("saved_game")
+    if not saved or not saved.get("questions"):
+        return None
+    if saved.get("question_index", 0) >= len(saved.get("questions", [])):
+        clear_saved_game(state)
+        return None
+    return saved
+
+
+def saved_game_summary(saved: dict) -> str:
+    total = len(saved.get("questions", []))
+    question_index = saved.get("question_index", 0)
+    current_question = min(question_index + 1, total) if total else 1
+    money = saved.get("money", "0 €")
+    correct = saved.get("correct", 0)
+    return f"Frage {current_question} von {total} · {money} · {correct} richtig"
+
+
+def resume_saved_game(page: ft.Page, state: dict, saved: dict | None = None):
+    saved = saved or get_saved_game_for_state(state)
+    if not saved:
+        start_new_game(page, state, force_new=True)
+        return
+
+    state.update({
+        "money": saved.get("money", "0 €"),
+        "questions_answered": saved.get("questions_answered", 0),
+        "correct": saved.get("correct", 0),
+        "jokers_used": saved.get("jokers_used", 0),
+        "question_index": saved.get("question_index", 0),
+        "questions": saved.get("questions", []),
+    })
+    show_next_question(page, state)
+
 # ---------- Constants ----------
 MONEY_LEVELS = [
     "50 €",
@@ -1210,6 +1251,9 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         open_main_menu(e.page, state)
 
     def resume_game(e):
+        resume_saved_game(e.page, state)
+        return
+        """
         db_current = load_db()
         email_current = state.get("current_user_email")
         if email_current and email_current in db_current["users"]:
@@ -1224,6 +1268,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                     "questions": saved.get("questions", []),
                 })
                 show_next_question(e.page, state)
+        """
 
     menu_buttons = []
     if logged_in and db["users"][email].get("saved_game"):
@@ -1310,10 +1355,75 @@ def _menu_button(label: str, on_click, color: str) -> ft.Control:
     )
 
 
+def show_game_start_choice(page: ft.Page, state: dict, saved: dict):
+    theme = get_theme(state)
+    summary = saved_game_summary(saved)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("Spiel starten", size=30, weight="bold", color="white", text_align="center"),
+                ft.Container(height=8),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("Gespeichertes Spiel gefunden", size=18, weight="bold", color=theme["gold"], text_align="center"),
+                        ft.Text(summary, size=14, color="#E0D0F0", text_align="center"),
+                        ft.Container(height=10),
+                        ft.Container(
+                            content=ft.Text("Altes Spiel fortsetzen", size=16, weight="bold", color="white"),
+                            on_click=lambda e: resume_saved_game(e.page, state, saved),
+                            bgcolor=theme["success"],
+                            border_radius=30,
+                            padding=ft.Padding(30, 12, 30, 12),
+                            alignment=ft.Alignment(0, 0),
+                            width=260,
+                        ),
+                        ft.Container(
+                            content=ft.Text("Neues Spiel starten", size=16, weight="bold", color="white"),
+                            on_click=lambda e: start_new_game(e.page, state, force_new=True),
+                            bgcolor=theme["accent"],
+                            border_radius=30,
+                            padding=ft.Padding(30, 12, 30, 12),
+                            alignment=ft.Alignment(0, 0),
+                            width=260,
+                        ),
+                    ], spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor=theme["panel"],
+                    border_radius=16,
+                    padding=24,
+                    border=ft.border.Border.all(2, theme["border"]),
+                    width=380,
+                ),
+                ft.TextButton(
+                    "Zurück",
+                    on_click=lambda e: open_main_menu(e.page, state),
+                    style=ft.ButtonStyle(color="white"),
+                ),
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14),
+        )
+    )
+    page.update()
+
+
 # ---------- Age Selection ----------
-def start_new_game(page: ft.Page, state: dict):
+def start_new_game(page: ft.Page, state: dict, force_new: bool = False):
     """Reset state and ask for age group."""
     theme = get_theme(state)
+    saved = None if force_new else get_saved_game_for_state(state)
+    if saved:
+        show_game_start_choice(page, state, saved)
+        return
+
     state.update({
         "money": "0 €",
         "questions_answered": 0,
