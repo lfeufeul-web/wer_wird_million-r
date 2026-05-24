@@ -228,6 +228,50 @@ THEMES = {
         "danger": "#E11D48",
         "gold": "#FDE68A",
     },
+    "neon": {
+        "label": "Neon Night",
+        "gradient": ["#020617", "#11126B", "#E11D8E"],
+        "panel": "#070A2D",
+        "border": "#22D3EE",
+        "accent": "#EC4899",
+        "accent_2": "#F59E0B",
+        "success": "#22C55E",
+        "danger": "#F43F5E",
+        "gold": "#FDE047",
+    },
+    "forest": {
+        "label": "Forest",
+        "gradient": ["#F8F3E7", "#DDEBDD", "#F4B46A"],
+        "panel": "#264D3A",
+        "border": "#7DA88A",
+        "accent": "#3D7A59",
+        "accent_2": "#F2B84B",
+        "success": "#2F855A",
+        "danger": "#B45309",
+        "gold": "#FFE08A",
+    },
+    "arcade": {
+        "label": "Arcade",
+        "gradient": ["#050807", "#0B1F12", "#4D7C0F"],
+        "panel": "#06110B",
+        "border": "#84CC16",
+        "accent": "#65A30D",
+        "accent_2": "#A3E635",
+        "success": "#84CC16",
+        "danger": "#DC2626",
+        "gold": "#BEF264",
+    },
+    "candy": {
+        "label": "Candy Pop",
+        "gradient": ["#DFF6FF", "#BDEBFF", "#FFE66D"],
+        "panel": "#FFFFFF",
+        "border": "#60A5FA",
+        "accent": "#3B82F6",
+        "accent_2": "#F97316",
+        "success": "#22C55E",
+        "danger": "#FB7185",
+        "gold": "#FACC15",
+    },
 }
 DEFAULT_USER_SETTINGS = {"theme": "classic"}
 
@@ -1386,7 +1430,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     )
     menu_buttons.append(
         _menu_button("📊  Statistiken",
-                     lambda e: show_stats(e.page, state), "#9B59B6")
+                     lambda e: show_settings_view(e.page, state), "#9B59B6")
     )
     if not logged_in:
         menu_buttons.append(
@@ -2247,7 +2291,7 @@ def show_login_view(page: ft.Page, state: dict):
         state["current_user_email"] = email
         state["current_user_uid"] = uid
         page.run_task(save_remembered_login, page, auth_data, bool(remember_checkbox.value))
-        show_stats(page, state)
+        open_main_menu(page, state)
 
     def validate_inputs() -> tuple[str | None, str | None]:
         email = email_input.value.strip()
@@ -2339,6 +2383,181 @@ def show_login_view(page: ft.Page, state: dict):
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                spacing=14)
+        )
+    )
+    page.update()
+
+
+def show_settings_view(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    email = state.get("current_user_email")
+    logged_in = bool(email)
+
+    menu_items = [
+        ft.Text("Einstellungen", size=30, weight="bold", color="white"),
+        ft.Container(height=10),
+        ft.Container(
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Text("Statistiken", size=16, weight="bold", color="white"),
+                    on_click=lambda e: show_stats(e.page, state),
+                    bgcolor=theme["accent"],
+                    border_radius=30,
+                    padding=ft.Padding(30, 12, 30, 12),
+                    alignment=ft.Alignment(0, 0),
+                    width=240,
+                ),
+                ft.Container(
+                    content=ft.Text("Design", size=16, weight="bold", color="white"),
+                    on_click=lambda e: show_design_view(e.page, state),
+                    bgcolor=theme["success"] if logged_in else "#777777",
+                    border_radius=30,
+                    padding=ft.Padding(30, 12, 30, 12),
+                    alignment=ft.Alignment(0, 0),
+                    width=240,
+                ),
+                ft.Container(
+                    content=ft.Text("Profil bearbeiten", size=16, weight="bold", color="white"),
+                    on_click=lambda e: show_edit_profile_view(e.page, state) if logged_in else show_login_view(e.page, state),
+                    bgcolor=theme["accent_2"],
+                    border_radius=30,
+                    padding=ft.Padding(30, 12, 30, 12),
+                    alignment=ft.Alignment(0, 0),
+                    width=240,
+                ),
+                ft.Text(
+                    "Melde dich an, um Designs pro Account zu speichern." if not logged_in else f"Konto: {email}",
+                    size=12,
+                    color="#E0D0F0",
+                    text_align="center",
+                ),
+            ], spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor=theme["panel"],
+            border_radius=16,
+            padding=24,
+            border=ft.border.Border.all(2, theme["border"]),
+            width=360,
+        ),
+        ft.TextButton(
+            "Zurück",
+            on_click=lambda e: open_main_menu(e.page, state),
+            style=ft.ButtonStyle(color="white"),
+        ),
+    ]
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column(
+                menu_items,
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=14,
+            ),
+        )
+    )
+    page.update()
+
+
+def show_design_view(page: ft.Page, state: dict):
+    db = load_db()
+    email = state.get("current_user_email")
+    if not email or email not in db.get("users", {}):
+        show_login_view(page, state)
+        return
+
+    ensure_user_settings(db, email)
+    save_db(db)
+    current_theme = db["users"][email].get("settings", {}).get("theme", "classic")
+    theme = get_theme(state)
+    status_text = ft.Text("", size=13, text_align="center")
+
+    def choose_theme(theme_key: str):
+        def _handler(e):
+            db_current = load_db()
+            if email in db_current.get("users", {}) and theme_key in THEMES:
+                ensure_user_settings(db_current, email)
+                db_current["users"][email]["settings"]["theme"] = theme_key
+                save_db(db_current)
+                state["theme"] = theme_key
+                status_text.value = "Design gespeichert."
+                status_text.color = THEMES[theme_key]["success"]
+                show_design_view(e.page, state)
+        return _handler
+
+    cards = []
+    for key, value in THEMES.items():
+        selected = key == current_theme
+        cards.append(
+            ft.Container(
+                content=ft.Column([
+                    ft.Container(
+                        height=48,
+                        border_radius=12,
+                        gradient=ft.LinearGradient(
+                            begin=ft.Alignment(-1, -1),
+                            end=ft.Alignment(1, 1),
+                            colors=value["gradient"],
+                        ),
+                    ),
+                    ft.Text(value["label"], size=15, weight="bold", color="white" if value["panel"] != "#FFFFFF" else "#102030"),
+                    ft.Text("Aktiv" if selected else "Auswählen", size=12, color=value["gold"] if selected else "#CCCCCC"),
+                ], spacing=8),
+                on_click=choose_theme(key),
+                bgcolor=value["panel"],
+                border_radius=12,
+                padding=12,
+                border=ft.border.Border.all(3 if selected else 1, value["gold"] if selected else value["border"]),
+                width=170,
+            )
+        )
+
+    rows = [
+        ft.Row(cards[i:i + 2], spacing=12, alignment=ft.MainAxisAlignment.CENTER)
+        for i in range(0, len(cards), 2)
+    ]
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("Design", size=30, weight="bold", color="white"),
+                ft.Container(height=6),
+                ft.Container(
+                    content=ft.Column([
+                        *rows,
+                        status_text,
+                    ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor=theme["panel"],
+                    border_radius=16,
+                    padding=20,
+                    border=ft.border.Border.all(2, theme["border"]),
+                    width=390,
+                ),
+                ft.TextButton(
+                    "Zurück",
+                    on_click=lambda e: show_settings_view(e.page, state),
+                    style=ft.ButtonStyle(color="white"),
+                ),
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14,
+               scroll=ft.ScrollMode.AUTO),
+            padding=20,
         )
     )
     page.update()
