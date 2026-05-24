@@ -1429,7 +1429,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                      lambda e: start_new_game(e.page, state), "#F4A460")
     )
     menu_buttons.append(
-        _menu_button("📊  Statistiken",
+        _menu_button("Einstellungen",
                      lambda e: show_settings_view(e.page, state), "#9B59B6")
     )
     if not logged_in:
