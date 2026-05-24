@@ -2805,7 +2805,7 @@ def show_friends_view(page: ft.Page, state: dict):
     friend_code = user.get("friend_code", "")
     qr_data = friend_qr_base64(friend_code)
     qr_control = (
-        ft.Image(src_base64=qr_data, width=150, height=150)
+        ft.Image(src=f"data:image/png;base64,{qr_data}", width=150, height=150)
         if qr_data
         else ft.Text("QR-Code wird lokal angezeigt, sobald qrcode installiert ist.", size=12, color="#CCCCCC", text_align="center")
     )
