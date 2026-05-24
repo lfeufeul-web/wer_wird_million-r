@@ -613,7 +613,7 @@ def save_current_game(state: dict):
     if email not in db.get("users", {}):
         return
 
-    db["users"][email]["saved_game"] = {
+    saved_game = {
         "money": state.get("money", "0 €"),
         "questions_answered": state.get("questions_answered", 0),
         "correct": state.get("correct", 0),
@@ -621,6 +621,8 @@ def save_current_game(state: dict):
         "question_index": state.get("question_index", 0),
         "questions": state.get("questions", []),
     }
+    db["users"][email]["saved_game"] = saved_game
+    state["saved_game"] = saved_game
     save_db(db)
 
 
@@ -632,6 +634,7 @@ def clear_saved_game(state: dict):
     db = load_db()
     if email in db.get("users", {}) and "saved_game" in db["users"][email]:
         db["users"][email].pop("saved_game", None)
+        state.pop("saved_game", None)
         save_db(db)
 
 
@@ -640,8 +643,12 @@ def get_saved_game_for_state(state: dict) -> dict | None:
     if not email:
         return None
 
-    db = load_db()
-    saved = db.get("users", {}).get(email, {}).get("saved_game")
+    saved = state.get("saved_game")
+    if not saved:
+        db = load_db()
+        saved = db.get("users", {}).get(email, {}).get("saved_game")
+        if saved:
+            state["saved_game"] = saved
     if not saved or not saved.get("questions"):
         return None
     if saved.get("question_index", 0) >= len(saved.get("questions", [])):
@@ -672,6 +679,7 @@ def resume_saved_game(page: ft.Page, state: dict, saved: dict | None = None):
         "jokers_used": saved.get("jokers_used", 0),
         "question_index": saved.get("question_index", 0),
         "questions": saved.get("questions", []),
+        "saved_game": saved,
     })
     show_next_question(page, state)
 
@@ -1243,6 +1251,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     else:
         greeting = "Hallo, Gast! 👋"
         logged_in = False
+    saved_game = get_saved_game_for_state(state) if logged_in else None
 
     def on_logout(e):
         state["current_user_email"] = None
@@ -1271,7 +1280,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         """
 
     menu_buttons = []
-    if logged_in and db["users"][email].get("saved_game"):
+    if logged_in and saved_game:
         menu_buttons.append(
             _menu_button("▶️  Spiel fortsetzen", resume_game, "#2ECC71")
         )
@@ -1432,6 +1441,7 @@ def start_new_game(page: ft.Page, state: dict, force_new: bool = False):
         "question_index": 0,
         "questions": [],
     })
+    state.pop("saved_game", None)
 
     def choose_age(e: ft.ControlEvent):
         age = e.control.data
