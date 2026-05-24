@@ -8,10 +8,17 @@ import re
 import inspect
 import smtplib
 import ssl
+import base64
+import io
 from datetime import datetime, timezone
 from email.message import EmailMessage
 
 import requests
+
+try:
+    import qrcode
+except ImportError:
+    qrcode = None
 
 try:
     import firebase_admin
@@ -216,6 +223,11 @@ THEMES = {
         "success": "#2ECC71",
         "danger": "#C2185B",
         "gold": "#FFD700",
+        "question_bg": "#FFFFFF",
+        "question_text": "#2C1654",
+        "answer_bg": "#FFFFFF",
+        "answer_text": "#2C1654",
+        "answer_colors": ["#F4A460", "#9B59B6", "#2ECC71", "#E91E8C"],
     },
     "ocean": {
         "label": "Ocean",
@@ -227,6 +239,11 @@ THEMES = {
         "success": "#10B981",
         "danger": "#E11D48",
         "gold": "#FDE68A",
+        "question_bg": "#E6FFFB",
+        "question_text": "#06202A",
+        "answer_bg": "#F0FDFA",
+        "answer_text": "#06202A",
+        "answer_colors": ["#0891B2", "#14B8A6", "#22C55E", "#38BDF8"],
     },
     "neon": {
         "label": "Neon Night",
@@ -238,6 +255,11 @@ THEMES = {
         "success": "#22C55E",
         "danger": "#F43F5E",
         "gold": "#FDE047",
+        "question_bg": "#0B102F",
+        "question_text": "#F8FAFC",
+        "answer_bg": "#11143A",
+        "answer_text": "#F8FAFC",
+        "answer_colors": ["#EC4899", "#F59E0B", "#22D3EE", "#8B5CF6"],
     },
     "forest": {
         "label": "Forest",
@@ -249,6 +271,11 @@ THEMES = {
         "success": "#2F855A",
         "danger": "#B45309",
         "gold": "#FFE08A",
+        "question_bg": "#FFF7ED",
+        "question_text": "#173A2A",
+        "answer_bg": "#F8F3E7",
+        "answer_text": "#173A2A",
+        "answer_colors": ["#7DA88A", "#F2B84B", "#3D7A59", "#F59E0B"],
     },
     "arcade": {
         "label": "Arcade",
@@ -260,6 +287,11 @@ THEMES = {
         "success": "#84CC16",
         "danger": "#DC2626",
         "gold": "#BEF264",
+        "question_bg": "#020604",
+        "question_text": "#D9F99D",
+        "answer_bg": "#050807",
+        "answer_text": "#F7FEE7",
+        "answer_colors": ["#84CC16", "#65A30D", "#A3E635", "#22C55E"],
     },
     "candy": {
         "label": "Candy Pop",
@@ -271,6 +303,59 @@ THEMES = {
         "success": "#22C55E",
         "danger": "#FB7185",
         "gold": "#FACC15",
+        "question_bg": "#FFFFFF",
+        "question_text": "#172554",
+        "answer_bg": "#FFFFFF",
+        "answer_text": "#172554",
+        "answer_colors": ["#3B82F6", "#F97316", "#22C55E", "#8B5CF6"],
+    },
+    "royal": {
+        "label": "Royal Gold",
+        "gradient": ["#1E1B4B", "#581C87", "#92400E"],
+        "panel": "#17122F",
+        "border": "#C084FC",
+        "accent": "#7C3AED",
+        "accent_2": "#D97706",
+        "success": "#16A34A",
+        "danger": "#DC2626",
+        "gold": "#FBBF24",
+        "question_bg": "#2B174F",
+        "question_text": "#FFF7ED",
+        "answer_bg": "#24123E",
+        "answer_text": "#FFF7ED",
+        "answer_colors": ["#D97706", "#7C3AED", "#16A34A", "#DB2777"],
+    },
+    "sunset": {
+        "label": "Sunset",
+        "gradient": ["#2D0B36", "#B91C1C", "#F59E0B"],
+        "panel": "#2A1020",
+        "border": "#FB7185",
+        "accent": "#F97316",
+        "accent_2": "#FBBF24",
+        "success": "#22C55E",
+        "danger": "#BE123C",
+        "gold": "#FEF08A",
+        "question_bg": "#FFF1F2",
+        "question_text": "#4A102A",
+        "answer_bg": "#FFF7ED",
+        "answer_text": "#4A102A",
+        "answer_colors": ["#F97316", "#FB7185", "#FBBF24", "#A855F7"],
+    },
+    "ice": {
+        "label": "Ice Crystal",
+        "gradient": ["#E0F2FE", "#7DD3FC", "#1D4ED8"],
+        "panel": "#EFF6FF",
+        "border": "#38BDF8",
+        "accent": "#2563EB",
+        "accent_2": "#06B6D4",
+        "success": "#059669",
+        "danger": "#E11D48",
+        "gold": "#0F766E",
+        "question_bg": "#FFFFFF",
+        "question_text": "#0F172A",
+        "answer_bg": "#F8FAFC",
+        "answer_text": "#0F172A",
+        "answer_colors": ["#2563EB", "#06B6D4", "#0EA5E9", "#38BDF8"],
     },
 }
 DEFAULT_USER_SETTINGS = {"theme": "classic"}
@@ -293,6 +378,10 @@ def default_user(email: str, uid: str | None = None) -> dict:
         "settings": DEFAULT_USER_SETTINGS.copy(),
         "stats": stats,
         "game_history": [],
+        "friend_code": generate_friend_code(),
+        "friends": [],
+        "friend_requests_in": [],
+        "friend_requests_out": [],
     }
     if uid:
         user["uid"] = uid
@@ -359,6 +448,7 @@ def load_db() -> dict:
             user_data.setdefault("settings", DEFAULT_USER_SETTINGS.copy())
             user_data.setdefault("stats", DEFAULT_USER_STATS.copy())
             user_data.setdefault("game_history", [])
+            ensure_social_defaults(user_data)
             for key, value in DEFAULT_USER_SETTINGS.items():
                 user_data["settings"].setdefault(key, value)
             ensure_stats_defaults(user_data["stats"])
@@ -472,6 +562,7 @@ def ensure_firebase_user(uid: str, email: str) -> dict:
     user.setdefault("settings", DEFAULT_USER_SETTINGS.copy())
     user.setdefault("stats", DEFAULT_USER_STATS.copy())
     user.setdefault("game_history", [])
+    ensure_social_defaults(user)
     for key, value in DEFAULT_USER_SETTINGS.items():
         user["settings"].setdefault(key, value)
     ensure_stats_defaults(user["stats"])
@@ -577,6 +668,93 @@ def ensure_stats_defaults(stats: dict):
         stats.setdefault(key, value)
 
 
+def generate_friend_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(random.choice(alphabet) for _ in range(8))
+
+
+def normalize_friend_code(code: str) -> str:
+    code = (code or "").strip().upper()
+    if code.startswith("WWMFRIEND:"):
+        code = code.split(":", 1)[1]
+    return re.sub(r"[^A-Z0-9]", "", code)
+
+
+def ensure_social_defaults(user: dict):
+    user.setdefault("friend_code", generate_friend_code())
+    user.setdefault("friends", [])
+    user.setdefault("friend_requests_in", [])
+    user.setdefault("friend_requests_out", [])
+
+
+def current_user_entry(state: dict) -> tuple[dict, str | None, dict | None]:
+    db = load_db()
+    email = state.get("current_user_email")
+    user = db.get("users", {}).get(email) if email else None
+    if user:
+        ensure_social_defaults(user)
+        save_db(db)
+    return db, email, user
+
+
+def find_user_by_friend_code(db: dict, code: str) -> tuple[str | None, dict | None]:
+    normalized = normalize_friend_code(code)
+    for email, user in db.get("users", {}).items():
+        ensure_social_defaults(user)
+        if normalize_friend_code(user.get("friend_code", "")) == normalized:
+            return email, user
+    return None, None
+
+
+def save_friend_request(state: dict, target_code: str) -> str:
+    db, email, user = current_user_entry(state)
+    if not email or not user:
+        return "Bitte melde dich zuerst an."
+    target_email, target = find_user_by_friend_code(db, target_code)
+    if not target_email or not target:
+        return "Kein Nutzer mit diesem Freundescode gefunden."
+    if target_email == email:
+        return "Du kannst dich nicht selbst hinzufügen."
+    if target_email in user.get("friends", []):
+        return "Ihr seid bereits Freunde."
+
+    ensure_social_defaults(target)
+    if email not in target["friend_requests_in"]:
+        target["friend_requests_in"].append(email)
+    if target_email not in user["friend_requests_out"]:
+        user["friend_requests_out"].append(target_email)
+    save_db(db)
+    return "Freundschaftsanfrage gesendet."
+
+
+def respond_friend_request(state: dict, requester_email: str, accept: bool):
+    db, email, user = current_user_entry(state)
+    if not email or not user or requester_email not in db.get("users", {}):
+        return
+    requester = db["users"][requester_email]
+    ensure_social_defaults(user)
+    ensure_social_defaults(requester)
+    if requester_email in user["friend_requests_in"]:
+        user["friend_requests_in"].remove(requester_email)
+    if email in requester["friend_requests_out"]:
+        requester["friend_requests_out"].remove(email)
+    if accept:
+        if requester_email not in user["friends"]:
+            user["friends"].append(requester_email)
+        if email not in requester["friends"]:
+            requester["friends"].append(email)
+    save_db(db)
+
+
+def friend_qr_base64(code: str) -> str | None:
+    if qrcode is None:
+        return None
+    img = qrcode.make(f"WWMFRIEND:{code}")
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
 def get_user_settings(state: dict) -> dict:
     db = load_db()
     email = state.get("current_user_email")
@@ -590,6 +768,10 @@ def get_user_settings(state: dict) -> dict:
 def get_theme(state: dict) -> dict:
     theme_name = get_user_settings(state).get("theme", "classic")
     return THEMES.get(theme_name, THEMES["classic"])
+
+
+def theme_value(theme: dict, key: str, fallback: str):
+    return theme.get(key, THEMES["classic"].get(key, fallback))
 
 def money_level_value(money_level_idx: int) -> int:
     if money_level_idx < 0:
@@ -888,6 +1070,26 @@ EXTRA_TOPIC_QUESTIONS = [
     ("Was ist Ebbe?", "niedriger Wasserstand", ["starker Wind", "Schneefall", "Vulkanausbruch"]),
     ("Welches Tier lebt sowohl im Wasser als auch an Land?", "Frosch", ["Hai", "Adler", "Kamel"]),
     ("Welche Pflanze liefert Kakaobohnen?", "Kakaobaum", ["Apfelbaum", "Olivenbaum", "Bambus"]),
+    ("Welches Land gewann die Fußball-WM 2014?", "Deutschland", ["Brasilien", "Spanien", "Argentinien"]),
+    ("Welche Stadt ist für den Karneval in Venedig berühmt?", "Venedig", ["Rom", "Mailand", "Neapel"]),
+    ("Welches Tier ist das größte Säugetier?", "Blauwal", ["Elefant", "Giraffe", "Nashorn"]),
+    ("Was sammelt ein Philatelist?", "Briefmarken", ["Münzen", "Bücher", "Schuhe"]),
+    ("Welche Sprache spricht man überwiegend in Brasilien?", "Portugiesisch", ["Spanisch", "Französisch", "Italienisch"]),
+    ("Welcher Kontinent ist der kleinste?", "Australien", ["Europa", "Antarktis", "Südamerika"]),
+    ("Was ist ein Bonsai?", "Miniaturbaum", ["Teesorte", "Kampfsport", "Reisgericht"]),
+    ("Welche Epoche kam nach dem Mittelalter?", "Renaissance", ["Steinzeit", "Barock", "Romantik"]),
+    ("Welches Gerät vergrößert sehr kleine Dinge?", "Mikroskop", ["Teleskop", "Barometer", "Scanner"]),
+    ("Was ist ein Podcast?", "Audiosendung", ["Suchmaschine", "Bildformat", "Kabeltyp"]),
+    ("Welche Farbe hat Chlorophyll hauptsächlich?", "Grün", ["Rot", "Blau", "Gelb"]),
+    ("Welcher Fluss fließt durch Paris?", "Seine", ["Themse", "Donau", "Elbe"]),
+    ("Welche Insel gehört zu Italien?", "Sizilien", ["Kreta", "Mallorca", "Zypern"]),
+    ("Was ist Origami?", "Papierfaltkunst", ["Tanzstil", "Suppengericht", "Holztechnik"]),
+    ("Welches Metall ist bei Raumtemperatur flüssig?", "Quecksilber", ["Eisen", "Gold", "Kupfer"]),
+    ("Welche Wolkenform kündigt oft Gewitter an?", "Cumulonimbus", ["Cirrus", "Stratus", "Nebel"]),
+    ("Welches Land ist bekannt für Fjorde?", "Norwegen", ["Ungarn", "Ägypten", "Portugal"]),
+    ("Wie heißt das größte Korallenriff der Erde?", "Great Barrier Reef", ["Rotes Riff", "Atlantikriff", "Nordseeriff"]),
+    ("Was bedeutet Demokratie wörtlich ungefähr?", "Volksherrschaft", ["Königsherrschaft", "Geldherrschaft", "Stadtrecht"]),
+    ("Welches Instrument spielt man mit einem Bogen?", "Geige", ["Trompete", "Klavier", "Schlagzeug"]),
 ]
 
 
@@ -1372,9 +1574,9 @@ def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
         width=None if compact else 180,
         height=230 if compact else None,
         padding=10,
-        bgcolor="#1A0A30",
+        bgcolor=theme_value(get_theme(state), "panel", "#1A0A30"),
         border_radius=16,
-        border=ft.border.Border.all(2, "#9B59B6"),
+        border=ft.border.Border.all(2, theme_value(get_theme(state), "border", "#9B59B6")),
     )
 
 
@@ -1383,6 +1585,11 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     """Styled welcome / main menu screen."""
     db = load_db()
     theme = get_theme(state)
+    answer_palette = theme.get("answer_colors", ANSWER_COLORS)
+    question_bg = theme_value(theme, "question_bg", "white")
+    question_text_color = theme_value(theme, "question_text", "#2C1654")
+    answer_bg = theme_value(theme, "answer_bg", "white")
+    answer_text_color = theme_value(theme, "answer_text", "#2C1654")
     email = state.get("current_user_email")
     if email and email in db["users"]:
         username = db["users"][email].get("name", email)
@@ -1698,7 +1905,7 @@ def show_next_question(page: ft.Page, state: dict):
     # ----- Build 4 answer boxes immediately -----
     def make_answer_box(idx: int, text: str) -> ft.Container:
         letter = ANSWER_LETTERS[idx]
-        color = ANSWER_COLORS[idx]
+        color = answer_palette[idx % len(answer_palette)]
         box = ft.Container(
             content=ft.Row([
                 ft.Container(
@@ -1709,15 +1916,15 @@ def show_next_question(page: ft.Page, state: dict):
                     bgcolor=color,
                     alignment=ft.Alignment(0, 0),
                 ),
-                ft.Text(text, size=14 if is_mobile else 16, color="#2C1654", weight="bold", expand=True),
+                ft.Text(text, size=14 if is_mobile else 16, color=answer_text_color, weight="bold", expand=True),
             ], spacing=8 if is_mobile else 10),
             data=idx,
             on_click=handle_answer,
-            bgcolor="white",
+            bgcolor=answer_bg,
             border_radius=22 if is_mobile else 50,
             padding=ft.Padding(12, 10, 14 if is_mobile else 20, 10),
-            border=ft.border.Border.all(2, "#E0D0F0"),
-            shadow=ft.BoxShadow(blur_radius=6, color="#20000000"),
+            border=ft.border.Border.all(2, theme["border"]),
+            shadow=ft.BoxShadow(blur_radius=14, color="#30000000"),
             expand=True,
         )
         answer_buttons.append(box)
@@ -1737,7 +1944,7 @@ def show_next_question(page: ft.Page, state: dict):
         question,
         size=18 if is_mobile else 22,
         weight="bold",
-        color="#2C1654",
+        color=question_text_color,
         text_align="center",
         max_lines=4 if is_mobile else 3,
         no_wrap=False,
@@ -1746,7 +1953,7 @@ def show_next_question(page: ft.Page, state: dict):
         content=ft.Column([
             ft.Container(
                 content=ft.Text(f"FRAGE {q_num}", size=13 if is_mobile else 14, weight="bold", color="white"),
-                bgcolor="#9B59B6",
+                bgcolor=theme["accent"],
                 border_radius=20,
                 padding=ft.Padding(14 if is_mobile else 16, 6, 14 if is_mobile else 16, 6),
             ),
@@ -1757,10 +1964,11 @@ def show_next_question(page: ft.Page, state: dict):
                 width=900,
             ),
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
-        bgcolor="white",
+        bgcolor=question_bg,
         border_radius=20,
         padding=ft.Padding(18 if is_mobile else 24, 18 if is_mobile else 20, 18 if is_mobile else 24, 18 if is_mobile else 20),
-        shadow=ft.BoxShadow(blur_radius=20, color="#30000000"),
+        border=ft.border.Border.all(2, theme["border"]),
+        shadow=ft.BoxShadow(blur_radius=26, color="#40000000"),
         height=150 if is_mobile else 170,
         alignment=ft.Alignment(0, 0),
     )
@@ -2417,6 +2625,15 @@ def show_settings_view(page: ft.Page, state: dict):
                     width=240,
                 ),
                 ft.Container(
+                    content=ft.Text("Freunde", size=16, weight="bold", color="white"),
+                    on_click=lambda e: show_friends_view(e.page, state) if logged_in else show_login_view(e.page, state),
+                    bgcolor=theme["accent"],
+                    border_radius=30,
+                    padding=ft.Padding(30, 12, 30, 12),
+                    alignment=ft.Alignment(0, 0),
+                    width=240,
+                ),
+                ft.Container(
                     content=ft.Text("Profil bearbeiten", size=16, weight="bold", color="white"),
                     on_click=lambda e: show_edit_profile_view(e.page, state) if logged_in else show_login_view(e.page, state),
                     bgcolor=theme["accent_2"],
@@ -2558,6 +2775,179 @@ def show_design_view(page: ft.Page, state: dict):
                spacing=14,
                scroll=ft.ScrollMode.AUTO),
             padding=20,
+        )
+    )
+    page.update()
+
+
+def show_friends_view(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    db, email, user = current_user_entry(state)
+    if not email or not user:
+        show_login_view(page, state)
+        return
+
+    code_input = ft.TextField(
+        label="Freundescode oder QR-Inhalt",
+        width=300,
+        bgcolor=theme["panel"],
+        border_color=theme["border"],
+        color="white",
+    )
+    status_text = ft.Text("", size=13, text_align="center")
+
+    def send_request(e):
+        message = save_friend_request(state, code_input.value)
+        status_text.value = message
+        status_text.color = theme["success"] if "gesendet" in message else theme["danger"]
+        show_friends_view(e.page, state)
+
+    friend_code = user.get("friend_code", "")
+    qr_data = friend_qr_base64(friend_code)
+    qr_control = (
+        ft.Image(src_base64=qr_data, width=150, height=150)
+        if qr_data
+        else ft.Text("QR-Code wird lokal angezeigt, sobald qrcode installiert ist.", size=12, color="#CCCCCC", text_align="center")
+    )
+
+    incoming_controls = []
+    for requester_email in user.get("friend_requests_in", []):
+        requester = db.get("users", {}).get(requester_email, {})
+        name = requester.get("name", requester_email)
+        incoming_controls.append(
+            ft.Row([
+                ft.Text(name, color="white", expand=True),
+                ft.TextButton("Annehmen", on_click=lambda e, req=requester_email: (respond_friend_request(state, req, True), show_friends_view(e.page, state))),
+                ft.TextButton("Ablehnen", on_click=lambda e, req=requester_email: (respond_friend_request(state, req, False), show_friends_view(e.page, state))),
+            ], alignment=ft.MainAxisAlignment.CENTER)
+        )
+    if not incoming_controls:
+        incoming_controls.append(ft.Text("Keine offenen Anfragen.", size=12, color="#CCCCCC"))
+
+    friend_controls = []
+    for friend_email in user.get("friends", []):
+        friend = db.get("users", {}).get(friend_email)
+        if not friend:
+            continue
+        friend_controls.append(
+            ft.Container(
+                content=ft.Row([
+                    ft.Text(friend.get("name", friend_email), size=15, color="white", weight="bold", expand=True),
+                    ft.Text("Statistik", size=12, color=theme["gold"]),
+                ]),
+                on_click=lambda e, f_email=friend_email: show_friend_stats_view(e.page, state, f_email),
+                bgcolor=theme["accent"],
+                border_radius=12,
+                padding=12,
+            )
+        )
+    if not friend_controls:
+        friend_controls.append(ft.Text("Noch keine Freunde.", size=12, color="#CCCCCC"))
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("Freunde", size=30, weight="bold", color="white"),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("Dein Freundescode", size=16, weight="bold", color=theme["gold"]),
+                        ft.Text(friend_code, size=24, weight="bold", color="white", selectable=True),
+                        qr_control,
+                        code_input,
+                        ft.Container(
+                            content=ft.Text("Anfrage senden", size=15, weight="bold", color="white"),
+                            on_click=send_request,
+                            bgcolor=theme["success"],
+                            border_radius=30,
+                            padding=ft.Padding(24, 10, 24, 10),
+                            alignment=ft.Alignment(0, 0),
+                            width=220,
+                        ),
+                        status_text,
+                        ft.Divider(color=theme["border"]),
+                        ft.Text("Offene Anfragen", size=16, weight="bold", color=theme["gold"]),
+                        *incoming_controls,
+                        ft.Divider(color=theme["border"]),
+                        ft.Text("Deine Freunde", size=16, weight="bold", color=theme["gold"]),
+                        *friend_controls,
+                    ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor=theme["panel"],
+                    border_radius=16,
+                    padding=20,
+                    border=ft.border.Border.all(2, theme["border"]),
+                    width=420,
+                ),
+                ft.TextButton(
+                    "Zurück",
+                    on_click=lambda e: show_settings_view(e.page, state),
+                    style=ft.ButtonStyle(color="white"),
+                ),
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14,
+               scroll=ft.ScrollMode.AUTO),
+            padding=20,
+        )
+    )
+    page.update()
+
+
+def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
+    theme = get_theme(state)
+    db = load_db()
+    friend = db.get("users", {}).get(friend_email)
+    if not friend:
+        show_friends_view(page, state)
+        return
+
+    stats = friend.get("stats", {})
+    ensure_stats_defaults(stats)
+    games = stats.get("games_played", 0)
+    card = _stats_card(
+        f"Statistik: {friend.get('name', friend_email)}",
+        [
+            ("Spiele", str(games)),
+            ("Siege / Niederlagen", f"{stats.get('games_won', 0)} / {stats.get('games_lost', 0)}"),
+            ("Winrate", _pct(stats.get("games_won", 0), games)),
+            ("Trefferquote", _pct(stats.get("correct_answers", 0), stats.get("questions_answered", 0))),
+            ("Rekord", stats.get("highest_money", "0 €")),
+            ("Höchste Frage", _level_label(stats.get("highest_money_level", -1))),
+            ("Beste Siegesserie", str(stats.get("best_streak", 0))),
+        ],
+        theme,
+        theme["success"],
+        360,
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("Freundesstatistik", size=30, weight="bold", color="white"),
+                card,
+                ft.TextButton(
+                    "Zurück",
+                    on_click=lambda e: show_friends_view(e.page, state),
+                    style=ft.ButtonStyle(color="white"),
+                ),
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14),
         )
     )
     page.update()
