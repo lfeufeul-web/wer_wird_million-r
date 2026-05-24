@@ -606,7 +606,7 @@ def update_game_stats(correct: int, answered: int, money: str, money_level_idx: 
 
 def save_current_game(state: dict):
     email = state.get("current_user_email")
-    if not email:
+    if not email or state.get("game_finished"):
         return
 
     db = load_db()
@@ -631,16 +631,24 @@ def clear_saved_game(state: dict):
     if not email:
         return
 
+    state.pop("saved_game", None)
     db = load_db()
     if email in db.get("users", {}) and "saved_game" in db["users"][email]:
         db["users"][email].pop("saved_game", None)
-        state.pop("saved_game", None)
         save_db(db)
+
+    uid = state.get("current_user_uid") or db.get("users", {}).get(email, {}).get("uid")
+    client = get_firestore_client()
+    if client is not None and uid and firestore is not None:
+        try:
+            client.collection("users").document(uid).update({"saved_game": firestore.DELETE_FIELD})
+        except Exception as e:
+            print(f"Firebase saved_game delete error: {e}")
 
 
 def get_saved_game_for_state(state: dict) -> dict | None:
     email = state.get("current_user_email")
-    if not email:
+    if not email or state.get("game_finished"):
         return None
 
     saved = state.get("saved_game")
@@ -680,6 +688,7 @@ def resume_saved_game(page: ft.Page, state: dict, saved: dict | None = None):
         "question_index": saved.get("question_index", 0),
         "questions": saved.get("questions", []),
         "saved_game": saved,
+        "game_finished": False,
     })
     show_next_question(page, state)
 
@@ -796,6 +805,71 @@ def _number_question(prompt: str, correct: int, spread: int = 3) -> tuple:
     wrongs = [correct + spread, correct - spread, correct + spread * 2]
     wrongs = [value if value != correct else value + 1 for value in wrongs]
     return _make_question(prompt, correct, wrongs)
+
+
+EXTRA_TOPIC_QUESTIONS = [
+    ("Welches Instrument hat Tasten, Saiten und Hämmer?", "Klavier", ["Geige", "Trompete", "Flöte"]),
+    ("Welche Musikrichtung ist eng mit Jamaika verbunden?", "Reggae", ["Tango", "Polka", "Oper"]),
+    ("Wer gilt als 'King of Pop'?", "Michael Jackson", ["Elvis Presley", "Freddie Mercury", "Prince"]),
+    ("Welche Band veröffentlichte das Album 'Abbey Road'?", "The Beatles", ["Queen", "ABBA", "U2"]),
+    ("Wie nennt man den Dirigentenstab?", "Taktstock", ["Bogen", "Plektrum", "Kapodaster"]),
+    ("Welcher Vogel kann besonders gut Laute nachahmen?", "Papagei", ["Pinguin", "Adler", "Storch"]),
+    ("Welcher Baum verliert im Herbst typischerweise seine Blätter?", "Ahorn", ["Tanne", "Kiefer", "Fichte"]),
+    ("Was ist ein Biotop?", "Lebensraum", ["Gesteinsart", "Wetterlage", "Sternbild"]),
+    ("Welches Tier baut Dämme in Flüssen?", "Biber", ["Fuchs", "Igel", "Reh"]),
+    ("Welche Pflanze ist bekannt für ihre Sonnenblumenkerne?", "Sonnenblume", ["Rose", "Tulpe", "Orchidee"]),
+    ("Welches Organ filtert Blut im menschlichen Körper?", "Niere", ["Lunge", "Magen", "Haut"]),
+    ("Welche Blutkörperchen transportieren Sauerstoff?", "rote Blutkörperchen", ["weiße Blutkörperchen", "Blutplättchen", "Nervenzellen"]),
+    ("Welche Sportart nutzt einen Puck?", "Eishockey", ["Basketball", "Tennis", "Rugby"]),
+    ("Wie heißt der wichtigste Filmpreis in Hollywood?", "Oscar", ["Grammy", "Emmy", "Tony"]),
+    ("Welches Land ist für Sushi bekannt?", "Japan", ["Mexiko", "Italien", "Norwegen"]),
+    ("Welche Stadt nennt man auch 'Big Apple'?", "New York", ["London", "Berlin", "Madrid"]),
+    ("Was ist ein Vulkan?", "Öffnung der Erdkruste", ["Wolkenart", "Meeresströmung", "Wüstenform"]),
+    ("Welche Schicht schützt die Erde vor viel UV-Strahlung?", "Ozonschicht", ["Erdkern", "Troposphäre", "Magnetit"]),
+    ("Was entsteht aus einer Raupe?", "Schmetterling", ["Frosch", "Libelle", "Biene"]),
+    ("Welcher Planet ist für seine Ringe bekannt?", "Saturn", ["Mars", "Merkur", "Venus"]),
+    ("Wie nennt man eine Gruppe von Sternen mit Muster?", "Sternbild", ["Krater", "Kontinent", "Molekül"]),
+    ("Welche Farbe entsteht aus Gelb und Blau?", "Grün", ["Lila", "Orange", "Rot"]),
+    ("Was ist ein Aquarell?", "Wasserfarbenbild", ["Steinskulptur", "Holzschnitt", "Fotofilm"]),
+    ("Wer schrieb 'Harry Potter'?", "J. K. Rowling", ["Astrid Lindgren", "Cornelia Funke", "Enid Blyton"]),
+    ("Wie heißt die Sprache der alten Römer?", "Latein", ["Griechisch", "Hebräisch", "Keltisch"]),
+    ("Was ist ein Atlas?", "Kartensammlung", ["Messgerät", "Musikinstrument", "Sportart"]),
+    ("Welches Gerät misst die Temperatur?", "Thermometer", ["Barometer", "Kompass", "Mikroskop"]),
+    ("Was macht ein Kompass?", "Norden anzeigen", ["Temperatur messen", "Zeit stoppen", "Strom speichern"]),
+    ("Welche Erfindung verbindet Computer weltweit?", "Internet", ["Mikrowelle", "Druckerpresse", "Taschenlampe"]),
+    ("Was ist ein Passwort-Manager?", "Programm zum Speichern von Passwörtern", ["Musik-App", "Bildschirm", "Routerkabel"]),
+    ("Welche Küche ist für Tacos bekannt?", "mexikanische Küche", ["japanische Küche", "schwedische Küche", "griechische Küche"]),
+    ("Welches Gewürz färbt Speisen gelb?", "Kurkuma", ["Pfeffer", "Zimt", "Oregano"]),
+    ("Welche Naturerscheinung erzeugt Donner?", "Gewitter", ["Nebel", "Frost", "Ebbe"]),
+    ("Was ist Ebbe?", "niedriger Wasserstand", ["starker Wind", "Schneefall", "Vulkanausbruch"]),
+    ("Welches Tier lebt sowohl im Wasser als auch an Land?", "Frosch", ["Hai", "Adler", "Kamel"]),
+    ("Welche Pflanze liefert Kakaobohnen?", "Kakaobaum", ["Apfelbaum", "Olivenbaum", "Bambus"]),
+]
+
+
+def supplemental_question(level_idx: int, variant: int) -> tuple:
+    prompt, correct, wrongs = EXTRA_TOPIC_QUESTIONS[(level_idx * 17 + variant) % len(EXTRA_TOPIC_QUESTIONS)]
+    return _make_question(prompt, correct, wrongs)
+
+
+def is_math_question(question: tuple) -> bool:
+    prompt = question[0].lower()
+    math_markers = [
+        "was ist ",
+        "wieviel",
+        "wie viel",
+        "löse",
+        " x ",
+        " + ",
+        " - ",
+        "%",
+        "quadrat",
+        "drittel",
+        "hälfte",
+        "größer",
+        "primzahl",
+    ]
+    return any(marker in prompt for marker in math_markers)
 
 
 def _young_question(level_idx: int, variant: int) -> tuple:
@@ -1155,7 +1229,10 @@ def build_level_question_bank(age: str) -> list[list[tuple]]:
     }
     builder = builders.get(age, _mid_question)
     return [
-        [builder(level_idx, variant) for variant in range(QUESTIONS_PER_LEVEL)]
+        [
+            *[builder(level_idx, variant) for variant in range(QUESTIONS_PER_LEVEL)],
+            *[supplemental_question(level_idx, variant) for variant in range(40)],
+        ]
         for level_idx in range(len(MONEY_LEVELS))
     ]
 
@@ -1163,8 +1240,27 @@ def build_level_question_bank(age: str) -> list[list[tuple]]:
 def create_game_questions(age: str) -> list[tuple]:
     bank = build_level_question_bank(age)
     questions = []
+    used_prompts = set()
     for level_questions in bank:
-        questions.append(random.choice(level_questions))
+        non_math = [question for question in level_questions if not is_math_question(question)]
+        candidates = non_math if len(non_math) >= 8 else level_questions
+        random.shuffle(candidates)
+        chosen = None
+        for question in candidates:
+            prompt_key = question[0].strip().lower()
+            if prompt_key not in used_prompts:
+                chosen = question
+                break
+        if chosen is None:
+            for question in level_questions:
+                prompt_key = question[0].strip().lower()
+                if prompt_key not in used_prompts:
+                    chosen = question
+                    break
+        if chosen is None:
+            raise RuntimeError("Nicht genug eindeutige Fragen fuer dieses Spiel.")
+        used_prompts.add(chosen[0].strip().lower())
+        questions.append(chosen)
     return questions
 
 
@@ -1440,6 +1536,7 @@ def start_new_game(page: ft.Page, state: dict, force_new: bool = False):
         "jokers_used": 0,
         "question_index": 0,
         "questions": [],
+        "game_finished": False,
     })
     state.pop("saved_game", None)
 
@@ -1548,6 +1645,7 @@ def show_next_question(page: ft.Page, state: dict):
                     _show_correct_screen(page, state)
             else:
                 state["questions_answered"] += 1
+                state["game_finished"] = True
                 clear_saved_game(state)
                 _show_wrong_screen(page, state)
 
@@ -1794,6 +1892,7 @@ def _show_correct_screen(page: ft.Page, state: dict):
 
 
 def _show_wrong_screen(page: ft.Page, state: dict):
+    state["game_finished"] = True
     clear_saved_game(state)
     # Update persistent stats
     correct = state.get("correct", 0)
@@ -1845,6 +1944,7 @@ def _show_wrong_screen(page: ft.Page, state: dict):
 
 
 def _show_win_screen(page: ft.Page, state: dict):
+    state["game_finished"] = True
     clear_saved_game(state)
     # Update persistent stats
     correct = state.get("correct", 0)
