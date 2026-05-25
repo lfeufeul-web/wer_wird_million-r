@@ -1252,6 +1252,32 @@ def delete_custom_quiz(state: dict, quiz_id: str):
     persist_user_custom_quizzes(state, quizzes)
 
 
+def custom_quiz_prize_for_number(question_num: int, planned_total: int | None = None) -> str:
+    """1-based question number -> prize money if answered correctly."""
+    question_num = max(1, question_num)
+    total = max(question_num, planned_total or question_num, 1)
+    total = min(total, len(MONEY_LEVELS))
+    return MONEY_LEVELS[:total][question_num - 1]
+
+
+def auto_save_editing_quiz(
+    state: dict,
+    title: str | None = None,
+    mark_finished: bool = False,
+) -> dict | None:
+    """Persist the quiz being edited (draft) without manual save button."""
+    quiz = state.get("editing_quiz")
+    if not quiz or not state.get("current_user_email"):
+        return None
+    if title is not None:
+        quiz["title"] = title.strip() or quiz.get("title", "Mein Quiz")
+    if not mark_finished:
+        quiz["is_draft"] = True
+    saved = upsert_custom_quiz(state, quiz, mark_finished=mark_finished)
+    state["editing_quiz"] = saved
+    return saved
+
+
 def start_custom_quiz_play(page: ft.Page, state: dict, quiz: dict):
     questions = custom_quiz_to_game_questions(quiz)
     if not questions:
@@ -2206,15 +2232,29 @@ def _menu_button(label: str, on_click, color: str) -> ft.Control:
     )
 
 
-def _game_menu_button(label: str, on_click, bgcolor: str, width: int = 280) -> ft.Container:
+CUSTOM_QUIZ_BTN_WIDTH = 200
+CUSTOM_QUIZ_BTN_HEIGHT = 44
+
+
+def _game_menu_button(
+    label: str,
+    on_click,
+    bgcolor: str,
+    width: int = CUSTOM_QUIZ_BTN_WIDTH,
+    height: int = CUSTOM_QUIZ_BTN_HEIGHT,
+) -> ft.Container:
     return ft.Container(
-        content=ft.Text(label, size=16, weight="bold", color="white", text_align="center"),
+        content=ft.Text(
+            label, size=14, weight="bold", color="white",
+            text_align=ft.TextAlign.CENTER, max_lines=2, no_wrap=False,
+        ),
         on_click=on_click,
         bgcolor=bgcolor,
         border_radius=30,
-        padding=ft.Padding(24, 12, 24, 12),
+        padding=ft.Padding(12, 8, 12, 8),
         alignment=ft.Alignment(0, 0),
         width=width,
+        height=height,
     )
 
 
@@ -2325,10 +2365,28 @@ def show_custom_quiz_hub(page: ft.Page, state: dict):
                     ]),
                     ft.Text(f"{q_count} Frage(n)", size=12, color=theme_txt(theme, "secondary")),
                     ft.Row([
-                        ft.TextButton("Bearbeiten", on_click=lambda e, qid=quiz["id"]: show_custom_quiz_editor(e.page, state, qid)),
-                        ft.TextButton("Spielen", on_click=lambda e, q=quiz: start_custom_quiz_play(e.page, state, q)),
-                        ft.TextButton("Löschen", on_click=lambda e, qid=quiz["id"]: confirm_delete_custom_quiz(e.page, state, qid)),
-                    ], spacing=0),
+                        _game_menu_button(
+                            "Bearbeiten",
+                            lambda e, qid=quiz["id"]: show_custom_quiz_editor(e.page, state, qid),
+                            theme["accent"],
+                            width=120,
+                            height=36,
+                        ),
+                        _game_menu_button(
+                            "Spielen",
+                            lambda e, q=quiz: start_custom_quiz_play(e.page, state, q),
+                            theme["success"],
+                            width=120,
+                            height=36,
+                        ),
+                        _game_menu_button(
+                            "Löschen",
+                            lambda e, qid=quiz["id"]: confirm_delete_custom_quiz(e.page, state, qid),
+                            theme["danger"],
+                            width=120,
+                            height=36,
+                        ),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=8),
                 ], spacing=4),
                 bgcolor=theme["panel"],
                 border_radius=10,
@@ -2419,6 +2477,20 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         quiz = new_empty_custom_quiz()
 
     state["editing_quiz"] = dict(quiz)
+    auto_save_editing_quiz(state, title=quiz.get("title", "Mein Quiz"))
+
+    save_status = ft.Text(
+        "Automatisch gespeichert",
+        size=12,
+        color=theme["success"],
+        text_align="center",
+    )
+
+    def on_title_change(e):
+        auto_save_editing_quiz(state, title=title_field.value)
+        save_status.value = "Automatisch gespeichert"
+        save_status.update()
+
     title_field = ft.TextField(
         label="Titel des Spiels",
         value=quiz.get("title", ""),
@@ -2426,31 +2498,23 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         bgcolor=theme["question_bg"],
         color=theme["question_text"],
         border_color=theme["border"],
+        on_change=on_title_change,
     )
-
-    def save_draft(e):
-        q = state["editing_quiz"]
-        q["title"] = (title_field.value or "").strip() or "Mein Quiz"
-        q["is_draft"] = True
-        upsert_custom_quiz(state, q, mark_finished=False)
-        page.snack_bar = ft.SnackBar(content=ft.Text("Zwischengespeichert ✓"))
-        page.snack_bar.open = True
-        page.update()
 
     def save_finished(e):
         q = state["editing_quiz"]
-        q["title"] = (title_field.value or "").strip() or "Mein Quiz"
+        auto_save_editing_quiz(state, title=title_field.value)
+        q = state["editing_quiz"]
         if not q.get("questions"):
             page.snack_bar = ft.SnackBar(content=ft.Text("Mindestens eine Frage erforderlich."))
             page.snack_bar.open = True
             page.update()
             return
-        upsert_custom_quiz(state, q, mark_finished=True)
-        page.snack_bar = ft.SnackBar(content=ft.Text("Spiel gespeichert ✓"))
-        page.snack_bar.open = True
+        auto_save_editing_quiz(state, title=title_field.value, mark_finished=True)
         show_custom_quiz_hub(page, state)
 
     def add_question(e):
+        auto_save_editing_quiz(state, title=title_field.value)
         if len(state["editing_quiz"].get("questions", [])) >= MAX_CUSTOM_QUESTIONS:
             page.snack_bar = ft.SnackBar(content=ft.Text(f"Maximal {MAX_CUSTOM_QUESTIONS} Fragen."))
             page.snack_bar.open = True
@@ -2459,33 +2523,51 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         show_custom_question_editor(page, state, None)
 
     def play_now(e):
-        q = dict(state["editing_quiz"])
-        q["title"] = (title_field.value or "").strip() or q.get("title", "Mein Quiz")
-        upsert_custom_quiz(state, q, mark_finished=bool(q.get("questions")))
-        start_custom_quiz_play(page, state, q)
+        auto_save_editing_quiz(state, title=title_field.value, mark_finished=bool(state["editing_quiz"].get("questions")))
+        start_custom_quiz_play(page, state, state["editing_quiz"])
 
+    def go_back_to_hub(e):
+        auto_save_editing_quiz(state, title=title_field.value)
+        show_custom_quiz_hub(e.page, state)
+
+    questions_list = state["editing_quiz"].get("questions", [])
+    planned_total = max(len(questions_list), 1)
     question_items = []
-    for idx, q in enumerate(state["editing_quiz"].get("questions", [])):
-        preview = str(q.get("question", ""))[:60]
-        if len(str(q.get("question", ""))) > 60:
+    for idx, q in enumerate(questions_list):
+        preview = str(q.get("question", ""))[:50]
+        if len(str(q.get("question", ""))) > 50:
             preview += "…"
         correct_letter = ANSWER_LETTERS[int(q.get("correct_idx", 0))]
+        prize = custom_quiz_prize_for_number(idx + 1, planned_total)
         question_items.append(
             ft.Container(
-                content=ft.Row([
-                    ft.Text(f"{idx + 1}. {preview}", size=13, color=theme_txt(theme, "primary"), expand=True),
-                    ft.Text(f"✓ {correct_letter}", size=12, color=theme["gold"], weight="bold"),
-                    ft.TextButton(
-                        "Bearbeiten",
-                        on_click=lambda e, i=idx: show_custom_question_editor(page, state, i),
-                    ),
-                    ft.TextButton(
-                        "Entf.",
-                        on_click=lambda e, i=idx: delete_question_from_editor(page, state, i, title_field),
-                        style=ft.ButtonStyle(color=theme["danger"]),
-                    ),
-                ]),
-                padding=ft.Padding(4, 0, 4, 0),
+                content=ft.Column([
+                    ft.Row([
+                        ft.Text(
+                            f"Frage {idx + 1} · {prize}",
+                            size=12, weight="bold", color=theme["gold"],
+                        ),
+                        ft.Text(f"✓ {correct_letter}", size=12, color=theme["success"], weight="bold"),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.Text(preview, size=13, color=theme_txt(theme, "primary")),
+                    ft.Row([
+                        _game_menu_button(
+                            "Bearbeiten",
+                            lambda e, i=idx: show_custom_question_editor(page, state, i),
+                            theme["accent"],
+                            width=175,
+                            height=36,
+                        ),
+                        _game_menu_button(
+                            "Entfernen",
+                            lambda e, i=idx: delete_question_from_editor(page, state, i, title_field),
+                            theme["danger"],
+                            width=175,
+                            height=36,
+                        ),
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+                ], spacing=4),
+                padding=ft.Padding(0, 4, 0, 8),
             )
         )
 
@@ -2514,17 +2596,15 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                     padding=10,
                     border=ft.border.Border.all(1, theme["border"]),
                 ),
+                save_status,
                 ft.Row([
-                    _game_menu_button("➕ Frage", add_question, theme["accent"], width=120),
-                    _game_menu_button("💾 Zwischenspeichern", save_draft, "#5C6BC0", width=180),
-                ], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
-                ft.Row([
-                    _game_menu_button("✅ Speichern", save_finished, theme["success"], width=140),
-                    _game_menu_button("▶ Spielen", play_now, theme["gold"], width=140),
-                ], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+                    _game_menu_button("➕ Frage", add_question, theme["accent"]),
+                    _game_menu_button("✅ Fertig", save_finished, theme["success"]),
+                    _game_menu_button("▶ Spielen", play_now, theme["gold"]),
+                ], alignment=ft.MainAxisAlignment.CENTER, spacing=12, wrap=True),
                 ft.TextButton(
                     "← Zurück zur Liste",
-                    on_click=lambda e: show_custom_quiz_hub(e.page, state),
+                    on_click=go_back_to_hub,
                     style=ft.ButtonStyle(color="white"),
                 ),
             ], alignment=ft.MainAxisAlignment.CENTER,
@@ -2543,9 +2623,7 @@ def delete_question_from_editor(page: ft.Page, state: dict, index: int, title_fi
     if 0 <= index < len(questions):
         questions.pop(index)
         q["questions"] = questions
-        q["title"] = (title_field.value or "").strip() or q.get("title", "Mein Quiz")
-        state["editing_quiz"] = q
-        upsert_custom_quiz(state, q, mark_finished=False)
+        auto_save_editing_quiz(state, title=title_field.value)
     show_custom_quiz_editor(page, state, q.get("id"))
 
 
@@ -2557,8 +2635,17 @@ def show_custom_question_editor(page: ft.Page, state: dict, question_index: int 
         return
 
     existing = None
-    if question_index is not None and 0 <= question_index < len(quiz.get("questions", [])):
-        existing = dict(quiz["questions"][question_index])
+    questions = quiz.get("questions", [])
+    if question_index is not None and 0 <= question_index < len(questions):
+        existing = dict(questions[question_index])
+
+    if question_index is not None:
+        q_num = question_index + 1
+        planned_total = max(len(questions), 1)
+    else:
+        q_num = len(questions) + 1
+        planned_total = q_num
+    prize = custom_quiz_prize_for_number(q_num, planned_total)
 
     question_field = ft.TextField(
         label="Frage",
@@ -2621,7 +2708,11 @@ def show_custom_question_editor(page: ft.Page, state: dict, question_index: int 
             questions.append(entry)
         quiz["questions"] = questions
         state["editing_quiz"] = quiz
-        upsert_custom_quiz(state, quiz, mark_finished=False)
+        auto_save_editing_quiz(state, title=quiz.get("title"))
+        show_custom_quiz_editor(page, state, quiz.get("id"))
+
+    def back_to_editor(e):
+        auto_save_editing_quiz(state, title=quiz.get("title"))
         show_custom_quiz_editor(page, state, quiz.get("id"))
 
     page.controls.clear()
@@ -2639,16 +2730,33 @@ def show_custom_question_editor(page: ft.Page, state: dict, question_index: int 
                     "Frage bearbeiten" if question_index is not None else "Neue Frage",
                     size=24, weight="bold", color="white", text_align="center",
                 ),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text(
+                            f"Frage {q_num} von {planned_total}",
+                            size=16, weight="bold", color=theme_txt(theme, "primary"),
+                            text_align="center",
+                        ),
+                        ft.Text(
+                            f"Preisstufe bei richtiger Antwort: {prize}",
+                            size=15, weight="bold", color=theme["gold"],
+                            text_align="center",
+                        ),
+                    ], spacing=4),
+                    bgcolor=theme["panel"],
+                    border_radius=12,
+                    padding=14,
+                    border=ft.border.Border.all(2, theme["border"]),
+                    width=360,
+                ),
                 question_field,
                 *answer_fields,
                 correct_dropdown,
                 ft.Container(height=8),
-                _game_menu_button("💾 Frage speichern", save_question, theme["success"], width=220),
-                ft.TextButton(
-                    "← Zurück zum Editor",
-                    on_click=lambda e: show_custom_quiz_editor(e.page, state, quiz.get("id")),
-                    style=ft.ButtonStyle(color="white"),
-                ),
+                ft.Row([
+                    _game_menu_button("💾 Frage speichern", save_question, theme["success"]),
+                    _game_menu_button("← Zurück", back_to_editor, theme["accent"]),
+                ], alignment=ft.MainAxisAlignment.CENTER, spacing=12),
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                spacing=8, scroll=ft.ScrollMode.AUTO),
