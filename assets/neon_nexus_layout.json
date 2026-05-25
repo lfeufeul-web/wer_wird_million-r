@@ -1,16 +1,90 @@
 {
   "reference_size": [1920, 1080],
-  "description": "Relative UI zones (0.0-1.0) for Neon Nexus backgrounds. New artwork should keep these areas clear for text.",
-  "zones": {
-    "exit": { "l": 0.02, "t": 0.02, "w": 0.22, "h": 0.05, "purpose": "Pause / exit button" },
-    "question": { "l": 0.045, "t": 0.07, "w": 0.58, "h": 0.21, "purpose": "Question text" },
-    "answers": { "l": 0.045, "t": 0.31, "w": 0.58, "h": 0.40, "purpose": "2x2 answer grid" },
-    "footer": { "l": 0.045, "t": 0.73, "w": 0.58, "h": 0.05, "purpose": "Progress and prize" },
-    "ladder": { "l": 0.665, "t": 0.07, "w": 0.29, "h": 0.86, "purpose": "Prize ladder + level bar" }
+  "description": "Exact text/UI zones for Neon Nexus. Use these coordinates when creating background art.",
+  "text_zones_pixels": {
+    "question": {
+      "x": 86,
+      "y": 76,
+      "width": 1094,
+      "height": 227,
+      "note": "Question text + FRAGE badge (centered in box)"
+    },
+    "answer_a": {
+      "x": 86,
+      "y": 335,
+      "width": 532,
+      "height": 195,
+      "note": "Answer A — top left"
+    },
+    "answer_b": {
+      "x": 648,
+      "y": 335,
+      "width": 532,
+      "height": 195,
+      "note": "Answer B — top right"
+    },
+    "answer_c": {
+      "x": 86,
+      "y": 548,
+      "width": 532,
+      "height": 195,
+      "note": "Answer C — bottom left"
+    },
+    "answer_d": {
+      "x": 648,
+      "y": 548,
+      "width": 532,
+      "height": 195,
+      "note": "Answer D — bottom right"
+    },
+    "prize_ladder": {
+      "x": 1277,
+      "y": 76,
+      "width": 537,
+      "height": 928,
+      "note": "PREISSTUFEN title + 15 rows + green level bar (bar Y moves per question)"
+    },
+    "footer": {
+      "x": 86,
+      "y": 767,
+      "width": 1094,
+      "height": 65,
+      "note": "Frage X von Y (left) and current money (right)"
+    },
+    "exit_button": {
+      "x": 38,
+      "y": 22,
+      "width": 220,
+      "height": 54,
+      "note": "Pause / exit"
+    }
   },
-  "notes": [
-    "Left ~62%: gameplay (question + answers)",
-    "Right ~30%: ladder only — no decorative frames needed there",
-    "Use dark hex texture; avoid extra empty boxes in question/answer zones"
+  "text_zones_percent": {
+    "question": { "l": 0.0448, "t": 0.0704, "w": 0.5698, "h": 0.2102 },
+    "answers": { "l": 0.0448, "t": 0.3102, "w": 0.5698, "h": 0.3778 },
+    "answer_a": { "l": 0.0448, "t": 0.3102, "w": 0.2771, "h": 0.1806 },
+    "answer_b": { "l": 0.3375, "t": 0.3102, "w": 0.2771, "h": 0.1806 },
+    "answer_c": { "l": 0.0448, "t": 0.5074, "w": 0.2771, "h": 0.1806 },
+    "answer_d": { "l": 0.3375, "t": 0.5074, "w": 0.2771, "h": 0.1806 },
+    "prize_ladder": { "l": 0.6651, "t": 0.0704, "w": 0.2797, "h": 0.8593 },
+    "footer": { "l": 0.0448, "t": 0.7102, "w": 0.5698, "h": 0.0602 },
+    "exit_button": { "l": 0.0198, "t": 0.0204, "w": 0.1146, "h": 0.0500 }
+  },
+  "prize_ladder_rows": {
+    "count": 15,
+    "header_height_px": 52,
+    "row_height_px": 24,
+    "bar_height_px": 8,
+    "bar_y_formula": "header_height + (14 - current_level_index) * row_height + (row_height - bar_height) / 2",
+    "levels_bottom_to_top": [
+      "50 €", "100 €", "200 €", "300 €", "500 €", "1.000 €", "2.000 €", "4.000 €",
+      "8.000 €", "16.000 €", "32.000 €", "64.000 €", "125.000 €", "500.000 €", "1.000.000 €"
+    ]
+  },
+  "design_rules": [
+    "Left 57%: only question + 4 answers + footer — no extra decorative frames",
+    "Right 28%: ladder panel only",
+    "Keep slot interiors dark (#030806) so white/green UI text stays readable",
+    "Do not draw yellow or duplicate hex outlines inside answer slots"
   ]
 }
