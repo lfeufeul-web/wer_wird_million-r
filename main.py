@@ -2865,55 +2865,107 @@ def _medal(rank: int) -> str:
 
 
 
+ACTIVE_DUEL_STATUSES = ("pending", "challenger_done")
+
+
+def get_active_duel_with_friend(email: str, friend_email: str) -> dict | None:
+    """Returns an open duel between two friends, if any."""
+    client = get_firestore_client()
+    if not client:
+        return None
+    try:
+        for doc in client.collection("duels").where("challenger_email", "==", email).where(
+            "opponent_email", "==", friend_email
+        ).stream():
+            duel = doc.to_dict() or {}
+            if duel.get("status") in ACTIVE_DUEL_STATUSES:
+                duel["id"] = doc.id
+                return duel
+        for doc in client.collection("duels").where("challenger_email", "==", friend_email).where(
+            "opponent_email", "==", email
+        ).stream():
+            duel = doc.to_dict() or {}
+            if duel.get("status") in ACTIVE_DUEL_STATUSES:
+                duel["id"] = doc.id
+                return duel
+    except Exception as ex:
+        print(f"Duel check error: {ex}")
+    return None
+
+
+def _close_overlay(page: ft.Page, overlay):
+    if hasattr(page, "close"):
+        page.close(overlay)
+    else:
+        overlay.open = False
+        page.update()
+
+
 def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
-    """Shows a detailed friend profile overlay with stats, last_active, theme."""
+    """Opens an action menu for a friend (stats, challenge, remove)."""
     theme = get_theme(state)
     db = load_db()
+    email = state.get("current_user_email")
     friend = db.get("users", {}).get(friend_email)
     if not friend:
+        show_friends_view(page, state)
         return
 
     ensure_social_defaults(friend)
-    stats = friend.get("stats", {})
-    ensure_stats_defaults(stats)
     friend_theme_name = friend.get("settings", {}).get("theme", "classic")
     friend_theme = THEMES.get(friend_theme_name, THEMES["classic"])
     last_active_str = format_last_active(friend.get("last_active"))
-    week_stats = friend.get("weekly_stats", {})
-    week_key = get_current_week_key()
+    friend_name = friend.get("name", friend_email)
+    avatar_letter = (friend_name or friend_email)[0].upper()
+
+    active_duel = get_active_duel_with_friend(email, friend_email) if email else None
+    duel_hint = ""
+    can_resume = False
+    if active_duel:
+        if active_duel.get("challenger_email") == email and active_duel.get("status") == "pending":
+            duel_hint = "Duell fortsetzen – du hast die Herausforderung noch nicht beendet."
+            can_resume = True
+        elif active_duel.get("challenger_email") == email:
+            duel_hint = "Es läuft bereits ein Duell mit diesem Freund."
+        else:
+            duel_hint = "Dieser Freund hat dich herausgefordert – siehe Tab „Duelle“."
 
     def close_dlg():
-        if hasattr(page, "close"):
-            page.close(dlg)
-        else:
-            dlg.open = False
-            page.update()
+        _close_overlay(page, dlg)
 
-    def do_challenge(e):
+    def on_stats(e):
         close_dlg()
+        show_friend_stats_view(page, state, friend_email)
+
+    def on_challenge(e):
+        close_dlg()
+        if active_duel:
+            if can_resume:
+                show_duel_play_view(page, state, active_duel, role="challenger")
+            else:
+                show_friends_view(
+                    page, state,
+                    status_message=duel_hint or "Es läuft bereits ein Duell mit diesem Freund.",
+                )
+            return
         send_duel_challenge(page, state, friend_email)
 
-    def do_remove(e):
+    def on_remove(e):
         close_dlg()
         remove_friend(state, friend_email)
-        show_friends_view(page, state, status_message=f"{friend.get('name', friend_email)} wurde entfernt.")
+        show_friends_view(page, state, status_message=f"{friend_name} wurde entfernt.")
 
-    rows = [
-        ("🎮 Spiele", str(stats.get("games_played", 0))),
-        ("🏆 Siege", str(stats.get("games_won", 0))),
-        ("📈 Rekord", stats.get("highest_money", "0 €")),
-        ("🔥 Beste Serie", str(stats.get("best_streak", 0))),
-    ]
-    if week_stats.get("week") == week_key:
-        rows.append(("📅 Diese Woche", f"Lvl {week_stats.get('money_level', 0)} · {week_stats.get('games_won', 0)} Siege"))
-
-    stat_rows = [
-        ft.Row([
-            ft.Text(label, size=13, color="#CCCCCC", expand=True),
-            ft.Text(val, size=13, weight="bold", color=theme["gold"]),
-        ])
-        for label, val in rows
-    ]
+    def menu_button(label: str, color: str, handler, disabled: bool = False):
+        return ft.Container(
+            content=ft.Text(label, size=14, weight="bold", color="white" if not disabled else "#888888"),
+            on_click=None if disabled else handler,
+            ink=not disabled,
+            bgcolor=color if not disabled else "#444444",
+            border_radius=12,
+            padding=ft.Padding(16, 12, 16, 12),
+            alignment=ft.Alignment(0, 0),
+            width=280,
+        )
 
     dlg = ft.AlertDialog(
         modal=True,
@@ -2923,33 +2975,31 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
                 border_radius=22,
                 bgcolor=friend_theme["accent"],
                 content=ft.Text(
-                    (friend.get("name") or friend_email)[0].upper(),
+                    avatar_letter,
                     size=22, weight="bold", color="white",
                     text_align=ft.TextAlign.CENTER,
                 ),
                 alignment=ft.Alignment(0, 0),
             ),
             ft.Column([
-                ft.Text(friend.get("name", friend_email), size=18, weight="bold", color="white"),
+                ft.Text(friend_name, size=18, weight="bold", color="white"),
+                ft.Text(f"⏰ {last_active_str}", size=12, color="#AAAAAA"),
                 ft.Text(f"🎨 {friend_theme.get('label', friend_theme_name)}", size=12, color=friend_theme["gold"]),
-            ], spacing=2),
+            ], spacing=2, expand=True),
         ], spacing=10),
         content=ft.Column([
-            ft.Text(f"⏰ {last_active_str}", size=12, color="#AAAAAA"),
-            ft.Divider(color=theme["border"]),
-            *stat_rows,
-        ], spacing=8, tight=True),
+            ft.Text("Was möchtest du tun?", size=13, color="#CCCCCC"),
+            ft.Text(duel_hint, size=12, color=theme["gold"], visible=bool(duel_hint)),
+            menu_button("📊 Statistik ansehen", theme["accent"], on_stats),
+            menu_button(
+                "⚔️ Duell fortsetzen" if can_resume else "⚔️ Herausfordern",
+                theme["gold"],
+                on_challenge,
+                disabled=bool(active_duel and not can_resume),
+            ),
+            menu_button("❌ Freund entfernen", theme["danger"], on_remove),
+        ], spacing=10, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         actions=[
-            ft.TextButton(
-                "⚔️ Herausfordern",
-                on_click=do_challenge,
-                style=ft.ButtonStyle(color=theme["gold"]),
-            ),
-            ft.TextButton(
-                "❌ Entfernen",
-                on_click=do_remove,
-                style=ft.ButtonStyle(color=theme["danger"]),
-            ),
             ft.TextButton(
                 "Schließen",
                 on_click=lambda e: close_dlg(),
@@ -2957,14 +3007,14 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
             ),
         ],
         bgcolor=theme["panel"],
-        actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        actions_alignment=ft.MainAxisAlignment.END,
     )
     if hasattr(page, "open"):
         page.open(dlg)
     else:
-        page.dialog = dlg
+        page.overlay.append(dlg)
         dlg.open = True
-        page.update()
+    page.update()
 
 
 def send_duel_challenge(page: ft.Page, state: dict, opponent_email: str):
@@ -2982,6 +3032,13 @@ def send_duel_challenge(page: ft.Page, state: dict, opponent_email: str):
             bgcolor=theme["danger"], open=True,
         )
         page.update()
+        return
+
+    if get_active_duel_with_friend(email, opponent_email):
+        show_friends_view(
+            page, state,
+            status_message="Mit diesem Freund läuft bereits ein Duell. Beende es zuerst.",
+        )
         return
 
     # Pick 15 random questions
@@ -3277,7 +3334,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
                     ], spacing=2, expand=True),
                     ft.Text("👤 Profil", size=12, color=theme["gold"]),
                 ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                on_click=lambda e, fe=f_email: show_friend_profile_popup(e.page, state, fe),
+                on_click=lambda e, fe=f_email: show_friend_profile_popup(page, state, fe),
                 ink=True,
                 bgcolor=theme["accent"],
                 border_radius=12,
