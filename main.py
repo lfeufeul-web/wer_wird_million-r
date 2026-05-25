@@ -357,6 +357,24 @@ THEMES = {
         "answer_text": "#0F172A",
         "answer_colors": ["#2563EB", "#06B6D4", "#0EA5E9", "#38BDF8"],
     },
+    "neon_nexus": {
+        "label": "Neon Nexus",
+        "game_layout": "neon_nexus",
+        "game_bg": "neon_nexus_bg.png",
+        "gradient": ["#000000", "#021208", "#042810"],
+        "panel": "#020a06",
+        "border": "#00FF66",
+        "accent": "#064d2a",
+        "accent_2": "#00C853",
+        "success": "#00FF66",
+        "danger": "#FF1744",
+        "gold": "#76FF03",
+        "question_bg": "#050f0acc",
+        "question_text": "#E8FFE8",
+        "answer_bg": "#030806cc",
+        "answer_text": "#C8FFC8",
+        "answer_colors": ["#00E676", "#00C853", "#76FF03", "#1DE9B6"],
+    },
 }
 DEFAULT_USER_SETTINGS = {"theme": "classic"}
 
@@ -1587,8 +1605,89 @@ def create_game_questions(age: str) -> list[tuple]:
 
 
 # ---------- Build money ladder column ----------
+def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Control:
+    """Neon Nexus ladder with a glowing bar at the current prize level."""
+    theme = get_theme(state)
+    correct = min(state.get("correct", 0), len(MONEY_LEVELS) - 1)
+    row_h = 21 if compact else 24
+    header_h = 46 if compact else 52
+    n = len(MONEY_LEVELS)
+    i_current = n - 1 - correct
+    bar_top = header_h + i_current * row_h + max(0, (row_h - 8) // 2)
+
+    rows = []
+    for i, level in enumerate(reversed(MONEY_LEVELS)):
+        orig_idx = n - 1 - i
+        is_current = orig_idx == correct
+        is_reached = orig_idx < correct
+        dot_color = theme["gold"] if is_current else (theme["accent_2"] if is_reached else "#143d28")
+        text_color = theme["gold"] if is_current else ("#9dffb8" if is_reached else "#3d6b52")
+        rows.append(
+            ft.Container(
+                content=ft.Row([
+                    ft.Container(
+                        width=7, height=7, border_radius=4,
+                        bgcolor=dot_color,
+                        border=ft.border.Border.all(1, theme["border"]) if is_current else None,
+                    ),
+                    ft.Text(
+                        level,
+                        size=11 if compact else 12,
+                        color=text_color,
+                        weight="bold" if is_current else "normal",
+                        expand=True,
+                        text_align=ft.TextAlign.RIGHT,
+                    ),
+                ], spacing=6),
+                height=row_h,
+                alignment=ft.Alignment(0, 0),
+            )
+        )
+
+    ladder_stack = ft.Stack(
+        [
+            ft.Column(
+                [
+                    ft.Text(
+                        "PREISSTUFEN",
+                        size=12 if compact else 13,
+                        weight="bold",
+                        color=theme["gold"],
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    ft.Divider(color=theme["border"], height=1, thickness=1),
+                    *rows,
+                ],
+                spacing=0,
+            ),
+            ft.Container(
+                top=bar_top,
+                left=4,
+                right=4,
+                height=8,
+                bgcolor=theme["gold"],
+                border_radius=4,
+                shadow=ft.BoxShadow(blur_radius=18, color="#B000FF66", spread_radius=1),
+            ),
+        ],
+        height=header_h + n * row_h + 4,
+    )
+
+    return ft.Container(
+        content=ladder_stack,
+        width=None if compact else 200,
+        padding=ft.Padding(10, 12, 10, 12),
+        bgcolor="#020a06cc",
+        border_radius=6,
+        border=ft.border.Border.all(2, theme["border"]),
+        shadow=ft.BoxShadow(blur_radius=22, color="#7000FF66"),
+    )
+
+
 def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
     """Build the right-side money ladder as a normal Column (no overlay)."""
+    if get_theme(state).get("game_layout") == "neon_nexus":
+        return build_neon_nexus_money_ladder(state, compact)
     items = []
     correct = state.get("correct", 0)
 
@@ -1919,6 +2018,188 @@ def open_main_menu(page: ft.Page, state: dict):
 
 
 # ---------- Game Screen ----------
+def _neon_panel_border(theme: dict, width: int = 2) -> ft.Border:
+    return ft.border.Border.all(width, theme["border"])
+
+
+def show_next_question_neon_nexus(page: ft.Page, state: dict):
+    """Neon Nexus game layout inspired by the cyber-green HUD design."""
+    theme = get_theme(state)
+    answer_palette = theme.get("answer_colors", ANSWER_COLORS)
+    question_text_color = theme_value(theme, "question_text", "#E8FFE8")
+    answer_text_color = theme_value(theme, "answer_text", "#C8FFC8")
+    question, options, correct_idx = state["questions"][state["question_index"]]
+    q_num = state["question_index"] + 1
+    total_q = len(state["questions"])
+    page_width = page.width or page.window.width or 1100
+    is_mobile = page_width < 720
+    bg_image = theme.get("game_bg", "neon_nexus_bg.png")
+
+    answer_buttons: list[ft.Control] = []
+    answers_disabled = [False]
+
+    def handle_answer(e):
+        if answers_disabled[0]:
+            return
+        answers_disabled[0] = True
+        chosen = e.control.data
+        for idx, btn_container in enumerate(answer_buttons):
+            if idx == correct_idx:
+                btn_container.bgcolor = "#00C853"
+                btn_container.border = ft.border.Border.all(3, "#76FF03")
+            elif idx == chosen and idx != correct_idx:
+                btn_container.bgcolor = "#B71C1C"
+                btn_container.border = ft.border.Border.all(3, "#FF1744")
+        page.update()
+
+        async def _next():
+            await asyncio.sleep(1.5)
+            if chosen == correct_idx:
+                state["correct"] += 1
+                state["money"] = MONEY_LEVELS[min(state["correct"] - 1, len(MONEY_LEVELS) - 1)]
+                state["questions_answered"] += 1
+                state["question_index"] += 1
+                if state["question_index"] >= len(state["questions"]):
+                    _show_win_screen(page, state)
+                else:
+                    save_current_game(state)
+                    _show_correct_screen(page, state)
+            else:
+                state["questions_answered"] += 1
+                state["game_finished"] = True
+                clear_saved_game(state)
+                _show_wrong_screen(page, state)
+
+        page.run_task(_next)
+
+    def make_answer_box(idx: int, text: str) -> ft.Container:
+        letter = ANSWER_LETTERS[idx]
+        color = answer_palette[idx % len(answer_palette)]
+        box = ft.Container(
+            content=ft.Row([
+                ft.Container(
+                    content=ft.Text(letter, size=14, weight="bold", color="#001a0a"),
+                    width=32, height=32,
+                    border_radius=4,
+                    bgcolor=color,
+                    alignment=ft.Alignment(0, 0),
+                    border=ft.border.Border.all(1, theme["border"]),
+                ),
+                ft.Text(text, size=13 if is_mobile else 15, color=answer_text_color, weight="bold", expand=True),
+            ], spacing=10),
+            data=idx,
+            on_click=handle_answer,
+            bgcolor=theme_value(theme, "answer_bg", "#030806"),
+            border_radius=6,
+            padding=ft.Padding(12, 10, 16, 10),
+            border=_neon_panel_border(theme),
+            shadow=ft.BoxShadow(blur_radius=14, color="#5000FF66"),
+            expand=True,
+        )
+        answer_buttons.append(box)
+        return box
+
+    answer_boxes = [make_answer_box(i, option) for i, option in enumerate(options)]
+    if is_mobile:
+        answer_layout = ft.Column(answer_boxes, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+    else:
+        answer_layout = ft.Column([
+            ft.Row([answer_boxes[0], answer_boxes[1]], spacing=14),
+            ft.Row([answer_boxes[2], answer_boxes[3]], spacing=14),
+        ], spacing=14, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+
+    question_text = ft.Text(
+        question,
+        size=17 if is_mobile else 21,
+        weight="bold",
+        color=question_text_color,
+        text_align=ft.TextAlign.CENTER,
+        max_lines=5 if is_mobile else 4,
+        no_wrap=False,
+    )
+    question_box = ft.Container(
+        content=ft.Column([
+            ft.Container(
+                content=ft.Text(f"FRAGE {q_num}", size=12, weight="bold", color="#001a0a"),
+                bgcolor=theme["gold"],
+                border_radius=4,
+                padding=ft.Padding(12, 5, 12, 5),
+                border=ft.border.Border.all(1, theme["border"]),
+            ),
+            ft.Container(content=question_text, expand=True, alignment=ft.Alignment(0, 0)),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+        bgcolor=theme_value(theme, "question_bg", "#050f0a"),
+        border_radius=6,
+        padding=ft.Padding(16, 16, 16, 16),
+        border=_neon_panel_border(theme),
+        shadow=ft.BoxShadow(blur_radius=28, color="#8000FF66"),
+        height=150 if is_mobile else 175,
+        alignment=ft.Alignment(0, 0),
+    )
+
+    ladder = build_money_ladder(state, compact=is_mobile)
+    game_area = ft.Column([
+        ft.Row([
+            ft.Container(
+                content=ft.Row([
+                    ft.Text("🚪", size=13),
+                    ft.Text("Spiel unterbrechen", size=12, weight="bold", color="#001a0a"),
+                ], spacing=4),
+                on_click=lambda e: show_exit_confirmation(page, state),
+                bgcolor=theme["danger"],
+                border_radius=4,
+                padding=ft.Padding(14, 7, 14, 7),
+                border=ft.border.Border.all(1, "#FF8A80"),
+            )
+        ], alignment=ft.MainAxisAlignment.START),
+        question_box,
+        answer_layout,
+        ft.Row([
+            ft.Text(f"Frage {q_num} von {total_q}", size=12, color="#9dffb8"),
+            ft.Text(f"◆ {state.get('money', '0 €')}", size=13, color=theme["gold"], weight="bold"),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+    ], spacing=12 if is_mobile else 14, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, width=None if is_mobile else 720)
+
+    if is_mobile:
+        main_content = ft.Column([game_area, ladder], spacing=12, scroll=ft.ScrollMode.AUTO)
+    else:
+        main_content = ft.Row([
+            ft.Container(content=game_area, expand=True, alignment=ft.Alignment(0, -1)),
+            ft.Container(width=12),
+            ladder,
+        ], expand=True, vertical_alignment=ft.CrossAxisAlignment.START)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    ft.Container(
+                        content=ft.Image(src=bg_image, fit=ft.BoxFit.COVER),
+                        expand=True,
+                    ),
+                    ft.Container(
+                        expand=True,
+                        gradient=ft.LinearGradient(
+                            begin=ft.Alignment(0, -1),
+                            end=ft.Alignment(0, 1),
+                            colors=["#000000dd", "#000000b3", "#000000e6"],
+                        ),
+                    ),
+                    ft.Container(
+                        expand=True,
+                        padding=ft.Padding(10 if is_mobile else 18, 10 if is_mobile else 18, 10 if is_mobile else 18, 10 if is_mobile else 18),
+                        content=main_content,
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
 def show_next_question(page: ft.Page, state: dict):
     """Display question with typing animation; all 4 answer boxes shown immediately."""
     if state["question_index"] >= len(state["questions"]):
@@ -1926,6 +2207,10 @@ def show_next_question(page: ft.Page, state: dict):
         return
 
     theme = get_theme(state)
+    if theme.get("game_layout") == "neon_nexus":
+        show_next_question_neon_nexus(page, state)
+        return
+
     answer_palette = theme.get("answer_colors", ANSWER_COLORS)
     question_bg = theme_value(theme, "question_bg", "white")
     question_text_color = theme_value(theme, "question_text", "#2C1654")
@@ -2865,7 +3150,11 @@ def _medal(rank: int) -> str:
 
 
 
-ACTIVE_DUEL_STATUSES = ("pending", "challenger_done")
+ACTIVE_DUEL_STATUSES = ("pending_accept", "pending", "challenger_done")
+
+
+def _duel_document_id(duel: dict) -> str:
+    return duel.get("id") or duel.get("_id") or ""
 
 
 def get_active_duel_with_friend(email: str, friend_email: str) -> dict | None:
@@ -2921,14 +3210,23 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
     active_duel = get_active_duel_with_friend(email, friend_email) if email else None
     duel_hint = ""
     can_resume = False
+    can_play_opponent = False
     if active_duel:
-        if active_duel.get("challenger_email") == email and active_duel.get("status") == "pending":
+        status = active_duel.get("status")
+        if status == "pending_accept" and active_duel.get("opponent_email") == email:
+            duel_hint = "Neue Herausforderung – annehmen oder ablehnen im Tab „Duelle“."
+        elif active_duel.get("challenger_email") == email and status == "pending":
             duel_hint = "Duell fortsetzen – du hast die Herausforderung noch nicht beendet."
             can_resume = True
+        elif active_duel.get("challenger_email") == email and status == "pending_accept":
+            duel_hint = "Warte auf Annahme deiner Herausforderung."
         elif active_duel.get("challenger_email") == email:
             duel_hint = "Es läuft bereits ein Duell mit diesem Freund."
+        elif status == "challenger_done" and active_duel.get("opponent_email") == email:
+            duel_hint = "Deine Runde – jetzt antworten!"
+            can_play_opponent = True
         else:
-            duel_hint = "Dieser Freund hat dich herausgefordert – siehe Tab „Duelle“."
+            duel_hint = "Offenes Duell – siehe Tab „Duelle“."
 
     def close_dlg():
         _close_overlay(page, dlg)
@@ -2942,7 +3240,10 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
         if active_duel:
             if can_resume:
                 show_duel_play_view(page, state, active_duel, role="challenger")
+            elif can_play_opponent:
+                show_duel_play_view(page, state, active_duel, role="opponent")
             else:
+                state["friends_tab"] = 2
                 show_friends_view(
                     page, state,
                     status_message=duel_hint or "Es läuft bereits ein Duell mit diesem Freund.",
@@ -2992,10 +3293,12 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
             ft.Text(duel_hint, size=12, color=theme["gold"], visible=bool(duel_hint)),
             menu_button("📊 Statistik ansehen", theme["accent"], on_stats),
             menu_button(
-                "⚔️ Duell fortsetzen" if can_resume else "⚔️ Herausfordern",
+                "⚔️ Deine Runde spielen" if can_play_opponent else (
+                    "⚔️ Duell fortsetzen" if can_resume else "⚔️ Herausfordern"
+                ),
                 theme["gold"],
                 on_challenge,
-                disabled=bool(active_duel and not can_resume),
+                disabled=bool(active_duel and not can_resume and not can_play_opponent),
             ),
             menu_button("❌ Freund entfernen", theme["danger"], on_remove),
         ], spacing=10, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -3017,8 +3320,59 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
     page.update()
 
 
+def accept_duel_challenge(page: ft.Page, state: dict, duel: dict):
+    """Opponent accepts an incoming duel invite."""
+    theme = get_theme(state)
+    duel_id = _duel_document_id(duel)
+    client = get_firestore_client()
+    if not client or not duel_id:
+        show_friends_view(page, state, status_message="Duell konnte nicht angenommen werden.")
+        return
+    try:
+        client.collection("duels").document(duel_id).update({
+            "status": "pending",
+            "accepted_at": datetime.now(timezone.utc).isoformat(),
+        })
+        name = duel.get("challenger_name", duel.get("challenger_email", "Freund"))
+        state["friends_tab"] = 2
+        show_friends_view(
+            page, state,
+            status_message=f"Herausforderung von {name} angenommen! Dein Freund kann jetzt spielen.",
+        )
+    except Exception as ex:
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text(f"Fehler: {ex}", color="white"),
+            bgcolor=theme["danger"], open=True,
+        )
+        page.update()
+
+
+def decline_duel_challenge(page: ft.Page, state: dict, duel: dict):
+    """Opponent declines an incoming duel invite."""
+    theme = get_theme(state)
+    duel_id = _duel_document_id(duel)
+    client = get_firestore_client()
+    if not client or not duel_id:
+        show_friends_view(page, state, status_message="Duell konnte nicht abgelehnt werden.")
+        return
+    try:
+        client.collection("duels").document(duel_id).update({
+            "status": "declined",
+            "declined_at": datetime.now(timezone.utc).isoformat(),
+        })
+        name = duel.get("challenger_name", duel.get("challenger_email", "Freund"))
+        state["friends_tab"] = 2
+        show_friends_view(page, state, status_message=f"Herausforderung von {name} abgelehnt.")
+    except Exception as ex:
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text(f"Fehler: {ex}", color="white"),
+            bgcolor=theme["danger"], open=True,
+        )
+        page.update()
+
+
 def send_duel_challenge(page: ft.Page, state: dict, opponent_email: str):
-    """Creates a duel document in Firestore and navigates challenger to play."""
+    """Creates a duel invite in Firestore; opponent must accept before challenger plays."""
     theme = get_theme(state)
     db, email, user = current_user_entry(state)
     if not email or not user:
@@ -3058,7 +3412,7 @@ def send_duel_challenge(page: ft.Page, state: dict, opponent_email: str):
         "challenger_email": email,
         "challenger_name": user.get("name", email),
         "opponent_email": opponent_email,
-        "status": "pending",  # pending / challenger_done / completed
+        "status": "pending_accept",  # pending_accept / pending / challenger_done / completed / declined
         "created_at": datetime.now(timezone.utc).isoformat(),
         "questions": duel_questions,
         "challenger_score": None,
@@ -3078,14 +3432,32 @@ def send_duel_challenge(page: ft.Page, state: dict, opponent_email: str):
         page.update()
         return
 
-    # Navigate to duel play view
-    show_duel_play_view(page, state, duel_doc, role="challenger")
+    opponent = db.get("users", {}).get(opponent_email, {})
+    opponent_name = opponent.get("name", opponent_email)
+    state["friends_tab"] = 2
+    show_friends_view(
+        page, state,
+        status_message=f"Herausforderung an {opponent_name} gesendet! Warte auf Annahme.",
+    )
 
 
 def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
     """Shows a simplified quiz using the duel's questions. Role: 'challenger' or 'opponent'."""
     theme = get_theme(state)
     db, email, user = current_user_entry(state)
+    duel_status = duel.get("status", "")
+    if role == "challenger" and duel_status not in ("pending",):
+        show_friends_view(
+            page, state,
+            status_message="Das Duell wurde noch nicht angenommen oder ist bereits beendet.",
+        )
+        return
+    if role == "opponent" and duel_status != "challenger_done":
+        show_friends_view(
+            page, state,
+            status_message="Du kannst erst spielen, wenn dein Freund seine Runde beendet hat.",
+        )
+        return
     questions = duel.get("questions", [])
     if not questions:
         page.snack_bar = ft.SnackBar(
@@ -3150,7 +3522,7 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
     def finish_duel():
         score = duel_state["correct"]
         total = len(questions)
-        duel_id = duel.get("id", "")
+        duel_id = _duel_document_id(duel)
         client = get_firestore_client()
 
         result_text = f"Du hast {score} von {total} Fragen richtig beantwortet!"
@@ -3433,38 +3805,102 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
 
     # ---- Tab 3: Duelle ----
     client = get_firestore_client()
-    open_duels = []
+    incoming_invites = []
+    opponent_turn_duels = []
+    opponent_waiting_duels = []
+    my_turn_duels = []
+    waiting_accept_duels = []
     finished_duels = []
     if client:
         try:
             for doc in client.collection("duels").where("opponent_email", "==", email).stream():
                 d = doc.to_dict() or {}
-                d["_id"] = doc.id
-                if d.get("status") == "challenger_done":
-                    open_duels.append(d)
-                elif d.get("status") == "completed":
+                d["id"] = doc.id
+                status = d.get("status")
+                if status == "pending_accept":
+                    incoming_invites.append(d)
+                elif status == "challenger_done":
+                    opponent_turn_duels.append(d)
+                elif status == "pending":
+                    opponent_waiting_duels.append(d)
+                elif status == "completed":
                     finished_duels.append(d)
-            for doc in client.collection("duels").where("challenger_email", "==", email).where("status", "==", "completed").stream():
+            for doc in client.collection("duels").where("challenger_email", "==", email).stream():
                 d = doc.to_dict() or {}
-                d["_id"] = doc.id
-                if d not in finished_duels:
-                    finished_duels.append(d)
+                d["id"] = doc.id
+                status = d.get("status")
+                if status == "pending_accept":
+                    waiting_accept_duels.append(d)
+                elif status == "pending":
+                    my_turn_duels.append(d)
+                elif status == "completed":
+                    if d not in finished_duels:
+                        finished_duels.append(d)
         except Exception as ex:
             print(f"Duel load error: {ex}")
 
     open_duel_controls = []
-    for d in open_duels:
+
+    for d in incoming_invites:
+        challenger_name = d.get("challenger_name", d.get("challenger_email", "?"))
+        open_duel_controls.append(
+            ft.Container(
+                content=ft.Column([
+                    ft.Text(f"📩 Herausforderung von {challenger_name}", size=13, color="white", weight="bold"),
+                    ft.Text("15 Fragen – erst nach Annahme spielt dein Freund.", size=11, color="#AAAAAA"),
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Text("✅ Annehmen", size=13, color="white", weight="bold"),
+                            on_click=lambda e, duel=d: accept_duel_challenge(page, state, duel),
+                            bgcolor=theme["success"],
+                            border_radius=20,
+                            padding=ft.Padding(14, 6, 14, 6),
+                        ),
+                        ft.Container(
+                            content=ft.Text("❌ Ablehnen", size=13, color="white", weight="bold"),
+                            on_click=lambda e, duel=d: decline_duel_challenge(page, state, duel),
+                            bgcolor=theme["danger"],
+                            border_radius=20,
+                            padding=ft.Padding(14, 6, 14, 6),
+                        ),
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
+                ], spacing=6),
+                bgcolor=theme["panel"],
+                border_radius=10,
+                padding=ft.Padding(12, 10, 12, 10),
+                border=ft.border.Border.all(1, theme["gold"]),
+                margin=ft.Margin(0, 0, 0, 6),
+            )
+        )
+
+    for d in opponent_waiting_duels:
+        challenger_name = d.get("challenger_name", d.get("challenger_email", "?"))
+        open_duel_controls.append(
+            ft.Container(
+                content=ft.Column([
+                    ft.Text(f"⏳ {challenger_name} spielt noch", size=13, color="white", weight="bold"),
+                    ft.Text("Du wirst benachrichtigt, sobald die Runde beendet ist.", size=11, color="#AAAAAA"),
+                ], spacing=4),
+                bgcolor=theme["panel"],
+                border_radius=10,
+                padding=ft.Padding(12, 10, 12, 10),
+                border=ft.border.Border.all(1, theme["border"]),
+                margin=ft.Margin(0, 0, 0, 6),
+            )
+        )
+
+    for d in opponent_turn_duels:
         challenger_name = d.get("challenger_name", d.get("challenger_email", "?"))
         open_duel_controls.append(
             ft.Container(
                 content=ft.Row([
                     ft.Column([
-                        ft.Text(f"⚔️ Herausforderung von {challenger_name}", size=13, color="white", weight="bold"),
-                        ft.Text(f"Er/sie: {d.get('challenger_score', '?')} Punkte", size=11, color="#AAAAAA"),
+                        ft.Text(f"⚔️ Deine Runde vs. {challenger_name}", size=13, color="white", weight="bold"),
+                        ft.Text(f"Gegner: {d.get('challenger_score', '?')} Punkte", size=11, color="#AAAAAA"),
                     ], expand=True, spacing=2),
                     ft.Container(
-                        content=ft.Text("Annehmen", size=13, color="white", weight="bold"),
-                        on_click=lambda e, duel=d: show_duel_play_view(e.page, state, duel, "opponent"),
+                        content=ft.Text("Spielen", size=13, color="white", weight="bold"),
+                        on_click=lambda e, duel=d: show_duel_play_view(page, state, duel, "opponent"),
                         bgcolor=theme["gold"],
                         border_radius=20,
                         padding=ft.Padding(14, 6, 14, 6),
@@ -3477,6 +3913,50 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
                 margin=ft.Margin(0, 0, 0, 6),
             )
         )
+
+    for d in my_turn_duels:
+        opp_email = d.get("opponent_email", "?")
+        opp_name = db.get("users", {}).get(opp_email, {}).get("name", opp_email)
+        open_duel_controls.append(
+            ft.Container(
+                content=ft.Row([
+                    ft.Column([
+                        ft.Text(f"⚔️ Dein Duell vs. {opp_name}", size=13, color="white", weight="bold"),
+                        ft.Text("Angenommen – starte deine Runde.", size=11, color="#AAAAAA"),
+                    ], expand=True, spacing=2),
+                    ft.Container(
+                        content=ft.Text("Spielen", size=13, color="white", weight="bold"),
+                        on_click=lambda e, duel=d: show_duel_play_view(page, state, duel, "challenger"),
+                        bgcolor=theme["gold"],
+                        border_radius=20,
+                        padding=ft.Padding(14, 6, 14, 6),
+                    ),
+                ]),
+                bgcolor=theme["panel"],
+                border_radius=10,
+                padding=ft.Padding(12, 10, 12, 10),
+                border=ft.border.Border.all(1, theme["accent_2"]),
+                margin=ft.Margin(0, 0, 0, 6),
+            )
+        )
+
+    for d in waiting_accept_duels:
+        opp_email = d.get("opponent_email", "?")
+        opp_name = db.get("users", {}).get(opp_email, {}).get("name", opp_email)
+        open_duel_controls.append(
+            ft.Container(
+                content=ft.Column([
+                    ft.Text(f"⏳ Warte auf {opp_name}", size=13, color="white", weight="bold"),
+                    ft.Text("Herausforderung gesendet – noch nicht angenommen.", size=11, color="#AAAAAA"),
+                ], spacing=4),
+                bgcolor=theme["panel"],
+                border_radius=10,
+                padding=ft.Padding(12, 10, 12, 10),
+                border=ft.border.Border.all(1, theme["border"]),
+                margin=ft.Margin(0, 0, 0, 6),
+            )
+        )
+
     if not open_duel_controls:
         open_duel_controls.append(ft.Text("Keine offenen Herausforderungen.", size=12, color="#CCCCCC"))
 
@@ -3517,7 +3997,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         ft.Text("📜 Letzte Duelle", size=15, weight="bold", color=theme["gold"]),
         *finished_duel_controls,
         ft.Divider(color=theme["border"]),
-        ft.Text("ℹ️ Tippe auf einen Freund → '⚔️ Herausfordern'", size=11, color="#888888", text_align=ft.TextAlign.CENTER),
+        ft.Text("ℹ️ Freund antippen → Herausfordern · Annahme im Tab oben", size=11, color="#888888", text_align=ft.TextAlign.CENTER),
     ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     # ---- Tab Bar ----
