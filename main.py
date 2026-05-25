@@ -219,7 +219,7 @@ THEME_GAME_ZONES = {
     "answer_c": {"l": 0.0448, "t": 0.348, "w": 0.2771, "h": 0.118},
     "answer_d": {"l": 0.3375, "t": 0.348, "w": 0.2771, "h": 0.118},
     "ladder": {"l": 0.6651, "t": 0.0704, "w": 0.2797, "h": 0.8593},
-    "footer": {"l": 0.0448, "t": 0.478, "w": 0.5698, "h": 0.052},
+    "footer": {"l": 0.0448, "t": 0.468, "w": 0.5698, "h": 0.098},
     "exit": {"l": 0.0198, "t": 0.0204, "w": 0.1146, "h": 0.0500},
 }
 
@@ -1074,6 +1074,8 @@ def save_current_game(state: dict):
         "is_custom_game": state.get("is_custom_game", False),
         "custom_quiz_id": state.get("custom_quiz_id"),
         "custom_quiz_title": state.get("custom_quiz_title"),
+        "selected_jokers": state.get("selected_jokers", []),
+        "jokers_used_ids": state.get("jokers_used_ids", []),
     }
     db["users"][email]["saved_game"] = saved_game
     state["saved_game"] = saved_game
@@ -1150,8 +1152,13 @@ def resume_saved_game(page: ft.Page, state: dict, saved: dict | None = None):
         "is_custom_game": saved.get("is_custom_game", False),
         "custom_quiz_id": saved.get("custom_quiz_id"),
         "custom_quiz_title": saved.get("custom_quiz_title"),
+        "selected_jokers": saved.get("selected_jokers", []),
+        "jokers_used_ids": saved.get("jokers_used_ids", []),
     })
-    show_next_question(page, state)
+    if len(state.get("selected_jokers", [])) == JOKER_SELECT_COUNT:
+        show_next_question(page, state)
+    else:
+        show_joker_selection(page, state, lambda: show_next_question(page, state))
 
 
 # ---------- Custom quizzes ----------
@@ -1299,8 +1306,11 @@ def start_custom_quiz_play(page: ft.Page, state: dict, quiz: dict):
         "is_custom_game": True,
     })
     state.pop("saved_game", None)
+    state.pop("selected_jokers", None)
+    state.pop("jokers_used_ids", None)
+    reset_joker_pick_state(state)
     save_current_game(state)
-    show_next_question(page, state)
+    launch_game_after_jokers(page, state)
 
 
 # ---------- Constants ----------
@@ -1325,6 +1335,330 @@ MONEY_LEVELS = [
 # Answer letter colors matching the design reference
 ANSWER_COLORS = ["#F4A460", "#9B59B6", "#2ECC71", "#E91E8C"]  # A=orange, B=purple, C=green, D=pink
 ANSWER_LETTERS = ["A", "B", "C", "D"]
+
+# ---------- Jokers ----------
+JOKER_SELECT_COUNT = 4
+
+JOKER_CATALOG = [
+    {"id": "half", "name": "50:50", "icon": "✂️", "desc": "Zwei falsche Antworten entfernen"},
+    {"id": "audience", "name": "Publikum", "icon": "👥", "desc": "Hinweis vom Publikum"},
+    {"id": "phone", "name": "Telefon", "icon": "📞", "desc": "Freund anrufen"},
+    {"id": "skip", "name": "Überspringen", "icon": "⏭️", "desc": "Frage überspringen"},
+    {"id": "double", "name": "Doppel", "icon": "🎯", "desc": "Zwei Antworten wählen dürfen"},
+    {"id": "hint", "name": "Hinweis", "icon": "💡", "desc": "Kleiner Tipp zur Frage"},
+    {"id": "swap", "name": "Tausch", "icon": "🔄", "desc": "Frage gegen neue tauschen"},
+    {"id": "freeze", "name": "Pause", "icon": "⏸️", "desc": "Mehr Zeit zum Nachdenken"},
+    {"id": "shield", "name": "Schutz", "icon": "🛡️", "desc": "Einmal falsch überleben"},
+    {"id": "fifty_plus", "name": "75:25", "icon": "📊", "desc": "Eine falsche Antwort entfernen"},
+    {"id": "wildcard", "name": "Joker", "icon": "🃏", "desc": "Freie Hilfe wählen"},
+    {"id": "reveal", "name": "Blick", "icon": "👁️", "desc": "Stärkste Antwort anzeigen"},
+]
+
+JOKER_BY_ID = {j["id"]: j for j in JOKER_CATALOG}
+
+
+def get_joker(joker_id: str) -> dict | None:
+    return JOKER_BY_ID.get(joker_id)
+
+
+def reset_joker_pick_state(state: dict):
+    state.pop("joker_pick_buffer", None)
+    state.pop("jokers_confirmed", None)
+
+
+def build_joker_tile(
+    joker: dict,
+    theme: dict,
+    *,
+    selected: bool = False,
+    used: bool = False,
+    size: int = 56,
+    on_click=None,
+    show_name: bool = True,
+) -> ft.Container:
+    border_w = 3 if selected else 1
+    border_color = theme["gold"] if selected else theme["border"]
+    bgcolor = theme["accent"] if selected else (theme.get("question_bg", "#FFFFFF") if not used else "#55555588")
+    if used:
+        border_color = "#888888"
+    content = ft.Column([
+        ft.Text(joker["icon"], size=22 if size >= 52 else 18, text_align="center"),
+        ft.Text(
+            joker["name"],
+            size=9 if size >= 52 else 8,
+            weight="bold" if selected else "normal",
+            color=theme["question_text"] if not used else "#AAAAAA",
+            text_align="center",
+            max_lines=2,
+            no_wrap=False,
+        ) if show_name else ft.Container(),
+    ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER)
+
+    return ft.Container(
+        content=content,
+        width=size,
+        height=size,
+        border_radius=12,
+        bgcolor=bgcolor,
+        border=ft.border.Border.all(border_w, border_color),
+        alignment=ft.Alignment(0, 0),
+        on_click=on_click,
+        opacity=0.45 if used else 1.0,
+        shadow=ft.BoxShadow(blur_radius=14, color="#60FFD700") if selected else None,
+    )
+
+
+def build_joker_slot_row(
+    picked_ids: list[str],
+    theme: dict,
+    *,
+    slot_size: int = 58,
+    empty_label: str = "?",
+) -> ft.Row:
+    slots = []
+    for i in range(JOKER_SELECT_COUNT):
+        if i < len(picked_ids):
+            joker = get_joker(picked_ids[i])
+            if joker:
+                slots.append(build_joker_tile(joker, theme, selected=True, size=slot_size, show_name=True))
+                continue
+        slots.append(
+            ft.Container(
+                content=ft.Text(empty_label, size=18, color=theme_txt(theme, "muted"), weight="bold"),
+                width=slot_size,
+                height=slot_size,
+                border_radius=12,
+                bgcolor=theme.get("question_bg", "#FFFFFF"),
+                border=ft.border.Border.all(2, theme["border"]),
+                alignment=ft.Alignment(0, 0),
+            )
+        )
+    return ft.Row(slots, spacing=10, alignment=ft.MainAxisAlignment.CENTER)
+
+
+def build_game_joker_bar(page: ft.Page, state: dict, theme: dict) -> ft.Control:
+    """White/panel row under 'Frage X von Y' showing the 4 chosen jokers."""
+    selected = state.get("selected_jokers", [])[:JOKER_SELECT_COUNT]
+    used_ids = set(state.get("jokers_used_ids", []))
+
+    def on_joker_tap(joker_id: str):
+        if joker_id in used_ids:
+            return
+        used_ids.add(joker_id)
+        state["jokers_used_ids"] = list(used_ids)
+        state["jokers_used"] = state.get("jokers_used", 0) + 1
+        save_current_game(state)
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text(f"Joker „{get_joker(joker_id)['name']}“ markiert (Effekt folgt bald)."),
+        )
+        page.snack_bar.open = True
+        show_next_question(page, state)
+
+    chips = []
+    for jid in selected:
+        joker = get_joker(jid)
+        if not joker:
+            continue
+        chips.append(
+            build_joker_tile(
+                joker,
+                theme,
+                selected=True,
+                used=jid in used_ids,
+                size=48,
+                on_click=lambda e, j=jid: on_joker_tap(j),
+                show_name=True,
+            )
+        )
+    while len(chips) < JOKER_SELECT_COUNT:
+        chips.append(
+            ft.Container(
+                width=48,
+                height=48,
+                border_radius=12,
+                bgcolor=theme.get("question_bg", "#FFFFFF"),
+                border=ft.border.Border.all(1, theme["border"]),
+            )
+        )
+
+    bar_bg = theme.get("question_bg", "#FFFFFF")
+    return ft.Container(
+        content=ft.Row(chips, spacing=8, alignment=ft.MainAxisAlignment.CENTER),
+        bgcolor=bar_bg,
+        border_radius=10,
+        padding=ft.Padding(10, 8, 10, 8),
+        border=ft.border.Border.all(2, theme["border"]),
+    )
+
+
+def show_joker_confirm_dialog(page: ft.Page, state: dict, picked_ids: list[str], on_confirm):
+    theme = get_theme(state)
+
+    def yes(e):
+        page.close(dlg)
+        state["selected_jokers"] = list(picked_ids)
+        state["jokers_used_ids"] = []
+        state["jokers_confirmed"] = True
+        state.pop("joker_pick_buffer", None)
+        save_current_game(state)
+        on_confirm()
+
+    def no(e):
+        page.close(dlg)
+
+    chips = ft.Row(
+        [
+            build_joker_tile(get_joker(jid), theme, selected=True, size=64)
+            for jid in picked_ids
+            if get_joker(jid)
+        ],
+        alignment=ft.MainAxisAlignment.CENTER,
+        spacing=12,
+        wrap=True,
+    )
+    dlg = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Joker bestätigen", text_align="center"),
+        content=ft.Column([
+            ft.Text(
+                "Möchtest du diese Joker auswählen?",
+                size=16,
+                text_align="center",
+                color=theme_txt(theme, "secondary"),
+            ),
+            ft.Container(height=12),
+            chips,
+        ], tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        actions=[
+            ft.TextButton("Nein", on_click=no),
+            ft.TextButton("Ja", on_click=yes),
+        ],
+        actions_alignment=ft.MainAxisAlignment.CENTER,
+    )
+    page.open(dlg)
+
+
+def show_joker_selection(page: ft.Page, state: dict, on_start):
+    """Pick 4 jokers from catalog, confirm, then start the game."""
+    theme = get_theme(state)
+    pick = list(state.get("joker_pick_buffer", []))
+
+    def rebuild():
+        show_joker_selection(page, state, on_start)
+
+    def toggle_joker(joker_id: str):
+        if joker_id in pick:
+            pick.remove(joker_id)
+        elif len(pick) < JOKER_SELECT_COUNT:
+            pick.append(joker_id)
+        state["joker_pick_buffer"] = pick
+        rebuild()
+
+    def on_check(e):
+        if len(pick) != JOKER_SELECT_COUNT:
+            page.snack_bar = ft.SnackBar(
+                content=ft.Text(f"Bitte genau {JOKER_SELECT_COUNT} Joker auswählen ({len(pick)}/{JOKER_SELECT_COUNT})."),
+            )
+            page.snack_bar.open = True
+            page.update()
+            return
+        show_joker_confirm_dialog(page, state, pick, on_start)
+
+    def on_back(e):
+        reset_joker_pick_state(state)
+        if state.get("is_custom_game") or state.get("custom_quiz_id"):
+            show_custom_quiz_hub(page, state)
+        else:
+            show_game_start_menu(page, state, get_saved_game_for_state(state))
+
+    catalog_tiles = []
+    for joker in JOKER_CATALOG:
+        is_sel = joker["id"] in pick
+        disabled = len(pick) >= JOKER_SELECT_COUNT and not is_sel
+        catalog_tiles.append(
+            build_joker_tile(
+                joker,
+                theme,
+                selected=is_sel,
+                size=62,
+                on_click=None if disabled else (lambda e, jid=joker["id"]: toggle_joker(jid)),
+                show_name=True,
+            )
+        )
+
+    check_enabled = len(pick) == JOKER_SELECT_COUNT
+    check_btn = ft.Container(
+        content=ft.Text("✓", size=28, weight="bold", color="white" if check_enabled else "#888888"),
+        width=58,
+        height=58,
+        border_radius=12,
+        bgcolor=theme["success"] if check_enabled else "#555555",
+        alignment=ft.Alignment(0, 0),
+        on_click=on_check if check_enabled else None,
+        border=ft.border.Border.all(3, theme["gold"] if check_enabled else theme["border"]),
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("Wähle deinen Joker", size=28, weight="bold", color="white", text_align="center"),
+                ft.Text(
+                    f"Tippe {JOKER_SELECT_COUNT} Joker an · erneut tippen zum Abwählen",
+                    size=14,
+                    color=theme_txt(theme, "secondary"),
+                    text_align="center",
+                ),
+                ft.Container(height=8),
+                ft.Container(
+                    content=ft.Row([
+                        build_joker_slot_row(pick, theme, slot_size=58),
+                        check_btn,
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=14),
+                    bgcolor=theme["panel"],
+                    border_radius=14,
+                    padding=16,
+                    border=ft.border.Border.all(2, theme["border"]),
+                ),
+                ft.Text("Deine Auswahl", size=13, color=theme["gold"], weight="bold"),
+                ft.Container(
+                    content=ft.Row(
+                        catalog_tiles,
+                        wrap=True,
+                        spacing=10,
+                        run_spacing=10,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    width=520,
+                    padding=10,
+                ),
+                ft.TextButton("← Zurück", on_click=on_back, style=ft.ButtonStyle(color="white")),
+            ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=12,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+        )
+    )
+    page.update()
+
+
+def launch_game_after_jokers(page: ft.Page, state: dict):
+    """Show joker picker for new games; resume skips if already chosen."""
+    if len(state.get("selected_jokers", [])) == JOKER_SELECT_COUNT:
+        show_next_question(page, state)
+        return
+    reset_joker_pick_state(state)
+    show_joker_selection(page, state, lambda: show_next_question(page, state))
+
 
 # ---------- Question Data ----------
 EASY_QUESTIONS = [
@@ -2792,13 +3126,19 @@ def show_age_selection(page: ft.Page, state: dict):
     state.pop("is_custom_game", None)
     state.pop("custom_quiz_id", None)
     state.pop("custom_quiz_title", None)
+    state.pop("selected_jokers", None)
+    state.pop("jokers_used_ids", None)
+    reset_joker_pick_state(state)
 
     def choose_age(e: ft.ControlEvent):
         age = e.control.data
         state["player_age"] = age
         state["questions"] = create_game_questions(age)
+        state.pop("selected_jokers", None)
+        state.pop("jokers_used_ids", None)
+        reset_joker_pick_state(state)
         save_current_game(state)
-        show_next_question(page, state)
+        launch_game_after_jokers(page, state)
 
     page.controls.clear()
     page.add(
@@ -3014,10 +3354,13 @@ def show_next_question_themed(page: ft.Page, state: dict):
     ladder_inner = build_neon_nexus_money_ladder(state, compact=is_mobile)
     ladder_panel = _neon_solid_panel(ladder_inner, theme, compact=True)
     footer_panel = _neon_solid_panel(
-        ft.Row([
-            ft.Text(f"Frage {q_num} von {total_q}", size=11, color=theme_txt(theme, "secondary"), weight="bold"),
-            ft.Text(f"◆ {state.get('money', '0 €')}", size=12, color=theme["gold"], weight="bold"),
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        ft.Column([
+            ft.Row([
+                ft.Text(f"Frage {q_num} von {total_q}", size=11, color=theme_txt(theme, "secondary"), weight="bold"),
+                ft.Text(f"◆ {state.get('money', '0 €')}", size=12, color=theme["gold"], weight="bold"),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            build_game_joker_bar(page, state, theme),
+        ], spacing=6),
         theme,
         compact=True,
     )
@@ -3243,11 +3586,20 @@ def show_next_question(page: ft.Page, state: dict):
         ], alignment=ft.MainAxisAlignment.START),
         question_box,
         answer_layout,
-        ft.Row([
-            ft.Text(f"Frage {q_num} von {total_q}", size=13, color="#E0D0F0"),
-            ft.Text(f"💰 {state.get('money', '0 €')}", size=13,
-                    color="#FFD700", weight="bold"),
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Text(f"Frage {q_num} von {total_q}", size=13, color=theme_txt(theme, "secondary")),
+                    ft.Text(f"💰 {state.get('money', '0 €')}", size=13,
+                            color=theme["gold"], weight="bold"),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                build_game_joker_bar(page, state, theme),
+            ], spacing=8),
+            bgcolor=theme_value(theme, "question_bg", "white"),
+            border_radius=12,
+            padding=ft.Padding(12, 10, 12, 10),
+            border=ft.border.Border.all(2, theme["border"]),
+        ),
     ], spacing=12 if is_mobile else 16, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, width=None if is_mobile else 700)
 
     if is_mobile:
@@ -3300,6 +3652,11 @@ def show_exit_confirmation(page: ft.Page, state: dict):
                     "jokers_used": state.get("jokers_used", 0),
                     "question_index": state.get("question_index", 0),
                     "questions": state.get("questions", []),
+                    "is_custom_game": state.get("is_custom_game", False),
+                    "custom_quiz_id": state.get("custom_quiz_id"),
+                    "custom_quiz_title": state.get("custom_quiz_title"),
+                    "selected_jokers": state.get("selected_jokers", []),
+                    "jokers_used_ids": state.get("jokers_used_ids", []),
                 }
                 save_db(db_current)
         open_main_menu(e.page, state)
