@@ -1743,11 +1743,7 @@ def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Cont
         content=ladder_stack,
         width=None if compact else 200,
         expand=compact,
-        padding=ft.Padding(10, 12, 10, 12),
-        bgcolor="#0c1814",
-        border_radius=6,
-        border=ft.border.Border.all(2, theme["border"]),
-        shadow=ft.BoxShadow(blur_radius=22, color="#7000FF66"),
+        padding=ft.Padding(4, 4, 4, 4),
     )
 
 
@@ -2103,6 +2099,18 @@ def _neon_solid_panel(content: ft.Control, theme: dict, expand: bool = True) -> 
     )
 
 
+def _duel_open_card(content: ft.Control, theme: dict, border_color: str | None = None) -> ft.Container:
+    """Compact duel card — never uses expand (avoids empty gray blocks in web)."""
+    return ft.Container(
+        content=content,
+        bgcolor=theme["panel"],
+        border_radius=10,
+        padding=ft.Padding(12, 10, 12, 10),
+        border=ft.border.Border.all(1, border_color or theme["border"]),
+        margin=ft.Margin(0, 0, 0, 6),
+    )
+
+
 def _neon_zone_box(zone: dict, page_w: float, page_h: float, content: ft.Control) -> ft.Container:
     """Places content in a relative zone (0..1) on the game canvas."""
     return ft.Container(
@@ -2138,7 +2146,6 @@ def show_next_question_neon_nexus(page: ft.Page, state: dict):
     page_w = float(page.width or getattr(page, "window", None) and page.window.width or 1100)
     page_h = float(page.height or getattr(page, "window", None) and page.window.height or 720)
     is_mobile = page_w < 720
-    bg_image = theme.get("game_bg", "neon_nexus_bg_clean.png")
 
     answer_buttons: list[ft.Container] = []
     answers_disabled = [False]
@@ -2231,7 +2238,8 @@ def show_next_question_neon_nexus(page: ft.Page, state: dict):
     ], spacing=8, expand=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
     question_panel = _neon_solid_panel(question_inner, theme)
 
-    ladder_panel = _neon_solid_panel(build_neon_nexus_money_ladder(state, compact=is_mobile), theme)
+    ladder_inner = build_neon_nexus_money_ladder(state, compact=is_mobile)
+    ladder_panel = _neon_solid_panel(ladder_inner, theme)
     footer_panel = _neon_solid_panel(
         ft.Row([
             ft.Text(f"Frage {q_num} von {total_q}", size=12, color="#C8FFD8", weight="bold"),
@@ -2250,11 +2258,14 @@ def show_next_question_neon_nexus(page: ft.Page, state: dict):
         padding=ft.Padding(10, 6, 10, 6),
     )
 
+    # Single background layer (no image + overlay double-frame effect)
     bg_layer = ft.Container(
         expand=True,
-        bgcolor="#000000",
-        alignment=ft.Alignment(0, 0),
-        content=ft.Image(src=bg_image, fit=ft.BoxFit.CONTAIN, expand=True),
+        gradient=ft.LinearGradient(
+            begin=ft.Alignment(-1, -0.5),
+            end=ft.Alignment(1, 1),
+            colors=["#010302", "#030806", "#020504"],
+        ),
     )
 
     if is_mobile:
@@ -2262,20 +2273,18 @@ def show_next_question_neon_nexus(page: ft.Page, state: dict):
             [
                 exit_btn,
                 question_panel,
-                ft.Row([answer_boxes[0], answer_boxes[1]], spacing=8, expand=True),
-                ft.Row([answer_boxes[2], answer_boxes[3]], spacing=8, expand=True),
+                ft.Row([answer_boxes[0], answer_boxes[1]], spacing=8),
+                ft.Row([answer_boxes[2], answer_boxes[3]], spacing=8),
                 footer_panel,
                 ladder_panel,
             ],
             spacing=10,
             scroll=ft.ScrollMode.AUTO,
-            expand=True,
         )
-        hud_layers = [bg_layer, ft.Container(expand=True, bgcolor="#000000d9"), ft.Container(expand=True, padding=12, content=mobile_stack)]
+        hud_layers = [bg_layer, ft.Container(expand=True, padding=12, content=mobile_stack)]
     else:
         hud_layers = [
             bg_layer,
-            ft.Container(expand=True, bgcolor="#00000099"),
             _neon_zone_box(zones["exit"], page_w, page_h, exit_btn),
             _neon_zone_box(zones["question"], page_w, page_h, question_panel),
             *[
@@ -2287,7 +2296,7 @@ def show_next_question_neon_nexus(page: ft.Page, state: dict):
         ]
 
     page.controls.clear()
-    page.add(ft.Container(expand=True, bgcolor="#000000", content=ft.Stack(hud_layers, expand=True)))
+    page.add(ft.Container(expand=True, bgcolor="#010302", content=ft.Stack(hud_layers, expand=True)))
     page.update()
 
 
@@ -3981,8 +3990,8 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
     for d in incoming_invites:
         challenger_name = d.get("challenger_name", d.get("challenger_email", "?"))
         open_duel_controls.append(
-            ft.Container(
-                content=ft.Column([
+            _duel_open_card(
+                ft.Column([
                     ft.Text(f"📩 Herausforderung von {challenger_name}", size=13, color="white", weight="bold"),
                     ft.Text("15 Fragen – erst nach Annahme spielt dein Freund.", size=11, color="#AAAAAA"),
                     ft.Row([
@@ -4000,59 +4009,45 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
                             border_radius=20,
                             padding=ft.Padding(14, 6, 14, 6),
                         ),
-                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
-                ], spacing=6),
-                bgcolor=theme["panel"],
-                border_radius=10,
-                padding=ft.Padding(12, 10, 12, 10),
-                border=ft.border.Border.all(1, theme["gold"]),
-                margin=ft.Margin(0, 0, 0, 6),
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=8, wrap=True),
+                ], spacing=6, tight=True),
+                theme,
+                theme["gold"],
             )
         )
 
     for d in opponent_waiting_duels:
         challenger_name = d.get("challenger_name", d.get("challenger_email", "?"))
-        wait_actions = []
+        wait_rows = [
+            ft.Text(f"⏳ {challenger_name} spielt noch", size=13, color="white", weight="bold"),
+            ft.Text("Warte, bis dein Freund die Runde beendet hat.", size=11, color="#AAAAAA"),
+        ]
         if d.get("challenger_email") == email:
-            wait_actions.append(_duel_cancel_button(page, state, theme, d))
+            wait_rows.append(ft.Row([_duel_cancel_button(page, state, theme, d)], spacing=8))
         open_duel_controls.append(
-            ft.Container(
-                content=ft.Column([
-                    ft.Text(f"⏳ {challenger_name} spielt noch", size=13, color="white", weight="bold"),
-                    ft.Text("Du wirst benachrichtigt, sobald die Runde beendet ist.", size=11, color="#AAAAAA"),
-                    ft.Row(wait_actions, spacing=8) if wait_actions else ft.Container(),
-                ], spacing=4),
-                bgcolor=theme["panel"],
-                border_radius=10,
-                padding=ft.Padding(12, 10, 12, 10),
-                border=ft.border.Border.all(1, theme["border"]),
-                margin=ft.Margin(0, 0, 0, 6),
-            )
+            _duel_open_card(ft.Column(wait_rows, spacing=6, tight=True), theme)
         )
 
     for d in opponent_turn_duels:
         challenger_name = d.get("challenger_name", d.get("challenger_email", "?"))
         open_duel_controls.append(
-            ft.Container(
-                content=ft.Row([
-                    ft.Column([
-                        ft.Text(f"⚔️ Deine Runde vs. {challenger_name}", size=13, color="white", weight="bold"),
-                        ft.Text(f"Gegner: {d.get('challenger_score', '?')} Punkte", size=11, color="#AAAAAA"),
-                    ], expand=True, spacing=2),
-                    ft.Container(
-                        content=ft.Text("Spielen", size=13, color="white", weight="bold"),
-                        on_click=lambda e, duel=d: start_duel_play(page, state, duel, "opponent"),
-                        bgcolor=theme["gold"],
-                        border_radius=20,
-                        padding=ft.Padding(14, 6, 14, 6),
-                    ),
-                    _duel_cancel_button(page, state, theme, d),
-                ], spacing=8, wrap=True),
-                bgcolor=theme["panel"],
-                border_radius=10,
-                padding=ft.Padding(12, 10, 12, 10),
-                border=ft.border.Border.all(1, theme["gold"]),
-                margin=ft.Margin(0, 0, 0, 6),
+            _duel_open_card(
+                ft.Column([
+                    ft.Text(f"⚔️ Deine Runde vs. {challenger_name}", size=13, color="white", weight="bold"),
+                    ft.Text(f"Gegner: {d.get('challenger_score', '?')} Punkte", size=11, color="#AAAAAA"),
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Text("Spielen", size=13, color="white", weight="bold"),
+                            on_click=lambda e, duel=d: start_duel_play(page, state, duel, "opponent"),
+                            bgcolor=theme["gold"],
+                            border_radius=20,
+                            padding=ft.Padding(14, 6, 14, 6),
+                        ),
+                        _duel_cancel_button(page, state, theme, d),
+                    ], spacing=8, wrap=True),
+                ], spacing=6, tight=True),
+                theme,
+                theme["gold"],
             )
         )
 
@@ -4060,26 +4055,23 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         opp_email = d.get("opponent_email", "?")
         opp_name = db.get("users", {}).get(opp_email, {}).get("name", opp_email)
         open_duel_controls.append(
-            ft.Container(
-                content=ft.Row([
-                    ft.Column([
-                        ft.Text(f"⚔️ Dein Duell vs. {opp_name}", size=13, color="white", weight="bold"),
-                        ft.Text("Angenommen – starte deine Runde.", size=11, color="#AAAAAA"),
-                    ], expand=True, spacing=2),
-                    ft.Container(
-                        content=ft.Text("Spielen", size=13, color="white", weight="bold"),
-                        on_click=lambda e, duel=d: start_duel_play(page, state, duel, "challenger"),
-                        bgcolor=theme["gold"],
-                        border_radius=20,
-                        padding=ft.Padding(14, 6, 14, 6),
-                    ),
-                    _duel_cancel_button(page, state, theme, d),
-                ], spacing=8, wrap=True),
-                bgcolor=theme["panel"],
-                border_radius=10,
-                padding=ft.Padding(12, 10, 12, 10),
-                border=ft.border.Border.all(1, theme["accent_2"]),
-                margin=ft.Margin(0, 0, 0, 6),
+            _duel_open_card(
+                ft.Column([
+                    ft.Text(f"⚔️ Dein Duell vs. {opp_name}", size=13, color="white", weight="bold"),
+                    ft.Text("Angenommen – tippe auf Spielen und starte deine 15 Fragen.", size=11, color="#AAAAAA"),
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Text("Spielen", size=13, color="white", weight="bold"),
+                            on_click=lambda e, duel=d: start_duel_play(page, state, duel, "challenger"),
+                            bgcolor=theme["gold"],
+                            border_radius=20,
+                            padding=ft.Padding(14, 6, 14, 6),
+                        ),
+                        _duel_cancel_button(page, state, theme, d),
+                    ], spacing=8, wrap=True),
+                ], spacing=6, tight=True),
+                theme,
+                theme["accent_2"],
             )
         )
 
@@ -4087,17 +4079,13 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         opp_email = d.get("opponent_email", "?")
         opp_name = db.get("users", {}).get(opp_email, {}).get("name", opp_email)
         open_duel_controls.append(
-            ft.Container(
-                content=ft.Column([
+            _duel_open_card(
+                ft.Column([
                     ft.Text(f"⏳ Warte auf {opp_name}", size=13, color="white", weight="bold"),
                     ft.Text("Herausforderung gesendet – noch nicht angenommen.", size=11, color="#AAAAAA"),
                     ft.Row([_duel_cancel_button(page, state, theme, d)], spacing=8),
-                ], spacing=4),
-                bgcolor=theme["panel"],
-                border_radius=10,
-                padding=ft.Padding(12, 10, 12, 10),
-                border=ft.border.Border.all(1, theme["border"]),
-                margin=ft.Margin(0, 0, 0, 6),
+                ], spacing=6, tight=True),
+                theme,
             )
         )
 
@@ -4136,13 +4124,13 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
 
     tab_duels = ft.Column([
         ft.Text("⚔️ Offene Herausforderungen", size=15, weight="bold", color=theme["gold"]),
-        *open_duel_controls,
-        ft.Divider(color=theme["border"]),
+        ft.Column(open_duel_controls, spacing=0, tight=True),
+        ft.Divider(height=1, color=theme["border"]),
         ft.Text("📜 Letzte Duelle", size=15, weight="bold", color=theme["gold"]),
-        *finished_duel_controls,
-        ft.Divider(color=theme["border"]),
+        ft.Column(finished_duel_controls, spacing=0, tight=True),
+        ft.Divider(height=1, color=theme["border"]),
         ft.Text("ℹ️ Freund antippen → Herausfordern · Annahme im Tab oben", size=11, color="#888888", text_align=ft.TextAlign.CENTER),
-    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
 
     # ---- Tab Bar ----
     tab_contents = [tab_friends, tab_ranking, tab_duels]
