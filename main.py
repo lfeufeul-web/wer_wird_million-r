@@ -3080,7 +3080,7 @@ def show_design_view(page: ft.Page, state: dict):
 
 
 def _medal(rank: int) -> str:
-    return ["🥇", "🥈", "🥉"].get(rank - 1, f"{rank}.") if rank <= 3 else f"{rank}."
+    return ["🥇", "🥈", "🥉"][rank - 1] if rank <= 3 else f"{rank}."
 
 
 def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
