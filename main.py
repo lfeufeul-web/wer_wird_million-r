@@ -1403,6 +1403,7 @@ def build_joker_tile(
         border=ft.border.Border.all(border_w, border_color),
         alignment=ft.Alignment(0, 0),
         on_click=on_click,
+        ink=on_click is not None,
         opacity=0.45 if used else 1.0,
         shadow=ft.BoxShadow(blur_radius=14, color="#60FFD700") if selected else None,
     )
@@ -1414,13 +1415,24 @@ def build_joker_slot_row(
     *,
     slot_size: int = 58,
     empty_label: str = "?",
+    on_joker_click=None,
 ) -> ft.Row:
     slots = []
     for i in range(JOKER_SELECT_COUNT):
         if i < len(picked_ids):
-            joker = get_joker(picked_ids[i])
+            jid = picked_ids[i]
+            joker = get_joker(jid)
             if joker:
-                slots.append(build_joker_tile(joker, theme, selected=True, size=slot_size, show_name=True))
+                slots.append(
+                    build_joker_tile(
+                        joker,
+                        theme,
+                        selected=True,
+                        size=slot_size,
+                        show_name=True,
+                        on_click=(lambda e, j=jid: on_joker_click(j)) if on_joker_click else None,
+                    )
+                )
                 continue
         slots.append(
             ft.Container(
@@ -1491,20 +1503,24 @@ def build_game_joker_bar(page: ft.Page, state: dict, theme: dict) -> ft.Control:
     )
 
 
-def show_joker_confirm_dialog(page: ft.Page, state: dict, picked_ids: list[str], on_confirm):
+def _apply_joker_selection_and_start(state: dict, picked_ids: list[str], on_start):
+    state["selected_jokers"] = list(picked_ids)
+    state["jokers_used_ids"] = []
+    state["jokers_confirmed"] = True
+    state.pop("joker_pick_buffer", None)
+    save_current_game(state)
+    on_start()
+
+
+def show_joker_confirm_screen(page: ft.Page, state: dict, picked_ids: list[str], on_start):
+    """Full-screen confirm (works on web where AlertDialog often fails)."""
     theme = get_theme(state)
 
     def yes(e):
-        close_page_dialog(page, dlg)
-        state["selected_jokers"] = list(picked_ids)
-        state["jokers_used_ids"] = []
-        state["jokers_confirmed"] = True
-        state.pop("joker_pick_buffer", None)
-        save_current_game(state)
-        on_confirm()
+        _apply_joker_selection_and_start(state, picked_ids, on_start)
 
     def no(e):
-        close_page_dialog(page, dlg)
+        show_joker_selection(page, state, on_start)
 
     chips = ft.Row(
         [
@@ -1516,26 +1532,46 @@ def show_joker_confirm_dialog(page: ft.Page, state: dict, picked_ids: list[str],
         spacing=12,
         wrap=True,
     )
-    dlg = ft.AlertDialog(
-        modal=True,
-        title=ft.Text("Joker bestätigen", text_align="center"),
-        content=ft.Column([
-            ft.Text(
-                "Möchtest du diese Joker auswählen?",
-                size=16,
-                text_align="center",
-                color=theme_txt(theme, "secondary"),
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
             ),
-            ft.Container(height=12),
-            chips,
-        ], tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-        actions=[
-            ft.TextButton("Nein", on_click=no),
-            ft.TextButton("Ja", on_click=yes),
-        ],
-        actions_alignment=ft.MainAxisAlignment.CENTER,
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("Joker bestätigen", size=28, weight="bold", color="white", text_align="center"),
+                ft.Text(
+                    "Möchtest du diese Joker auswählen?",
+                    size=16,
+                    text_align="center",
+                    color=theme_txt(theme, "secondary"),
+                ),
+                ft.Container(height=12),
+                ft.Container(
+                    content=chips,
+                    bgcolor=theme["panel"],
+                    border_radius=16,
+                    padding=20,
+                    border=ft.border.Border.all(2, theme["border"]),
+                ),
+                ft.Container(height=16),
+                ft.Row([
+                    _game_menu_button("Nein", no, theme["danger"]),
+                    _game_menu_button("Ja", yes, theme["success"]),
+                ], alignment=ft.MainAxisAlignment.CENTER, spacing=16),
+            ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=14,
+            ),
+        )
     )
-    open_page_dialog(page, dlg)
+    page.update()
 
 
 def show_joker_selection(page: ft.Page, state: dict, on_start):
@@ -1555,14 +1591,17 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
         rebuild()
 
     def on_check(e):
-        if len(pick) != JOKER_SELECT_COUNT:
+        current = list(state.get("joker_pick_buffer", []))
+        if len(current) != JOKER_SELECT_COUNT:
             page.snack_bar = ft.SnackBar(
-                content=ft.Text(f"Bitte genau {JOKER_SELECT_COUNT} Joker auswählen ({len(pick)}/{JOKER_SELECT_COUNT})."),
+                content=ft.Text(
+                    f"Bitte genau {JOKER_SELECT_COUNT} Joker auswählen ({len(current)}/{JOKER_SELECT_COUNT})."
+                ),
             )
             page.snack_bar.open = True
             page.update()
             return
-        show_joker_confirm_dialog(page, state, pick, on_start)
+        show_joker_confirm_screen(page, state, current, on_start)
 
     def on_back(e):
         reset_joker_pick_state(state)
@@ -1594,7 +1633,8 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
         border_radius=12,
         bgcolor=theme["success"] if check_enabled else "#555555",
         alignment=ft.Alignment(0, 0),
-        on_click=on_check if check_enabled else None,
+        on_click=on_check,
+        ink=True,
         border=ft.border.Border.all(3, theme["gold"] if check_enabled else theme["border"]),
     )
 
@@ -1611,7 +1651,7 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
             content=ft.Column([
                 ft.Text("Wähle deinen Joker", size=28, weight="bold", color="white", text_align="center"),
                 ft.Text(
-                    f"Tippe {JOKER_SELECT_COUNT} Joker an · erneut tippen zum Abwählen",
+                    f"Tippe {JOKER_SELECT_COUNT} Joker an (oben oder unten) · erneut tippen zum Abwählen",
                     size=14,
                     color=theme_txt(theme, "secondary"),
                     text_align="center",
@@ -1619,7 +1659,9 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
                 ft.Container(height=8),
                 ft.Container(
                     content=ft.Row([
-                        build_joker_slot_row(pick, theme, slot_size=58),
+                        build_joker_slot_row(
+                            pick, theme, slot_size=58, on_joker_click=toggle_joker,
+                        ),
                         check_btn,
                     ], alignment=ft.MainAxisAlignment.CENTER, spacing=14),
                     bgcolor=theme["panel"],
@@ -1653,6 +1695,11 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
 
 def launch_game_after_jokers(page: ft.Page, state: dict):
     """Show joker picker for new games; resume skips if already chosen."""
+    if not state.get("questions"):
+        page.snack_bar = ft.SnackBar(content=ft.Text("Keine Fragen geladen. Bitte Spiel neu starten."))
+        page.snack_bar.open = True
+        page.update()
+        return
     if len(state.get("selected_jokers", [])) == JOKER_SELECT_COUNT:
         show_next_question(page, state)
         return
@@ -4432,10 +4479,16 @@ def get_active_duel_with_friend(email: str, friend_email: str) -> dict | None:
 def open_page_dialog(page: ft.Page, dlg: ft.AlertDialog):
     """Open AlertDialog (compatible with Flet versions without page.open)."""
     if hasattr(page, "open"):
-        page.open(dlg)
-    else:
-        page.dialog = dlg
-        dlg.open = True
+        try:
+            page.open(dlg)
+            page.update()
+            return
+        except Exception:
+            pass
+    page.dialog = dlg
+    dlg.open = True
+    if dlg not in page.overlay:
+        page.overlay.append(dlg)
     page.update()
 
 
