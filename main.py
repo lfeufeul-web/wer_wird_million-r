@@ -213,7 +213,7 @@ def save_db(db: dict):
 
 
 THEME_GAME_ZONES = {
-    "play_column": {"l": 0.032, "t": 0.055, "w": 0.645, "h": 0.56},
+    "play_column": {"l": 0.032, "t": 0.052, "w": 0.648, "h": 0.58},
     "ladder": {"l": 0.695, "t": 0.055, "w": 0.205, "h": 0.88},
     "exit": {"l": 0.0198, "t": 0.0204, "w": 0.1146, "h": 0.0500},
     "overlay": {"l": 0, "t": 0, "w": 1, "h": 1},
@@ -1338,15 +1338,17 @@ ANSWER_LETTERS = ["A", "B", "C", "D"]
 JOKER_SELECT_COUNT = 4
 
 JOKER_CATALOG = [
-    {"id": "half", "name": "50:50", "icon": "50:50", "desc": "Zwei falsche Antworten verschwinden"},
-    {"id": "friend", "name": "Freund", "icon": "Freund", "desc": "Frag eine andere Person"},
-    {"id": "swap", "name": "Tausch", "icon": "Tausch", "desc": "Neue Frage mit neuen Antworten"},
-    {"id": "moderator", "name": "Moderator", "icon": "Tipp", "desc": "Kleiner Moderator-Hinweis"},
-    {"id": "timestop", "name": "Zeit+", "icon": "+30s", "desc": "30 Sekunden extra"},
-    {"id": "truefalse", "name": "W/F", "icon": "W/F", "desc": "Eine Antwort testen"},
-    {"id": "emoji", "name": "Emoji", "icon": "Emoji", "desc": "Richtige Antwort als Emojis"},
-    {"id": "audience", "name": "Publikum", "icon": "Chart", "desc": "Zuschauer-Diagramm"},
-    {"id": "phone", "name": "Telefon", "icon": "Tel", "desc": "1 Minute zum Anrufen"},
+    {"id": "half", "name": "50:50", "short": "50:50", "desc": "Zwei falsche Antworten verschwinden"},
+    {"id": "friend", "name": "Freund", "short": "Freund", "desc": "Frag eine andere Person"},
+    {"id": "swap", "name": "Tausch", "short": "Tausch", "desc": "Neue Frage mit neuen Antworten"},
+    {"id": "moderator", "name": "Moderator", "short": "Tipp", "desc": "Kleiner Moderator-Hinweis"},
+    {"id": "timestop", "name": "Zeit+", "short": "+30s", "desc": "30 Sekunden extra"},
+    {"id": "truefalse", "name": "W/F", "short": "W/F", "desc": "Eine Antwort testen"},
+    {"id": "emoji", "name": "Emoji", "short": "Emoji", "desc": "Richtige Antwort als Emojis"},
+    {"id": "audience", "name": "Publikum", "short": "Chart", "desc": "Zuschauer-Diagramm"},
+    {"id": "phone", "name": "Telefon", "short": "Tel", "desc": "1 Minute zum Anrufen"},
+    {"id": "wikipedia", "name": "Wikipedia", "short": "Wiki", "desc": "Kurze Definition zum Begriff"},
+    {"id": "wordtip", "name": "Wort-Tipp", "short": "Wort", "desc": "Ein einzelnes Hinweis-Wort"},
 ]
 
 QUESTION_TIME_SEC = 30
@@ -1361,6 +1363,23 @@ def get_joker(joker_id: str) -> dict | None:
 
 def stop_game_timer(state: dict):
     state["_timer_cancel"] = True
+
+
+def sync_timer_display(page: ft.Page, state: dict):
+    """Update timer bar/text without rebuilding the whole screen."""
+    theme = get_theme(state)
+    ui = state.get("_timer_ui")
+    if not ui:
+        return
+    sec = max(0, int(state.get("time_left", QUESTION_TIME_SEC)))
+    ui["text"].value = str(sec)
+    ui["bar"].value = sec / QUESTION_TIME_SEC
+    ui["text"].color = "#C62828" if sec <= 10 else theme_txt(theme, "primary")
+    ui["bar"].color = "#C62828" if sec <= 10 else theme["success"]
+    try:
+        page.update()
+    except Exception:
+        pass
 
 
 def mark_joker_used(state: dict, joker_id: str):
@@ -1423,6 +1442,62 @@ def moderator_hint_for(question: str, options: list, correct_idx: int) -> str:
         f"Moderator: Denke an etwas mit „{correct[:3]}…“ – "
         f"die Lösung hat {len(correct)} Buchstaben."
     )
+
+
+WIKIPEDIA_HINTS = {
+    "biene": "Biene: Ein Insekt, das Blüten bestäubt und Honig herstellt.",
+    "frosch": "Frosch: Ein springendes Amphib, das oft in Teichen lebt.",
+    "elefant": "Elefant: Das größte lebende Landtier mit einem Rüssel.",
+    "berlin": "Berlin: Hauptstadt von Deutschland mit Regierungssitz.",
+    "wasser": "Wasser: Flüssigkeit aus H und O, lebensnotwendig für Menschen.",
+    "sonne": "Sonne: Stern im Zentrum unseres Sonnensystems.",
+    "buch": "Buch: Gedruckte oder digitale Seiten zum Lesen und Lernen.",
+    "auto": "Auto: Kraftfahrzeug für den Straßenverkehr.",
+    "maus": "Maus: Kleines Nagetier oder Computer-Eingabegerät.",
+    "hund": "Hund: Haus- und Heimtier, enger Begleiter des Menschen.",
+}
+
+WORD_TIP_HINTS = {
+    "biene": "Honig",
+    "frosch": "Teich",
+    "elefant": "Rüssel",
+    "berlin": "Hauptstadt",
+    "wasser": "Flüssigkeit",
+    "sonne": "Stern",
+    "buch": "Lesen",
+    "auto": "Fahren",
+    "maus": "Nagetier",
+    "hund": "Treue",
+    "katze": "Schnurren",
+    "vogel": "Flügel",
+    "fisch": "Schwimmen",
+}
+
+
+def wikipedia_definition(term: str) -> str:
+    key = term.strip().lower()
+    for hint_key, text in WIKIPEDIA_HINTS.items():
+        if hint_key in key:
+            return text
+    return (
+        f"{term}: Ein wichtiger Begriff aus Allgemeinwissen, "
+        f"den man oft in Schule, Medien oder Wikipedia findet."
+    )
+
+
+def word_tip_for(term: str, question: str = "") -> str:
+    key = term.strip().lower()
+    for hint_key, word in WORD_TIP_HINTS.items():
+        if hint_key in key:
+            return word
+    q = question.lower()
+    if "hauptstadt" in q:
+        return "Stadt"
+    if "tier" in q or "summt" in q or "beine" in q:
+        return "Natur"
+    if "farbe" in q:
+        return "Farbe"
+    return "Denken"
 
 
 def swap_question_at_index(state: dict) -> bool:
@@ -1508,7 +1583,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
                 answer_buttons[i].visible = False
         state["hidden_answers"] = list(hidden)
         mark_joker_used(state, joker_id)
-        page.update()
+        render_game_screen(page, state)
         return
 
     if joker_id == "friend":
@@ -1536,7 +1611,29 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
     if joker_id == "timestop":
         state["time_left"] = int(state.get("time_left", QUESTION_TIME_SEC)) + 30
         mark_joker_used(state, joker_id)
-        page.update()
+        sync_timer_display(page, state)
+        return
+
+    if joker_id == "wikipedia":
+        mark_joker_used(state, joker_id)
+        term = options[correct_idx]
+        show_game_message(
+            page, state,
+            "Wikipedia-Lösung",
+            wikipedia_definition(term),
+            theme,
+        )
+        return
+
+    if joker_id == "wordtip":
+        mark_joker_used(state, joker_id)
+        word = word_tip_for(options[correct_idx], question)
+        show_game_message(
+            page, state,
+            "Wort-Tipp",
+            f"Denke an das Wort: „{word}“",
+            theme,
+        )
         return
 
     if joker_id == "truefalse":
@@ -1631,18 +1728,17 @@ def build_joker_tile(
     bgcolor = theme["accent"] if selected else (theme.get("question_bg", "#FFFFFF") if not used else "#55555588")
     if used:
         border_color = "#888888"
-    content = ft.Column([
-        ft.Text(joker["icon"], size=22 if size >= 52 else 18, text_align="center"),
-        ft.Text(
-            joker["name"],
-            size=9 if size >= 52 else 8,
-            weight="bold" if selected else "normal",
-            color=theme["question_text"] if not used else "#AAAAAA",
-            text_align="center",
-            max_lines=2,
-            no_wrap=False,
-        ) if show_name else ft.Container(),
-    ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER)
+    label = joker.get("short", joker.get("name", "?"))
+    font_size = 8 if size <= 50 else (9 if size <= 58 else 10)
+    content = ft.Text(
+        label,
+        size=font_size,
+        weight="bold" if selected else "normal",
+        color=theme["question_text"] if not used else "#AAAAAA",
+        text_align=ft.TextAlign.CENTER,
+        max_lines=2,
+        no_wrap=False,
+    ) if show_name else ft.Container()
 
     return ft.Container(
         content=content,
@@ -1656,6 +1752,7 @@ def build_joker_tile(
         ink=on_click is not None,
         opacity=0.45 if used else 1.0,
         shadow=ft.BoxShadow(blur_radius=14, color="#60FFD700") if selected else None,
+        tooltip=joker.get("desc", ""),
     )
 
 
@@ -1701,10 +1798,11 @@ def build_joker_slot_row(
 def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | None = None) -> ft.Control:
     """Separate white row with the 4 chosen jokers."""
     selected = state.get("selected_jokers", [])[:JOKER_SELECT_COUNT]
-    used_ids = set(state.get("jokers_used_ids", []))
 
     def on_joker_tap(joker_id: str):
-        if joker_id in used_ids or not ctx:
+        if not ctx:
+            return
+        if joker_id in state.get("jokers_used_ids", []):
             return
         activate_joker(page, state, joker_id, ctx)
 
@@ -1743,6 +1841,8 @@ def _apply_joker_selection_and_start(state: dict, picked_ids: list[str], on_star
     state["jokers_used_ids"] = []
     state["jokers_confirmed"] = True
     state.pop("joker_pick_buffer", None)
+    clear_game_modal(state)
+    state.pop("_timer_active_key", None)
     save_current_game(state)
     on_start()
 
@@ -3529,10 +3629,17 @@ def _duel_cancel_button(page: ft.Page, state: dict, theme: dict, duel: dict) -> 
     )
 
 
-def _game_panel(content: ft.Control, theme: dict, *, height: int | None = None) -> ft.Container:
+def _game_panel(
+    content: ft.Control,
+    theme: dict,
+    *,
+    height: int | None = None,
+    width: int | None = None,
+) -> ft.Container:
     """White/game panel with consistent width styling."""
     return ft.Container(
         content=content,
+        width=width,
         bgcolor=theme.get("question_bg", "#FFFFFF"),
         border_radius=10,
         padding=ft.Padding(12, 10, 12, 10),
@@ -3542,20 +3649,32 @@ def _game_panel(content: ft.Control, theme: dict, *, height: int | None = None) 
 
 
 async def _flash_red_screen(page: ft.Page, state: dict):
-    state["_flash_red"] = True
-    render_game_screen(page, state)
+    """Brief red flash without rebuilding the game UI (keeps timer + clicks working)."""
+    flash = ft.Container(bgcolor="#55FF1744", expand=True)
+    page.overlay.append(flash)
+    try:
+        page.update()
+    except Exception:
+        pass
     await asyncio.sleep(0.12)
-    state["_flash_red"] = False
-    render_game_screen(page, state)
+    if flash in page.overlay:
+        page.overlay.remove(flash)
+    try:
+        page.update()
+    except Exception:
+        pass
 
 
 def _start_question_timer(page: ft.Page, state: dict):
     timer_key = f"q{state['question_index']}"
     if state.get("_timer_active_key") == timer_key:
+        sync_timer_display(page, state)
         return
     stop_game_timer(state)
+    state["_timer_cancel"] = False
     state["_timer_active_key"] = timer_key
     state["time_left"] = QUESTION_TIME_SEC
+    sync_timer_display(page, state)
 
     async def tick():
         while not state.get("_timer_cancel") and state.get("_timer_active_key") == timer_key:
@@ -3575,16 +3694,7 @@ def _start_question_timer(page: ft.Page, state: dict):
             if state.get("_timer_cancel") or state.get("_timer_active_key") != timer_key:
                 return
             state["time_left"] = left - 1
-            ui = state.get("_timer_ui")
-            if ui:
-                sec = max(0, state["time_left"])
-                ui["text"].value = str(sec)
-                ui["bar"].value = sec / QUESTION_TIME_SEC
-                ui["text"].color = "#C62828" if sec <= 10 else theme_txt(get_theme(state), "primary")
-                try:
-                    page.update()
-                except Exception:
-                    pass
+            sync_timer_display(page, state)
             if state["time_left"] == 10:
                 await _flash_red_screen(page, state)
             elif 1 <= state["time_left"] <= 5:
@@ -3611,6 +3721,7 @@ def render_game_screen(page: ft.Page, state: dict):
     total_q = len(state["questions"])
     page_w, page_h = _page_size(page)
     is_mobile = page_w < 720
+    col_w = max(320, int(page_w * zones["play_column"]["w"]))
 
     state.setdefault("hidden_answers", [])
     hidden = set(state.get("hidden_answers", []))
@@ -3719,7 +3830,7 @@ def render_game_screen(page: ft.Page, state: dict):
     )
     timer_bar = ft.ProgressBar(
         value=sec / QUESTION_TIME_SEC,
-        width=400 if not is_mobile else 280,
+        expand=True,
         height=10,
         color="#C62828" if sec <= 10 else theme["success"],
         bgcolor="#E0E0E0",
@@ -3727,9 +3838,15 @@ def render_game_screen(page: ft.Page, state: dict):
     state["_timer_ui"] = {"text": timer_text, "bar": timer_bar}
 
     timer_panel = _game_panel(
-        ft.Row([timer_text, timer_bar], spacing=12, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        ft.Row(
+            [timer_text, ft.Container(content=timer_bar, expand=True)],
+            spacing=12,
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            width=col_w - 24,
+        ),
         theme,
         height=44,
+        width=col_w,
     )
 
     question_panel = _game_panel(
@@ -3745,38 +3862,42 @@ def render_game_screen(page: ft.Page, state: dict):
                 color=question_text_color, text_align=ft.TextAlign.CENTER,
                 max_lines=4, no_wrap=False,
             ),
-        ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=col_w - 24),
         theme,
         height=120 if not is_mobile else 100,
+        width=col_w,
     )
 
     answers_panel = _game_panel(
         ft.Column([
             ft.Row([answer_boxes[0], answer_boxes[1]], spacing=10),
             ft.Row([answer_boxes[2], answer_boxes[3]], spacing=10),
-        ], spacing=10) if not is_mobile else ft.Column(answer_boxes, spacing=8),
+        ], spacing=10, width=col_w - 24) if not is_mobile else ft.Column(answer_boxes, spacing=8, width=col_w - 24),
         theme,
+        width=col_w,
     )
 
     status_panel = _game_panel(
         ft.Row([
             ft.Text(f"Frage {q_num} von {total_q}", size=13, color=theme_txt(theme, "secondary"), weight="bold"),
             ft.Text(f"◆ {state.get('money', '0 €')}", size=14, color=theme["gold"], weight="bold"),
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=col_w - 24),
         theme,
         height=42,
+        width=col_w,
     )
 
     joker_panel = _game_panel(
         build_game_joker_bar(page, state, theme, ctx),
         theme,
-        height=64,
+        height=58,
+        width=col_w,
     )
 
     play_column = ft.Column(
         [timer_panel, question_panel, answers_panel, status_panel, joker_panel],
         spacing=8,
-        expand=True,
+        width=col_w,
     )
 
     ladder_panel = _neon_solid_panel(
@@ -3811,7 +3932,6 @@ def render_game_screen(page: ft.Page, state: dict):
             ),
         )
 
-    flash = ft.Container(bgcolor="#FF000055", expand=True) if state.get("_flash_red") else None
     modal = state.get("_modal_overlay")
 
     hud_layers = [bg_layer]
@@ -3824,10 +3944,20 @@ def render_game_screen(page: ft.Page, state: dict):
             _neon_zone_box(zones["play_column"], page_w, page_h, play_column),
             _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel if themed else ft.Container(content=ladder_panel, padding=4)),
         ])
-    if flash:
-        hud_layers.append(_neon_zone_box(zones["overlay"], page_w, page_h, flash))
     if modal:
-        hud_layers.append(_neon_zone_box(zones["overlay"], page_w, page_h, modal))
+        hud_layers.append(
+            _neon_zone_box(
+                zones["overlay"],
+                page_w,
+                page_h,
+                ft.Container(
+                    content=modal,
+                    alignment=ft.Alignment(0, 0),
+                    expand=True,
+                    bgcolor="#00000088",
+                ),
+            )
+        )
 
     pw, ph = max(1, int(page_w)), max(1, int(page_h))
     page.controls.clear()
