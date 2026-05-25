@@ -1798,11 +1798,12 @@ def build_joker_slot_row(
 def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | None = None) -> ft.Control:
     """Separate white row with the 4 chosen jokers."""
     selected = state.get("selected_jokers", [])[:JOKER_SELECT_COUNT]
+    used_ids = set(state.get("jokers_used_ids", []))
 
     def on_joker_tap(joker_id: str):
         if not ctx:
             return
-        if joker_id in state.get("jokers_used_ids", []):
+        if joker_id in used_ids:
             return
         activate_joker(page, state, joker_id, ctx)
 
