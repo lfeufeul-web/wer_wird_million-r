@@ -213,13 +213,13 @@ def save_db(db: dict):
 
 
 THEME_GAME_ZONES = {
-    "question": {"l": 0.0448, "t": 0.0704, "w": 0.5698, "h": 0.2102},
-    "answer_a": {"l": 0.0448, "t": 0.3102, "w": 0.2771, "h": 0.1806},
-    "answer_b": {"l": 0.3375, "t": 0.3102, "w": 0.2771, "h": 0.1806},
-    "answer_c": {"l": 0.0448, "t": 0.5074, "w": 0.2771, "h": 0.1806},
-    "answer_d": {"l": 0.3375, "t": 0.5074, "w": 0.2771, "h": 0.1806},
+    "question": {"l": 0.0448, "t": 0.0704, "w": 0.5698, "h": 0.135},
+    "answer_a": {"l": 0.0448, "t": 0.218, "w": 0.2771, "h": 0.118},
+    "answer_b": {"l": 0.3375, "t": 0.218, "w": 0.2771, "h": 0.118},
+    "answer_c": {"l": 0.0448, "t": 0.348, "w": 0.2771, "h": 0.118},
+    "answer_d": {"l": 0.3375, "t": 0.348, "w": 0.2771, "h": 0.118},
     "ladder": {"l": 0.6651, "t": 0.0704, "w": 0.2797, "h": 0.8593},
-    "footer": {"l": 0.0448, "t": 0.7102, "w": 0.5698, "h": 0.0602},
+    "footer": {"l": 0.0448, "t": 0.478, "w": 0.5698, "h": 0.052},
     "exit": {"l": 0.0198, "t": 0.0204, "w": 0.1146, "h": 0.0500},
 }
 
@@ -944,6 +944,45 @@ def theme_txt(theme: dict, role: str = "primary") -> str:
 
 def uses_themed_game(theme: dict) -> bool:
     return theme.get("game_layout") == "themed" and bool(theme.get("game_bg"))
+
+
+def _page_size(page: ft.Page) -> tuple[float, float]:
+    """Viewport size for full-screen game layout (web + desktop)."""
+    w = page.width
+    h = page.height
+    win = getattr(page, "window", None)
+    if (not w or w <= 0) and win:
+        w = win.width
+    if (not h or h <= 0) and win:
+        h = win.height
+    return float(w or 1100), float(h or 720)
+
+
+def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay_color: str) -> ft.Stack:
+    """Background stretched to the full viewport (no letterboxing)."""
+    w, h = max(1, int(page_w)), max(1, int(page_h))
+    return ft.Stack(
+        [
+            ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h),
+            ft.Container(width=w, height=h, bgcolor=overlay_color),
+        ],
+        width=w,
+        height=h,
+    )
+
+
+def _set_themed_game_resize(page: ft.Page, state: dict):
+    state["_themed_game_active"] = True
+
+    def on_resize(_e):
+        if state.get("_themed_game_active") and uses_themed_game(get_theme(state)):
+            show_next_question_themed(page, state)
+
+    page.on_resize = on_resize
+
+
+def _clear_themed_game_resize(state: dict):
+    state["_themed_game_active"] = False
 
 def money_level_value(money_level_idx: int) -> int:
     if money_level_idx < 0:
@@ -2162,6 +2201,7 @@ def _age_button(label: str, data: str, color: str, on_click) -> ft.Control:
 
 # ---------- Open main menu ----------
 def open_main_menu(page: ft.Page, state: dict):
+    _clear_themed_game_resize(state)
     page.controls.clear()
     page.add(build_welcome_view(page, state))
     page.update()
@@ -2172,13 +2212,14 @@ def _neon_panel_border(theme: dict, width: int = 2) -> ft.Border:
     return ft.border.Border.all(width, theme["border"])
 
 
-def _neon_solid_panel(content: ft.Control, theme: dict, expand: bool = True) -> ft.Container:
+def _neon_solid_panel(content: ft.Control, theme: dict, expand: bool = True, compact: bool = False) -> ft.Container:
     """Opaque panel so text stays readable on any background."""
+    pad = 6 if compact else 10
     return ft.Container(
         content=content,
         bgcolor=theme.get("panel", "#0c1814"),
         border_radius=6,
-        padding=ft.Padding(10, 10, 10, 10),
+        padding=ft.Padding(pad, pad - 2, pad, pad - 2),
         border=_neon_panel_border(theme),
         expand=expand,
         alignment=ft.Alignment(0, 0),
@@ -2229,8 +2270,7 @@ def show_next_question_themed(page: ft.Page, state: dict):
     question, options, correct_idx = state["questions"][state["question_index"]]
     q_num = state["question_index"] + 1
     total_q = len(state["questions"])
-    page_w = float(page.width or getattr(page, "window", None) and page.window.width or 1100)
-    page_h = float(page.height or getattr(page, "window", None) and page.window.height or 720)
+    page_w, page_h = _page_size(page)
     is_mobile = page_w < 720
 
     answer_buttons: list[ft.Container] = []
@@ -2275,26 +2315,26 @@ def show_next_question_themed(page: ft.Page, state: dict):
         color = answer_palette[idx % len(answer_palette)]
         inner = ft.Row([
             ft.Container(
-                content=ft.Text(letter, size=13, weight="bold", color="#001a0a"),
-                width=30, height=30,
+                content=ft.Text(letter, size=12, weight="bold", color="#001a0a"),
+                width=26, height=26,
                 border_radius=4,
                 bgcolor=color,
                 alignment=ft.Alignment(0, 0),
                 border=ft.border.Border.all(1, theme["border"]),
             ),
             ft.Text(
-                text, size=13 if is_mobile else 14,
+                text, size=12 if is_mobile else 13,
                 color=answer_text_color, weight="bold", expand=True,
-                max_lines=3, no_wrap=False,
+                max_lines=2, no_wrap=False,
             ),
-        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         box = ft.Container(
             content=inner,
             data=idx,
             on_click=handle_answer,
             bgcolor=answer_bg,
             border_radius=6,
-            padding=ft.Padding(10, 8, 10, 8),
+            padding=ft.Padding(8, 5, 8, 5),
             border=_neon_panel_border(theme),
             expand=True,
             alignment=ft.Alignment(0, 0),
@@ -2307,31 +2347,32 @@ def show_next_question_themed(page: ft.Page, state: dict):
 
     question_inner = ft.Column([
         ft.Container(
-            content=ft.Text(f"FRAGE {q_num}", size=11, weight="bold", color="#001a0a"),
+            content=ft.Text(f"FRAGE {q_num}", size=10, weight="bold", color="#001a0a"),
             bgcolor=theme["gold"],
             border_radius=4,
-            padding=ft.Padding(10, 4, 10, 4),
+            padding=ft.Padding(8, 3, 8, 3),
         ),
         ft.Container(
             content=ft.Text(
-                question, size=15 if is_mobile else 18, weight="bold",
+                question, size=14 if is_mobile else 16, weight="bold",
                 color=question_text_color, text_align=ft.TextAlign.CENTER,
-                max_lines=6 if is_mobile else 4, no_wrap=False,
+                max_lines=4 if is_mobile else 3, no_wrap=False,
             ),
             expand=True,
             alignment=ft.Alignment(0, 0),
         ),
-    ], spacing=8, expand=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-    question_panel = _neon_solid_panel(question_inner, theme)
+    ], spacing=5, expand=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+    question_panel = _neon_solid_panel(question_inner, theme, compact=True)
 
     ladder_inner = build_neon_nexus_money_ladder(state, compact=is_mobile)
-    ladder_panel = _neon_solid_panel(ladder_inner, theme)
+    ladder_panel = _neon_solid_panel(ladder_inner, theme, compact=True)
     footer_panel = _neon_solid_panel(
         ft.Row([
-            ft.Text(f"Frage {q_num} von {total_q}", size=12, color=theme_txt(theme, "secondary"), weight="bold"),
-            ft.Text(f"◆ {state.get('money', '0 €')}", size=13, color=theme["gold"], weight="bold"),
+            ft.Text(f"Frage {q_num} von {total_q}", size=11, color=theme_txt(theme, "secondary"), weight="bold"),
+            ft.Text(f"◆ {state.get('money', '0 €')}", size=12, color=theme["gold"], weight="bold"),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         theme,
+        compact=True,
     )
     exit_btn = ft.Container(
         content=ft.Row([
@@ -2347,20 +2388,11 @@ def show_next_question_themed(page: ft.Page, state: dict):
     bg_image = theme.get("game_bg")
     overlay_color = "#00000099" if not theme.get("is_light") else "#00000055"
     if bg_image:
-        bg_layer = ft.Stack(
-            [
-                ft.Container(
-                    expand=True,
-                    bgcolor="#000000",
-                    content=ft.Image(src=bg_image, fit=ft.BoxFit.COVER, expand=True),
-                ),
-                ft.Container(expand=True, bgcolor=overlay_color),
-            ],
-            expand=True,
-        )
+        bg_layer = _themed_game_background(bg_image, page_w, page_h, overlay_color)
     else:
         bg_layer = ft.Container(
-            expand=True,
+            width=max(1, int(page_w)),
+            height=max(1, int(page_h)),
             gradient=ft.LinearGradient(
                 begin=ft.Alignment(-1, -0.5),
                 end=ft.Alignment(1, 1),
@@ -2395,8 +2427,18 @@ def show_next_question_themed(page: ft.Page, state: dict):
             _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel),
         ]
 
+    pw, ph = max(1, int(page_w)), max(1, int(page_h))
     page.controls.clear()
-    page.add(ft.Container(expand=True, bgcolor="#010302", content=ft.Stack(hud_layers, expand=True)))
+    page.add(
+        ft.Container(
+            expand=True,
+            width=pw,
+            height=ph,
+            bgcolor="#000000",
+            content=ft.Stack(hud_layers, expand=True, width=pw, height=ph),
+        )
+    )
+    _set_themed_game_resize(page, state)
     page.update()
 
 
@@ -2669,6 +2711,8 @@ def show_exit_confirmation(page: ft.Page, state: dict):
 
 # ---------- Result Screens ----------
 def _show_correct_screen(page: ft.Page, state: dict):
+    _clear_themed_game_resize(state)
+
     def next_q(e):
         show_next_question(e.page, state)
 
@@ -2705,6 +2749,7 @@ def _show_correct_screen(page: ft.Page, state: dict):
 
 
 def _show_wrong_screen(page: ft.Page, state: dict):
+    _clear_themed_game_resize(state)
     state["game_finished"] = True
     clear_saved_game(state)
     # Update persistent stats
@@ -2757,6 +2802,7 @@ def _show_wrong_screen(page: ft.Page, state: dict):
 
 
 def _show_win_screen(page: ft.Page, state: dict):
+    _clear_themed_game_resize(state)
     state["game_finished"] = True
     clear_saved_game(state)
     # Update persistent stats
