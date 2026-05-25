@@ -213,7 +213,8 @@ def save_db(db: dict):
 
 
 THEME_GAME_ZONES = {
-    "play_column": {"l": 0.032, "t": 0.052, "w": 0.648, "h": 0.58},
+    "play_column": {"l": 0.032, "t": 0.052, "w": 0.648, "h": 0.50},
+    "jokers": {"l": 0.032, "t": 0.555, "w": 0.648, "h": 0.075},
     "ladder": {"l": 0.695, "t": 0.055, "w": 0.205, "h": 0.88},
     "exit": {"l": 0.0198, "t": 0.0204, "w": 0.1146, "h": 0.0500},
     "overlay": {"l": 0, "t": 0, "w": 1, "h": 1},
@@ -955,16 +956,21 @@ def _page_size(page: ft.Page) -> tuple[float, float]:
     return float(w or 1100), float(h or 720)
 
 
-def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay_color: str) -> ft.Stack:
-    """Background stretched to the full viewport (no letterboxing)."""
+def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay_color: str) -> ft.Container:
+    """Background stretched to the full viewport; ignores pointer so HUD stays clickable."""
     w, h = max(1, int(page_w)), max(1, int(page_h))
-    return ft.Stack(
-        [
-            ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h),
-            ft.Container(width=w, height=h, bgcolor=overlay_color),
-        ],
+    return ft.Container(
         width=w,
         height=h,
+        ignore_pointer=True,
+        content=ft.Stack(
+            [
+                ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h),
+                ft.Container(width=w, height=h, bgcolor=overlay_color),
+            ],
+            width=w,
+            height=h,
+        ),
     )
 
 
@@ -1074,6 +1080,8 @@ def save_current_game(state: dict):
         "custom_quiz_title": state.get("custom_quiz_title"),
         "selected_jokers": state.get("selected_jokers", []),
         "jokers_used_ids": state.get("jokers_used_ids", []),
+        "time_left": max(0, int(state.get("time_left", QUESTION_TIME_SEC))),
+        "hidden_answers": state.get("hidden_answers", []),
     }
     db["users"][email]["saved_game"] = saved_game
     state["saved_game"] = saved_game
@@ -1152,7 +1160,11 @@ def resume_saved_game(page: ft.Page, state: dict, saved: dict | None = None):
         "custom_quiz_title": saved.get("custom_quiz_title"),
         "selected_jokers": saved.get("selected_jokers", []),
         "jokers_used_ids": saved.get("jokers_used_ids", []),
+        "time_left": max(0, int(saved.get("time_left", QUESTION_TIME_SEC))),
+        "hidden_answers": list(saved.get("hidden_answers", [])),
     })
+    state.pop("_timer_active_key", None)
+    state["_timer_question_key"] = f"q{state['question_index']}"
     if len(state.get("selected_jokers", [])) == JOKER_SELECT_COUNT:
         show_next_question(page, state)
     else:
@@ -1740,7 +1752,7 @@ def build_joker_tile(
         no_wrap=False,
     ) if show_name else ft.Container()
 
-    return ft.Container(
+    tile = ft.Container(
         content=content,
         width=size,
         height=size,
@@ -1748,11 +1760,16 @@ def build_joker_tile(
         bgcolor=bgcolor,
         border=ft.border.Border.all(border_w, border_color),
         alignment=ft.Alignment(0, 0),
-        on_click=on_click,
-        ink=on_click is not None,
         opacity=0.45 if used else 1.0,
         shadow=ft.BoxShadow(blur_radius=14, color="#60FFD700") if selected else None,
         tooltip=joker.get("desc", ""),
+    )
+    if on_click is None:
+        return tile
+    return ft.GestureDetector(
+        on_tap=on_click,
+        mouse_cursor=ft.MouseCursor.CLICK,
+        content=tile,
     )
 
 
@@ -3668,13 +3685,17 @@ async def _flash_red_screen(page: ft.Page, state: dict):
 
 def _start_question_timer(page: ft.Page, state: dict):
     timer_key = f"q{state['question_index']}"
-    if state.get("_timer_active_key") == timer_key:
+    if state.get("_timer_question_key") != timer_key:
+        state["_timer_question_key"] = timer_key
+        state["time_left"] = QUESTION_TIME_SEC
+
+    if state.get("_timer_active_key") == timer_key and not state.get("_timer_cancel"):
         sync_timer_display(page, state)
         return
+
     stop_game_timer(state)
     state["_timer_cancel"] = False
     state["_timer_active_key"] = timer_key
-    state["time_left"] = QUESTION_TIME_SEC
     sync_timer_display(page, state)
 
     async def tick():
@@ -3744,6 +3765,8 @@ def render_game_screen(page: ft.Page, state: dict):
                 state["questions_answered"] += 1
                 state["question_index"] += 1
                 state.pop("_timer_active_key", None)
+                state.pop("_timer_question_key", None)
+                state["time_left"] = QUESTION_TIME_SEC
                 if state["question_index"] >= len(state["questions"]):
                     _show_win_screen(page, state)
                 else:
@@ -3896,7 +3919,7 @@ def render_game_screen(page: ft.Page, state: dict):
     )
 
     play_column = ft.Column(
-        [timer_panel, question_panel, answers_panel, status_panel, joker_panel],
+        [timer_panel, question_panel, answers_panel, status_panel],
         spacing=8,
         width=col_w,
     )
@@ -3912,7 +3935,7 @@ def render_game_screen(page: ft.Page, state: dict):
             ft.Text("🚪", size=12),
             ft.Text("Pause", size=11, weight="bold", color="white"),
         ], spacing=4),
-        on_click=lambda e: (stop_game_timer(state), show_exit_confirmation(page, state)),
+        on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
         bgcolor=theme["danger"],
         border_radius=4,
         padding=ft.Padding(10, 6, 10, 6),
@@ -3926,6 +3949,7 @@ def render_game_screen(page: ft.Page, state: dict):
         bg_layer = ft.Container(
             width=max(1, int(page_w)),
             height=max(1, int(page_h)),
+            ignore_pointer=True,
             gradient=ft.LinearGradient(
                 begin=ft.Alignment(-1, -1),
                 end=ft.Alignment(1, 1),
@@ -3937,12 +3961,13 @@ def render_game_screen(page: ft.Page, state: dict):
 
     hud_layers = [bg_layer]
     if is_mobile:
-        col_items = [exit_btn, play_column, ladder_panel]
+        col_items = [exit_btn, play_column, joker_panel, ladder_panel]
         hud_layers.append(ft.Container(expand=True, padding=12, content=ft.Column(col_items, spacing=10, scroll=ft.ScrollMode.AUTO)))
     else:
         hud_layers.extend([
             _neon_zone_box(zones["exit"], page_w, page_h, exit_btn),
             _neon_zone_box(zones["play_column"], page_w, page_h, play_column),
+            _neon_zone_box(zones["jokers"], page_w, page_h, joker_panel),
             _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel if themed else ft.Container(content=ladder_panel, padding=4)),
         ])
     if modal:
@@ -4017,6 +4042,8 @@ def show_exit_confirmation(page: ft.Page, state: dict):
                     "custom_quiz_title": state.get("custom_quiz_title"),
                     "selected_jokers": state.get("selected_jokers", []),
                     "jokers_used_ids": state.get("jokers_used_ids", []),
+                    "time_left": max(0, int(state.get("time_left", QUESTION_TIME_SEC))),
+                    "hidden_answers": state.get("hidden_answers", []),
                 }
                 save_db(db_current)
         open_main_menu(e.page, state)
