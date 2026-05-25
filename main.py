@@ -3391,6 +3391,349 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
 
 
 
+def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
+    theme = get_theme(state)
+    db, email, user = current_user_entry(state)
+    if not email or not user:
+        show_login_view(page, state)
+        return
+
+    code_input = ft.TextField(
+        label="Freundescode oder QR-Inhalt",
+        width=300,
+        bgcolor=theme["panel"],
+        border_color=theme["border"],
+        color="white",
+    )
+    status_text = ft.Text(
+        status_message,
+        size=13,
+        text_align="center",
+        color=theme["success"] if any(w in status_message for w in ["gesendet", "entfernt", "Freunde", "Annehm"]) else theme["danger"],
+    )
+
+    def send_request(e):
+        message = save_friend_request(state, code_input.value)
+        show_friends_view(e.page, state, message)
+
+    friend_code = user.get("friend_code", "")
+    qr_data = friend_qr_base64(friend_code)
+    qr_control = (
+        ft.Container(
+            content=ft.Image(src=f"data:image/png;base64,{qr_data}", width=180, height=180),
+            bgcolor="white",
+            padding=10,
+            border_radius=12,
+        )
+        if qr_data
+        else ft.Text("QR-Code benötigt qrcode-Paket.", size=12, color="#CCCCCC", text_align="center")
+    )
+
+    # ---- Tab 1: Freunde & Anfragen ----
+    incoming_controls = []
+    for requester_email in user.get("friend_requests_in", []):
+        requester = db.get("users", {}).get(requester_email, {})
+        name = requester.get("name", requester_email)
+        incoming_controls.append(
+            ft.Container(
+                content=ft.Row([
+                    ft.Text(f"👤 {name}", color="white", expand=True, size=14),
+                    ft.TextButton(
+                        "✅ Annehmen",
+                        on_click=lambda e, req=requester_email: (respond_friend_request(state, req, True), show_friends_view(e.page, state)),
+                        style=ft.ButtonStyle(color=theme["success"]),
+                    ),
+                    ft.TextButton(
+                        "❌ Ablehnen",
+                        on_click=lambda e, req=requester_email: (respond_friend_request(state, req, False), show_friends_view(e.page, state)),
+                        style=ft.ButtonStyle(color=theme["danger"]),
+                    ),
+                ], alignment=ft.MainAxisAlignment.START),
+                bgcolor=theme["panel"],
+                border_radius=10,
+                padding=ft.Padding(10, 8, 10, 8),
+                border=ft.border.Border.all(1, theme["border"]),
+            )
+        )
+    if not incoming_controls:
+        incoming_controls.append(ft.Text("Keine offenen Anfragen.", size=12, color="#CCCCCC"))
+
+    friend_controls = []
+    for f_email in user.get("friends", []):
+        friend = db.get("users", {}).get(f_email)
+        if not friend:
+            continue
+        ensure_social_defaults(friend)
+        last_active_str = format_last_active(friend.get("last_active"))
+        la = friend.get("last_active")
+        is_online = False
+        if la:
+            try:
+                dt = datetime.fromisoformat(la)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                is_online = (datetime.now(timezone.utc) - dt).total_seconds() < 300
+            except Exception:
+                pass
+        dot_color = theme["success"] if is_online else "#666666"
+
+        friend_controls.append(
+            ft.Container(
+                content=ft.Row([
+                    ft.Container(width=10, height=10, border_radius=5, bgcolor=dot_color, margin=ft.Margin(0, 0, 8, 0)),
+                    ft.Column([
+                        ft.Text(friend.get("name", f_email), size=15, color="white", weight="bold"),
+                        ft.Text(last_active_str, size=11, color="#AAAAAA"),
+                    ], spacing=2, expand=True),
+                    ft.Text("👤 Profil", size=12, color=theme["gold"]),
+                ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                on_click=lambda e, fe=f_email: show_friend_profile_popup(e.page, state, fe),
+                bgcolor=theme["accent"],
+                border_radius=12,
+                padding=ft.Padding(12, 10, 12, 10),
+                margin=ft.Margin(0, 0, 0, 4),
+                border=ft.border.Border.all(1, theme["border"]),
+            )
+        )
+    if not friend_controls:
+        friend_controls.append(ft.Text("Noch keine Freunde. Scanne einen QR-Code!", size=12, color="#CCCCCC"))
+
+    tab_friends = ft.Column([
+        ft.Text("🔗 Dein Freundescode", size=15, weight="bold", color=theme["gold"]),
+        ft.Row([ft.Text(friend_code, size=20, weight="bold", color="white", selectable=True)], alignment=ft.MainAxisAlignment.CENTER),
+        qr_control,
+        code_input,
+        ft.Container(
+            content=ft.Text("Anfrage senden", size=14, weight="bold", color="white"),
+            on_click=send_request,
+            bgcolor=theme["success"],
+            border_radius=30,
+            padding=ft.Padding(20, 9, 20, 9),
+            alignment=ft.Alignment(0, 0),
+            width=200,
+        ),
+        status_text,
+        ft.Divider(color=theme["border"]),
+        ft.Text("📬 Offene Anfragen", size=15, weight="bold", color=theme["gold"]),
+        *incoming_controls,
+        ft.Divider(color=theme["border"]),
+        ft.Text("👥 Deine Freunde", size=15, weight="bold", color=theme["gold"]),
+        *friend_controls,
+    ], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO)
+
+    # ---- Tab 2: Wochenranking ----
+    week_key = get_current_week_key()
+    all_participants = [email] + user.get("friends", [])
+    ranking_data = []
+    for p_email in all_participants:
+        p_user = db.get("users", {}).get(p_email)
+        if not p_user:
+            continue
+        ensure_social_defaults(p_user)
+        ws = p_user.get("weekly_stats", {})
+        if ws.get("week") != week_key:
+            weekly_lvl = 0
+            weekly_wins = 0
+        else:
+            weekly_lvl = ws.get("money_level", 0)
+            weekly_wins = ws.get("games_won", 0)
+        ranking_data.append({
+            "email": p_email,
+            "name": p_user.get("name", p_email),
+            "level": weekly_lvl,
+            "wins": weekly_wins,
+            "is_me": p_email == email,
+        })
+    ranking_data.sort(key=lambda x: (x["level"], x["wins"]), reverse=True)
+
+    ranking_rows = []
+    for rank_i, entry in enumerate(ranking_data, 1):
+        medal = _medal(rank_i)
+        bg = theme["accent"] if entry["is_me"] else theme["panel"]
+        border_col = theme["gold"] if entry["is_me"] else theme["border"]
+        ranking_rows.append(
+            ft.Container(
+                content=ft.Row([
+                    ft.Text(medal, size=20, width=36),
+                    ft.Text(
+                        entry["name"] + (" (Du)" if entry["is_me"] else ""),
+                        size=14, color="white", expand=True,
+                        weight="bold" if entry["is_me"] else "normal",
+                    ),
+                    ft.Column([
+                        ft.Text(f"Lvl {entry['level']}", size=13, color=theme["gold"], weight="bold"),
+                        ft.Text(f"{entry['wins']} Siege", size=11, color="#AAAAAA"),
+                    ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.END),
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                bgcolor=bg,
+                border_radius=10,
+                padding=ft.Padding(12, 8, 12, 8),
+                border=ft.border.Border.all(1, border_col),
+                margin=ft.Margin(0, 0, 0, 4),
+            )
+        )
+    if not ranking_rows:
+        ranking_rows.append(ft.Text("Noch keine Daten diese Woche.", size=13, color="#CCCCCC"))
+
+    tab_ranking = ft.Column([
+        ft.Text("🏆 Wochenranking", size=18, weight="bold", color=theme["gold"]),
+        ft.Text(f"Woche: {week_key}", size=12, color="#AAAAAA"),
+        ft.Divider(color=theme["border"]),
+        *ranking_rows,
+    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO)
+
+    # ---- Tab 3: Duelle ----
+    client = get_firestore_client()
+    open_duels = []
+    finished_duels = []
+    if client:
+        try:
+            for doc in client.collection("duels").where("opponent_email", "==", email).stream():
+                d = doc.to_dict() or {}
+                d["_id"] = doc.id
+                if d.get("status") == "challenger_done":
+                    open_duels.append(d)
+                elif d.get("status") == "completed":
+                    finished_duels.append(d)
+            for doc in client.collection("duels").where("challenger_email", "==", email).where("status", "==", "completed").stream():
+                d = doc.to_dict() or {}
+                d["_id"] = doc.id
+                if d not in finished_duels:
+                    finished_duels.append(d)
+        except Exception as ex:
+            print(f"Duel load error: {ex}")
+
+    open_duel_controls = []
+    for d in open_duels:
+        challenger_name = d.get("challenger_name", d.get("challenger_email", "?"))
+        open_duel_controls.append(
+            ft.Container(
+                content=ft.Row([
+                    ft.Column([
+                        ft.Text(f"⚔️ Herausforderung von {challenger_name}", size=13, color="white", weight="bold"),
+                        ft.Text(f"Er/sie: {d.get('challenger_score', '?')} Punkte", size=11, color="#AAAAAA"),
+                    ], expand=True, spacing=2),
+                    ft.Container(
+                        content=ft.Text("Annehmen", size=13, color="white", weight="bold"),
+                        on_click=lambda e, duel=d: show_duel_play_view(e.page, state, duel, "opponent"),
+                        bgcolor=theme["gold"],
+                        border_radius=20,
+                        padding=ft.Padding(14, 6, 14, 6),
+                    ),
+                ]),
+                bgcolor=theme["panel"],
+                border_radius=10,
+                padding=ft.Padding(12, 10, 12, 10),
+                border=ft.border.Border.all(1, theme["gold"]),
+                margin=ft.Margin(0, 0, 0, 6),
+            )
+        )
+    if not open_duel_controls:
+        open_duel_controls.append(ft.Text("Keine offenen Herausforderungen.", size=12, color="#CCCCCC"))
+
+    finished_duel_controls = []
+    for d in finished_duels[-5:]:
+        winner_email = d.get("winner_email", "")
+        i_won = winner_email == email
+        draw = d.get("challenger_score") == d.get("opponent_score")
+        result_icon = "🤝" if draw else ("🏆" if i_won else "😔")
+        result_color = theme["gold"] if draw else (theme["success"] if i_won else theme["danger"])
+        other = d.get("opponent_email") if d.get("challenger_email") == email else d.get("challenger_email")
+        other_name = db.get("users", {}).get(other or "", {}).get("name", other or "?")
+        my_score_key = "challenger_score" if d.get("challenger_email") == email else "opponent_score"
+        opp_score_key = "opponent_score" if d.get("challenger_email") == email else "challenger_score"
+        finished_duel_controls.append(
+            ft.Container(
+                content=ft.Row([
+                    ft.Text(result_icon, size=22, width=32),
+                    ft.Column([
+                        ft.Text(f"vs. {other_name}", size=13, color="white"),
+                        ft.Text(f"Du: {d.get(my_score_key, '?')} · Gegner: {d.get(opp_score_key, '?')}", size=11, color="#AAAAAA"),
+                    ], spacing=2, expand=True),
+                ]),
+                bgcolor=theme["panel"],
+                border_radius=10,
+                padding=ft.Padding(10, 8, 10, 8),
+                border=ft.border.Border.all(1, result_color),
+                margin=ft.Margin(0, 0, 0, 4),
+            )
+        )
+    if not finished_duel_controls:
+        finished_duel_controls.append(ft.Text("Noch keine abgeschlossenen Duelle.", size=12, color="#CCCCCC"))
+
+    tab_duels = ft.Column([
+        ft.Text("⚔️ Offene Herausforderungen", size=15, weight="bold", color=theme["gold"]),
+        *open_duel_controls,
+        ft.Divider(color=theme["border"]),
+        ft.Text("📜 Letzte Duelle", size=15, weight="bold", color=theme["gold"]),
+        *finished_duel_controls,
+        ft.Divider(color=theme["border"]),
+        ft.Text("ℹ️ Tippe auf einen Freund → '⚔️ Herausfordern'", size=11, color="#888888", text_align=ft.TextAlign.CENTER),
+    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO)
+
+    # ---- Tab Bar ----
+    tab_contents = [tab_friends, tab_ranking, tab_duels]
+    tab_labels = ["👥 Freunde", "🏆 Ranking", "⚔️ Duelle"]
+    selected_tab = state.get("friends_tab", 0)
+
+    content_container = ft.Container(
+        content=tab_contents[selected_tab],
+        bgcolor=theme["panel"],
+        border_radius=16,
+        padding=20,
+        border=ft.border.Border.all(2, theme["border"]),
+        width=460,
+    )
+
+    def switch_tab(idx):
+        state["friends_tab"] = idx
+        content_container.content = tab_contents[idx]
+        for i, btn in enumerate(tab_buttons):
+            btn.bgcolor = theme["accent"] if i == idx else theme["panel"]
+            btn.border = ft.border.Border.all(2, theme["gold"] if i == idx else theme["border"])
+        page.update()
+
+    tab_buttons = []
+    for idx, label in enumerate(tab_labels):
+        is_sel = idx == selected_tab
+        btn = ft.Container(
+            content=ft.Text(label, size=13, color="white", weight="bold" if is_sel else "normal"),
+            on_click=lambda e, i=idx: switch_tab(i),
+            bgcolor=theme["accent"] if is_sel else theme["panel"],
+            border_radius=20,
+            padding=ft.Padding(14, 7, 14, 7),
+            border=ft.border.Border.all(2, theme["gold"] if is_sel else theme["border"]),
+        )
+        tab_buttons.append(btn)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, -0.05),
+            content=ft.Column([
+                ft.Text("Freunde", size=28, weight="bold", color="white"),
+                ft.Row(tab_buttons, alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+                content_container,
+                ft.TextButton(
+                    "← Zurück",
+                    on_click=lambda e: show_settings_view(e.page, state),
+                    style=ft.ButtonStyle(color="white"),
+                ),
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14,
+               scroll=ft.ScrollMode.AUTO),
+            padding=20,
+        )
+    )
+    page.update()
+
 
 
 def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
