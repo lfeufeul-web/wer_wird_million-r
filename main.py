@@ -1495,7 +1495,7 @@ def show_joker_confirm_dialog(page: ft.Page, state: dict, picked_ids: list[str],
     theme = get_theme(state)
 
     def yes(e):
-        page.close(dlg)
+        close_page_dialog(page, dlg)
         state["selected_jokers"] = list(picked_ids)
         state["jokers_used_ids"] = []
         state["jokers_confirmed"] = True
@@ -1504,7 +1504,7 @@ def show_joker_confirm_dialog(page: ft.Page, state: dict, picked_ids: list[str],
         on_confirm()
 
     def no(e):
-        page.close(dlg)
+        close_page_dialog(page, dlg)
 
     chips = ft.Row(
         [
@@ -1535,7 +1535,7 @@ def show_joker_confirm_dialog(page: ft.Page, state: dict, picked_ids: list[str],
         ],
         actions_alignment=ft.MainAxisAlignment.CENTER,
     )
-    page.open(dlg)
+    open_page_dialog(page, dlg)
 
 
 def show_joker_selection(page: ft.Page, state: dict, on_start):
@@ -2782,7 +2782,7 @@ def confirm_delete_custom_quiz(page: ft.Page, state: dict, quiz_id: str):
     title = quiz.get("title", "Quiz") if quiz else "Quiz"
 
     def do_delete(e):
-        page.close(dlg)
+        close_page_dialog(page, dlg)
         delete_custom_quiz(state, quiz_id)
         show_custom_quiz_hub(page, state)
 
@@ -2790,11 +2790,11 @@ def confirm_delete_custom_quiz(page: ft.Page, state: dict, quiz_id: str):
         title=ft.Text("Spiel löschen?"),
         content=ft.Text(f'"{title}" wirklich löschen?', color=theme_txt(theme, "secondary")),
         actions=[
-            ft.TextButton("Abbrechen", on_click=lambda e: page.close(dlg)),
+            ft.TextButton("Abbrechen", on_click=lambda e: close_page_dialog(page, dlg)),
             ft.TextButton("Löschen", on_click=do_delete),
         ],
     )
-    page.open(dlg)
+    open_page_dialog(page, dlg)
 
 
 def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
@@ -4429,12 +4429,44 @@ def get_active_duel_with_friend(email: str, friend_email: str) -> dict | None:
     return None
 
 
-def _close_overlay(page: ft.Page, overlay):
-    if hasattr(page, "close"):
-        page.close(overlay)
+def open_page_dialog(page: ft.Page, dlg: ft.AlertDialog):
+    """Open AlertDialog (compatible with Flet versions without page.open)."""
+    if hasattr(page, "open"):
+        page.open(dlg)
     else:
-        overlay.open = False
-        page.update()
+        page.dialog = dlg
+        dlg.open = True
+    page.update()
+
+
+def close_page_dialog(page: ft.Page, dlg: ft.AlertDialog):
+    if hasattr(page, "close"):
+        try:
+            page.close(dlg)
+            page.update()
+            return
+        except Exception:
+            pass
+    dlg.open = False
+    page.dialog = None
+    if dlg in page.overlay:
+        page.overlay.remove(dlg)
+    page.update()
+
+
+def _close_overlay(page: ft.Page, overlay):
+    if isinstance(overlay, ft.AlertDialog):
+        close_page_dialog(page, overlay)
+        return
+    if hasattr(page, "close"):
+        try:
+            page.close(overlay)
+            page.update()
+            return
+        except Exception:
+            pass
+    overlay.open = False
+    page.update()
 
 
 def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
@@ -4559,12 +4591,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
         bgcolor=theme["panel"],
         actions_alignment=ft.MainAxisAlignment.END,
     )
-    if hasattr(page, "open"):
-        page.open(dlg)
-    else:
-        page.overlay.append(dlg)
-        dlg.open = True
-    page.update()
+    open_page_dialog(page, dlg)
 
 
 def accept_duel_challenge(page: ft.Page, state: dict, duel: dict):
