@@ -212,9 +212,24 @@ def save_db(db: dict):
         print(f"Error saving db: {e}")
 
 
+THEME_GAME_ZONES = {
+    "question": {"l": 0.0448, "t": 0.0704, "w": 0.5698, "h": 0.2102},
+    "answer_a": {"l": 0.0448, "t": 0.3102, "w": 0.2771, "h": 0.1806},
+    "answer_b": {"l": 0.3375, "t": 0.3102, "w": 0.2771, "h": 0.1806},
+    "answer_c": {"l": 0.0448, "t": 0.5074, "w": 0.2771, "h": 0.1806},
+    "answer_d": {"l": 0.3375, "t": 0.5074, "w": 0.2771, "h": 0.1806},
+    "ladder": {"l": 0.6651, "t": 0.0704, "w": 0.2797, "h": 0.8593},
+    "footer": {"l": 0.0448, "t": 0.7102, "w": 0.5698, "h": 0.0602},
+    "exit": {"l": 0.0198, "t": 0.0204, "w": 0.1146, "h": 0.0500},
+}
+
 THEMES = {
     "classic": {
         "label": "Klassisch",
+        "is_light": False,
+        "text_primary": "#FFFFFF",
+        "text_secondary": "#E0D0F0",
+        "text_muted": "#CCCCCC",
         "gradient": ["#2C1654", "#6B2FA0", "#C2185B"],
         "panel": "#1A0A30",
         "border": "#9B59B6",
@@ -231,6 +246,13 @@ THEMES = {
     },
     "ocean": {
         "label": "Ocean",
+        "game_layout": "themed",
+        "game_bg": "bg_ocean.png",
+        "layout_zones": THEME_GAME_ZONES,
+        "is_light": False,
+        "text_primary": "#F0FDFF",
+        "text_secondary": "#BAE6FD",
+        "text_muted": "#7DD3FC",
         "gradient": ["#062A38", "#0E7490", "#14B8A6"],
         "panel": "#06202A",
         "border": "#38BDF8",
@@ -239,14 +261,21 @@ THEMES = {
         "success": "#10B981",
         "danger": "#E11D48",
         "gold": "#FDE68A",
-        "question_bg": "#E6FFFB",
-        "question_text": "#06202A",
-        "answer_bg": "#F0FDFA",
-        "answer_text": "#06202A",
+        "question_bg": "#06202A",
+        "question_text": "#E0F7FA",
+        "answer_bg": "#073540",
+        "answer_text": "#CCFBF1",
         "answer_colors": ["#0891B2", "#14B8A6", "#22C55E", "#38BDF8"],
     },
     "neon": {
         "label": "Neon Night",
+        "game_layout": "themed",
+        "game_bg": "bg_neon.png",
+        "layout_zones": THEME_GAME_ZONES,
+        "is_light": False,
+        "text_primary": "#F8FAFC",
+        "text_secondary": "#E0E7FF",
+        "text_muted": "#A5B4FC",
         "gradient": ["#020617", "#11126B", "#E11D8E"],
         "panel": "#070A2D",
         "border": "#22D3EE",
@@ -263,22 +292,36 @@ THEMES = {
     },
     "forest": {
         "label": "Forest",
-        "gradient": ["#F8F3E7", "#DDEBDD", "#F4B46A"],
-        "panel": "#264D3A",
+        "game_layout": "themed",
+        "game_bg": "bg_forest.png",
+        "layout_zones": THEME_GAME_ZONES,
+        "is_light": False,
+        "text_primary": "#F8FFF8",
+        "text_secondary": "#D8F0D8",
+        "text_muted": "#A8D4A8",
+        "gradient": ["#1a3d2a", "#2d5a3d", "#4a7c59"],
+        "panel": "#1e3d2a",
         "border": "#7DA88A",
         "accent": "#3D7A59",
         "accent_2": "#F2B84B",
         "success": "#2F855A",
         "danger": "#B45309",
         "gold": "#FFE08A",
-        "question_bg": "#FFF7ED",
-        "question_text": "#173A2A",
-        "answer_bg": "#F8F3E7",
-        "answer_text": "#173A2A",
+        "question_bg": "#1e3d2a",
+        "question_text": "#F0FFF0",
+        "answer_bg": "#243d2a",
+        "answer_text": "#E8F5E9",
         "answer_colors": ["#7DA88A", "#F2B84B", "#3D7A59", "#F59E0B"],
     },
     "arcade": {
         "label": "Arcade",
+        "game_layout": "themed",
+        "game_bg": "bg_arcade.png",
+        "layout_zones": THEME_GAME_ZONES,
+        "is_light": False,
+        "text_primary": "#F7FEE7",
+        "text_secondary": "#D9F99D",
+        "text_muted": "#BEF264",
         "gradient": ["#050807", "#0B1F12", "#4D7C0F"],
         "panel": "#06110B",
         "border": "#84CC16",
@@ -295,6 +338,13 @@ THEMES = {
     },
     "candy": {
         "label": "Candy Pop",
+        "game_layout": "themed",
+        "game_bg": "bg_candy.png",
+        "layout_zones": THEME_GAME_ZONES,
+        "is_light": True,
+        "text_primary": "#1e1b4b",
+        "text_secondary": "#312e81",
+        "text_muted": "#4338ca",
         "gradient": ["#DFF6FF", "#BDEBFF", "#FFE66D"],
         "panel": "#FFFFFF",
         "border": "#60A5FA",
@@ -311,6 +361,13 @@ THEMES = {
     },
     "royal": {
         "label": "Royal Gold",
+        "game_layout": "themed",
+        "game_bg": "bg_royal.png",
+        "layout_zones": THEME_GAME_ZONES,
+        "is_light": False,
+        "text_primary": "#FFF7ED",
+        "text_secondary": "#FDE68A",
+        "text_muted": "#D8B4FE",
         "gradient": ["#1E1B4B", "#581C87", "#92400E"],
         "panel": "#17122F",
         "border": "#C084FC",
@@ -327,6 +384,13 @@ THEMES = {
     },
     "sunset": {
         "label": "Sunset",
+        "game_layout": "themed",
+        "game_bg": "bg_sunset.png",
+        "layout_zones": THEME_GAME_ZONES,
+        "is_light": False,
+        "text_primary": "#FFF7ED",
+        "text_secondary": "#FECDD3",
+        "text_muted": "#FDBA74",
         "gradient": ["#2D0B36", "#B91C1C", "#F59E0B"],
         "panel": "#2A1020",
         "border": "#FB7185",
@@ -343,8 +407,15 @@ THEMES = {
     },
     "ice": {
         "label": "Ice Crystal",
+        "game_layout": "themed",
+        "game_bg": "bg_ice.png",
+        "layout_zones": THEME_GAME_ZONES,
+        "is_light": True,
+        "text_primary": "#0c4a6e",
+        "text_secondary": "#075985",
+        "text_muted": "#0369a1",
         "gradient": ["#E0F2FE", "#7DD3FC", "#1D4ED8"],
-        "panel": "#EFF6FF",
+        "panel": "#F0F9FF",
         "border": "#38BDF8",
         "accent": "#2563EB",
         "accent_2": "#06B6D4",
@@ -359,19 +430,13 @@ THEMES = {
     },
     "neon_nexus": {
         "label": "Neon Nexus",
-        "game_layout": "neon_nexus",
+        "game_layout": "themed",
         "game_bg": "neon_nexus_bg_clean.png",
-        # 1920x1080 reference — full spec in assets/neon_nexus_layout.json
-        "layout_zones": {
-            "question": {"l": 0.0448, "t": 0.0704, "w": 0.5698, "h": 0.2102},
-            "answer_a": {"l": 0.0448, "t": 0.3102, "w": 0.2771, "h": 0.1806},
-            "answer_b": {"l": 0.3375, "t": 0.3102, "w": 0.2771, "h": 0.1806},
-            "answer_c": {"l": 0.0448, "t": 0.5074, "w": 0.2771, "h": 0.1806},
-            "answer_d": {"l": 0.3375, "t": 0.5074, "w": 0.2771, "h": 0.1806},
-            "ladder": {"l": 0.6651, "t": 0.0704, "w": 0.2797, "h": 0.8593},
-            "footer": {"l": 0.0448, "t": 0.7102, "w": 0.5698, "h": 0.0602},
-            "exit": {"l": 0.0198, "t": 0.0204, "w": 0.1146, "h": 0.0500},
-        },
+        "layout_zones": THEME_GAME_ZONES,
+        "is_light": False,
+        "text_primary": "#F5FFF5",
+        "text_secondary": "#C8FFC8",
+        "text_muted": "#9dffb8",
         "gradient": ["#000000", "#021208", "#042810"],
         "panel": "#0c1814",
         "border": "#00FF66",
@@ -864,6 +929,21 @@ def get_theme(state: dict) -> dict:
 
 def theme_value(theme: dict, key: str, fallback: str):
     return theme.get(key, THEMES["classic"].get(key, fallback))
+
+
+def theme_txt(theme: dict, role: str = "primary") -> str:
+    """Readable text color for menus and screens (light vs dark themes)."""
+    light = theme.get("is_light", False)
+    defaults = {
+        "primary": "#1e293b" if light else "#FFFFFF",
+        "secondary": "#334155" if light else "#E0D0F0",
+        "muted": "#64748b" if light else "#AAAAAA",
+    }
+    return theme.get(f"text_{role}", defaults.get(role, "#FFFFFF"))
+
+
+def uses_themed_game(theme: dict) -> bool:
+    return theme.get("game_layout") == "themed" and bool(theme.get("game_bg"))
 
 def money_level_value(money_level_idx: int) -> int:
     if money_level_idx < 0:
@@ -1749,7 +1829,7 @@ def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Cont
 
 def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
     """Build the right-side money ladder as a normal Column (no overlay)."""
-    if get_theme(state).get("game_layout") == "neon_nexus":
+    if uses_themed_game(get_theme(state)):
         return build_neon_nexus_money_ladder(state, compact)
     items = []
     correct = state.get("correct", 0)
@@ -1883,18 +1963,24 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             content=ft.Column([
                 ft.Text("❓", size=60, text_align="center"),
                 ft.Text("WER WIRD", size=28, weight="bold",
-                        color="#FFD700", text_align="center"),
+                        color=theme["gold"], text_align="center"),
                 ft.Text("MILLIONÄR?", size=34, weight="black",
-                        color="white", text_align="center"),
+                        color=theme_txt(theme, "primary"), text_align="center"),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4),
             padding=30,
             border_radius=24,
             bgcolor=theme["panel"],
-            shadow=ft.BoxShadow(blur_radius=40, color="#80FFD700"),
+            shadow=ft.BoxShadow(blur_radius=40, color="#40000000"),
             border=ft.border.Border.all(3, theme["gold"]),
         ),
         ft.Container(height=10),
-        ft.Text(greeting, size=18, weight="bold", color="#E0D0F0", text_align="center"),
+        ft.Container(
+            content=ft.Text(greeting, size=18, weight="bold", color=theme_txt(theme, "primary"), text_align="center"),
+            bgcolor=theme["panel"],
+            border_radius=12,
+            padding=ft.Padding(14, 8, 14, 8),
+            border=ft.border.Border.all(1, theme["border"]),
+        ),
         ft.Container(height=10),
         *menu_buttons,
     ]
@@ -1964,7 +2050,7 @@ def show_game_start_choice(page: ft.Page, state: dict, saved: dict):
                 ft.Container(
                     content=ft.Column([
                         ft.Text("Gespeichertes Spiel gefunden", size=18, weight="bold", color=theme["gold"], text_align="center"),
-                        ft.Text(summary, size=14, color="#E0D0F0", text_align="center"),
+                        ft.Text(summary, size=14, color=theme_txt(theme, "secondary"), text_align="center"),
                         ft.Container(height=10),
                         ft.Container(
                             content=ft.Text("Altes Spiel fortsetzen", size=16, weight="bold", color="white"),
@@ -2132,10 +2218,10 @@ def _duel_cancel_button(page: ft.Page, state: dict, theme: dict, duel: dict) -> 
     )
 
 
-def show_next_question_neon_nexus(page: ft.Page, state: dict):
-    """Neon Nexus: slots aligned to assets/neon_nexus_layout.json (1920x1080)."""
+def show_next_question_themed(page: ft.Page, state: dict):
+    """Themed game screen with background image and readable UI panels."""
     theme = get_theme(state)
-    zones = theme.get("layout_zones", THEMES["neon_nexus"]["layout_zones"])
+    zones = theme.get("layout_zones", THEME_GAME_ZONES)
     answer_palette = theme.get("answer_colors", ANSWER_COLORS)
     question_text_color = theme_value(theme, "question_text", "#F5FFF5")
     answer_text_color = theme_value(theme, "answer_text", "#F0FFF0")
@@ -2242,7 +2328,7 @@ def show_next_question_neon_nexus(page: ft.Page, state: dict):
     ladder_panel = _neon_solid_panel(ladder_inner, theme)
     footer_panel = _neon_solid_panel(
         ft.Row([
-            ft.Text(f"Frage {q_num} von {total_q}", size=12, color="#C8FFD8", weight="bold"),
+            ft.Text(f"Frage {q_num} von {total_q}", size=12, color=theme_txt(theme, "secondary"), weight="bold"),
             ft.Text(f"◆ {state.get('money', '0 €')}", size=13, color=theme["gold"], weight="bold"),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         theme,
@@ -2258,15 +2344,29 @@ def show_next_question_neon_nexus(page: ft.Page, state: dict):
         padding=ft.Padding(10, 6, 10, 6),
     )
 
-    # Single background layer (no image + overlay double-frame effect)
-    bg_layer = ft.Container(
-        expand=True,
-        gradient=ft.LinearGradient(
-            begin=ft.Alignment(-1, -0.5),
-            end=ft.Alignment(1, 1),
-            colors=["#010302", "#030806", "#020504"],
-        ),
-    )
+    bg_image = theme.get("game_bg")
+    overlay_color = "#00000099" if not theme.get("is_light") else "#00000055"
+    if bg_image:
+        bg_layer = ft.Stack(
+            [
+                ft.Container(
+                    expand=True,
+                    bgcolor="#000000",
+                    content=ft.Image(src=bg_image, fit=ft.BoxFit.COVER, expand=True),
+                ),
+                ft.Container(expand=True, bgcolor=overlay_color),
+            ],
+            expand=True,
+        )
+    else:
+        bg_layer = ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -0.5),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+        )
 
     if is_mobile:
         mobile_stack = ft.Column(
@@ -2307,8 +2407,8 @@ def show_next_question(page: ft.Page, state: dict):
         return
 
     theme = get_theme(state)
-    if theme.get("game_layout") == "neon_nexus":
-        show_next_question_neon_nexus(page, state)
+    if uses_themed_game(theme):
+        show_next_question_themed(page, state)
         return
 
     answer_palette = theme.get("answer_colors", ANSWER_COLORS)
@@ -3071,7 +3171,7 @@ def show_settings_view(page: ft.Page, state: dict):
     logged_in = bool(email)
 
     menu_items = [
-        ft.Text("Einstellungen", size=30, weight="bold", color="white"),
+        ft.Text("Einstellungen", size=30, weight="bold", color=theme_txt(theme, "primary")),
         ft.Container(height=10),
         ft.Container(
             content=ft.Column([
@@ -3114,7 +3214,7 @@ def show_settings_view(page: ft.Page, state: dict):
                 ft.Text(
                     "Melde dich an, um Designs pro Account zu speichern." if not logged_in else f"Konto: {email}",
                     size=12,
-                    color="#E0D0F0",
+                    color=theme_txt(theme, "secondary"),
                     text_align="center",
                 ),
             ], spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -3221,7 +3321,7 @@ def show_design_view(page: ft.Page, state: dict):
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("Design", size=30, weight="bold", color="white"),
+                ft.Text("Design", size=30, weight="bold", color=theme_txt(theme, "primary")),
                 ft.Container(height=6),
                 ft.Container(
                     content=ft.Column([
@@ -4178,7 +4278,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
             ),
             alignment=ft.Alignment(0, -0.05),
             content=ft.Column([
-                ft.Text("Freunde", size=28, weight="bold", color="white"),
+                ft.Text("Freunde", size=28, weight="bold", color=theme_txt(theme, "primary")),
                 ft.Row(tab_buttons, alignment=ft.MainAxisAlignment.CENTER, spacing=8),
                 content_container,
                 ft.TextButton(
