@@ -361,6 +361,14 @@ THEMES = {
         "label": "Neon Nexus",
         "game_layout": "neon_nexus",
         "game_bg": "neon_nexus_bg.png",
+        # Relative zones on 1920x1080 reference art (see assets/neon_nexus_layout.json)
+        "layout_zones": {
+            "question": {"l": 0.045, "t": 0.07, "w": 0.58, "h": 0.21},
+            "answers": {"l": 0.045, "t": 0.31, "w": 0.58, "h": 0.40},
+            "ladder": {"l": 0.665, "t": 0.07, "w": 0.29, "h": 0.86},
+            "footer": {"l": 0.045, "t": 0.73, "w": 0.58, "h": 0.05},
+            "exit": {"l": 0.02, "t": 0.02, "w": 0.22, "h": 0.05},
+        },
         "gradient": ["#000000", "#021208", "#042810"],
         "panel": "#020a06",
         "border": "#00FF66",
@@ -1604,6 +1612,59 @@ def create_game_questions(age: str) -> list[tuple]:
     return questions
 
 
+# ---------- Duel question helpers ----------
+def duel_question_to_dict(q) -> dict:
+    """Normalizes tuple/list/dict question formats for duel play."""
+    if isinstance(q, dict):
+        prompt = str(q.get("question", ""))
+        answers = list(q.get("answers", []) or [])
+        if q.get("correct"):
+            return {"question": prompt, "answers": answers, "correct": str(q["correct"])}
+        correct_idx = int(q.get("correct_idx", 0))
+        if answers and 0 <= correct_idx < len(answers):
+            return {"question": prompt, "answers": answers, "correct": str(answers[correct_idx])}
+        return {"question": prompt or "?", "answers": answers or ["A", "B", "C", "D"], "correct": answers[0] if answers else "A"}
+    if isinstance(q, (list, tuple)) and len(q) >= 3:
+        prompt, answers, correct_idx = str(q[0]), list(q[1]), int(q[2])
+        if answers and 0 <= correct_idx < len(answers):
+            return {"question": prompt, "answers": [str(a) for a in answers], "correct": str(answers[correct_idx])}
+    return {"question": "?", "answers": ["A", "B", "C", "D"], "correct": "A"}
+
+
+def normalize_duel_questions(questions: list) -> list[dict]:
+    return [duel_question_to_dict(q) for q in (questions or []) if q is not None]
+
+
+def build_duel_questions(age: str = "mid", count: int = 15) -> list[dict]:
+    bank = build_level_question_bank(age)
+    pool = [q for level in bank for q in level]
+    if len(pool) < count:
+        picked = pool
+    else:
+        picked = random.sample(pool, count)
+    return [duel_question_to_dict(q) for q in picked]
+
+
+def _duel_document_id(duel: dict) -> str:
+    return duel.get("id") or duel.get("_id") or ""
+
+
+def refresh_duel_from_firestore(duel: dict) -> dict:
+    duel_id = _duel_document_id(duel)
+    client = get_firestore_client()
+    if not client or not duel_id:
+        return duel
+    try:
+        doc = client.collection("duels").document(duel_id).get()
+        if doc.exists:
+            fresh = doc.to_dict() or {}
+            fresh["id"] = doc.id
+            return fresh
+    except Exception as ex:
+        print(f"Duel refresh error: {ex}")
+    return duel
+
+
 # ---------- Build money ladder column ----------
 def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Control:
     """Neon Nexus ladder with a glowing bar at the current prize level."""
@@ -1676,6 +1737,7 @@ def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Cont
     return ft.Container(
         content=ladder_stack,
         width=None if compact else 200,
+        expand=compact,
         padding=ft.Padding(10, 12, 10, 12),
         bgcolor="#020a06cc",
         border_radius=6,
@@ -1963,6 +2025,7 @@ def start_new_game(page: ft.Page, state: dict, force_new: bool = False):
 
     def choose_age(e: ft.ControlEvent):
         age = e.control.data
+        state["player_age"] = age
         state["questions"] = create_game_questions(age)
         save_current_game(state)
         show_next_question(page, state)
@@ -2022,18 +2085,33 @@ def _neon_panel_border(theme: dict, width: int = 2) -> ft.Border:
     return ft.border.Border.all(width, theme["border"])
 
 
+def _neon_zone_box(zone: dict, page_w: float, page_h: float, content: ft.Control) -> ft.Container:
+    """Places content in a relative zone (0..1) on the game canvas."""
+    return ft.Container(
+        left=max(0, int(page_w * zone["l"])),
+        top=max(0, int(page_h * zone["t"])),
+        width=max(120, int(page_w * zone["w"])),
+        height=max(40, int(page_h * zone["h"])),
+        content=content,
+    )
+
+
 def show_next_question_neon_nexus(page: ft.Page, state: dict):
-    """Neon Nexus game layout inspired by the cyber-green HUD design."""
+    """Neon Nexus: UI aligned to background slot zones (responsive)."""
     theme = get_theme(state)
+    zones = theme.get("layout_zones", THEMES["neon_nexus"]["layout_zones"])
     answer_palette = theme.get("answer_colors", ANSWER_COLORS)
     question_text_color = theme_value(theme, "question_text", "#E8FFE8")
     answer_text_color = theme_value(theme, "answer_text", "#C8FFC8")
     question, options, correct_idx = state["questions"][state["question_index"]]
     q_num = state["question_index"] + 1
     total_q = len(state["questions"])
-    page_width = page.width or page.window.width or 1100
-    is_mobile = page_width < 720
+    page_w = float(page.width or getattr(page, "window", None) and page.window.width or 1100)
+    page_h = float(page.height or getattr(page, "window", None) and page.window.height or 720)
+    is_mobile = page_w < 720
     bg_image = theme.get("game_bg", "neon_nexus_bg.png")
+    panel_bg = "#040a06b3"
+    answer_bg = "#03080699"
 
     answer_buttons: list[ft.Control] = []
     answers_disabled = [False]
@@ -2045,10 +2123,10 @@ def show_next_question_neon_nexus(page: ft.Page, state: dict):
         chosen = e.control.data
         for idx, btn_container in enumerate(answer_buttons):
             if idx == correct_idx:
-                btn_container.bgcolor = "#00C853"
+                btn_container.bgcolor = "#00C853cc"
                 btn_container.border = ft.border.Border.all(3, "#76FF03")
             elif idx == chosen and idx != correct_idx:
-                btn_container.bgcolor = "#B71C1C"
+                btn_container.bgcolor = "#B71C1Ccc"
                 btn_container.border = ft.border.Border.all(3, "#FF1744")
         page.update()
 
@@ -2078,123 +2156,133 @@ def show_next_question_neon_nexus(page: ft.Page, state: dict):
         box = ft.Container(
             content=ft.Row([
                 ft.Container(
-                    content=ft.Text(letter, size=14, weight="bold", color="#001a0a"),
-                    width=32, height=32,
+                    content=ft.Text(letter, size=13, weight="bold", color="#001a0a"),
+                    width=28, height=28,
                     border_radius=4,
                     bgcolor=color,
                     alignment=ft.Alignment(0, 0),
                     border=ft.border.Border.all(1, theme["border"]),
                 ),
-                ft.Text(text, size=13 if is_mobile else 15, color=answer_text_color, weight="bold", expand=True),
-            ], spacing=10),
+                ft.Text(
+                    text, size=12 if is_mobile else 14,
+                    color=answer_text_color, weight="bold", expand=True,
+                    max_lines=2, no_wrap=False,
+                ),
+            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             data=idx,
             on_click=handle_answer,
-            bgcolor=theme_value(theme, "answer_bg", "#030806"),
+            bgcolor=answer_bg,
             border_radius=6,
-            padding=ft.Padding(12, 10, 16, 10),
+            padding=ft.Padding(10, 8, 12, 8),
             border=_neon_panel_border(theme),
-            shadow=ft.BoxShadow(blur_radius=14, color="#5000FF66"),
+            shadow=ft.BoxShadow(blur_radius=10, color="#5000FF66"),
             expand=True,
+            alignment=ft.Alignment(0, 0),
         )
         answer_buttons.append(box)
         return box
 
     answer_boxes = [make_answer_box(i, option) for i, option in enumerate(options)]
-    if is_mobile:
-        answer_layout = ft.Column(answer_boxes, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
-    else:
-        answer_layout = ft.Column([
-            ft.Row([answer_boxes[0], answer_boxes[1]], spacing=14),
-            ft.Row([answer_boxes[2], answer_boxes[3]], spacing=14),
-        ], spacing=14, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+    answer_layout = ft.Column([
+        ft.Row([answer_boxes[0], answer_boxes[1]], spacing=10, expand=True),
+        ft.Row([answer_boxes[2], answer_boxes[3]], spacing=10, expand=True),
+    ], spacing=10, expand=True)
 
     question_text = ft.Text(
         question,
-        size=17 if is_mobile else 21,
+        size=15 if is_mobile else 19,
         weight="bold",
         color=question_text_color,
         text_align=ft.TextAlign.CENTER,
-        max_lines=5 if is_mobile else 4,
+        max_lines=6 if is_mobile else 4,
         no_wrap=False,
     )
     question_box = ft.Container(
         content=ft.Column([
             ft.Container(
-                content=ft.Text(f"FRAGE {q_num}", size=12, weight="bold", color="#001a0a"),
+                content=ft.Text(f"FRAGE {q_num}", size=11, weight="bold", color="#001a0a"),
                 bgcolor=theme["gold"],
                 border_radius=4,
-                padding=ft.Padding(12, 5, 12, 5),
+                padding=ft.Padding(10, 4, 10, 4),
                 border=ft.border.Border.all(1, theme["border"]),
             ),
             ft.Container(content=question_text, expand=True, alignment=ft.Alignment(0, 0)),
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-        bgcolor=theme_value(theme, "question_bg", "#050f0a"),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8, expand=True),
+        bgcolor=panel_bg,
         border_radius=6,
-        padding=ft.Padding(16, 16, 16, 16),
+        padding=ft.Padding(12, 12, 12, 12),
         border=_neon_panel_border(theme),
-        shadow=ft.BoxShadow(blur_radius=28, color="#8000FF66"),
-        height=150 if is_mobile else 175,
+        shadow=ft.BoxShadow(blur_radius=20, color="#7000FF66"),
+        expand=True,
         alignment=ft.Alignment(0, 0),
     )
 
-    ladder = build_money_ladder(state, compact=is_mobile)
-    game_area = ft.Column([
-        ft.Row([
-            ft.Container(
-                content=ft.Row([
-                    ft.Text("🚪", size=13),
-                    ft.Text("Spiel unterbrechen", size=12, weight="bold", color="#001a0a"),
-                ], spacing=4),
-                on_click=lambda e: show_exit_confirmation(page, state),
-                bgcolor=theme["danger"],
-                border_radius=4,
-                padding=ft.Padding(14, 7, 14, 7),
-                border=ft.border.Border.all(1, "#FF8A80"),
-            )
-        ], alignment=ft.MainAxisAlignment.START),
-        question_box,
-        answer_layout,
-        ft.Row([
-            ft.Text(f"Frage {q_num} von {total_q}", size=12, color="#9dffb8"),
-            ft.Text(f"◆ {state.get('money', '0 €')}", size=13, color=theme["gold"], weight="bold"),
+    ladder = build_neon_nexus_money_ladder(state, compact=is_mobile)
+    ladder_panel = ft.Container(
+        content=ladder,
+        bgcolor=panel_bg,
+        border_radius=6,
+        border=_neon_panel_border(theme),
+        padding=4,
+        expand=True,
+    )
+
+    footer = ft.Container(
+        content=ft.Row([
+            ft.Text(f"Frage {q_num} von {total_q}", size=11, color="#9dffb8"),
+            ft.Text(f"◆ {state.get('money', '0 €')}", size=12, color=theme["gold"], weight="bold"),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-    ], spacing=12 if is_mobile else 14, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, width=None if is_mobile else 720)
+        alignment=ft.Alignment(0, 0),
+        expand=True,
+    )
+
+    exit_btn = ft.Container(
+        content=ft.Row([
+            ft.Text("🚪", size=12),
+            ft.Text("Pause", size=11, weight="bold", color="#001a0a"),
+        ], spacing=4),
+        on_click=lambda e: show_exit_confirmation(page, state),
+        bgcolor=theme["danger"],
+        border_radius=4,
+        padding=ft.Padding(10, 6, 10, 6),
+        border=ft.border.Border.all(1, "#FF8A80"),
+    )
 
     if is_mobile:
-        main_content = ft.Column([game_area, ladder], spacing=12, scroll=ft.ScrollMode.AUTO)
+        mobile_stack = ft.Column(
+            [
+                exit_btn,
+                ft.Container(content=question_box, height=140),
+                ft.Container(content=answer_layout, height=200),
+                footer,
+                ladder_panel,
+            ],
+            spacing=10,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        )
+        hud_layers = [
+            ft.Container(content=ft.Image(src=bg_image, fit=ft.BoxFit.COVER), expand=True),
+            ft.Container(expand=True, bgcolor="#000000e6"),
+            ft.Container(expand=True, padding=12, content=mobile_stack),
+        ]
     else:
-        main_content = ft.Row([
-            ft.Container(content=game_area, expand=True, alignment=ft.Alignment(0, -1)),
-            ft.Container(width=12),
-            ladder,
-        ], expand=True, vertical_alignment=ft.CrossAxisAlignment.START)
+        hud_layers = [
+            ft.Container(content=ft.Image(src=bg_image, fit=ft.BoxFit.COVER, width=page_w, height=page_h), expand=True),
+            ft.Container(expand=True, bgcolor="#000000a8"),
+            _neon_zone_box(zones["exit"], page_w, page_h, exit_btn),
+            _neon_zone_box(zones["question"], page_w, page_h, question_box),
+            _neon_zone_box(zones["answers"], page_w, page_h, answer_layout),
+            _neon_zone_box(zones["footer"], page_w, page_h, footer),
+            _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel),
+        ]
 
     page.controls.clear()
     page.add(
         ft.Container(
             expand=True,
-            content=ft.Stack(
-                [
-                    ft.Container(
-                        content=ft.Image(src=bg_image, fit=ft.BoxFit.COVER),
-                        expand=True,
-                    ),
-                    ft.Container(
-                        expand=True,
-                        gradient=ft.LinearGradient(
-                            begin=ft.Alignment(0, -1),
-                            end=ft.Alignment(0, 1),
-                            colors=["#000000dd", "#000000b3", "#000000e6"],
-                        ),
-                    ),
-                    ft.Container(
-                        expand=True,
-                        padding=ft.Padding(10 if is_mobile else 18, 10 if is_mobile else 18, 10 if is_mobile else 18, 10 if is_mobile else 18),
-                        content=main_content,
-                    ),
-                ],
-                expand=True,
-            ),
+            bgcolor="#000000",
+            content=ft.Stack(hud_layers, expand=True),
         )
     )
     page.update()
@@ -3153,10 +3241,6 @@ def _medal(rank: int) -> str:
 ACTIVE_DUEL_STATUSES = ("pending_accept", "pending", "challenger_done")
 
 
-def _duel_document_id(duel: dict) -> str:
-    return duel.get("id") or duel.get("_id") or ""
-
-
 def get_active_duel_with_friend(email: str, friend_email: str) -> dict | None:
     """Returns an open duel between two friends, if any."""
     client = get_firestore_client()
@@ -3239,9 +3323,9 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
         close_dlg()
         if active_duel:
             if can_resume:
-                show_duel_play_view(page, state, active_duel, role="challenger")
+                start_duel_play(page, state, active_duel, role="challenger")
             elif can_play_opponent:
-                show_duel_play_view(page, state, active_duel, role="opponent")
+                start_duel_play(page, state, active_duel, role="opponent")
             else:
                 state["friends_tab"] = 2
                 show_friends_view(
@@ -3395,16 +3479,11 @@ def send_duel_challenge(page: ft.Page, state: dict, opponent_email: str):
         )
         return
 
-    # Pick 15 random questions
-    all_q = [q for qs in MONEY_LADDER_QUESTIONS.values() for q in qs] if hasattr(page, "_all_questions_cache") else []
-    # Fallback: use global question list
-    try:
-        all_q_flat = []
-        for level_qs in MONEY_LADDER_QUESTIONS.values():
-            all_q_flat.extend(level_qs)
-        duel_questions = random.sample(all_q_flat, min(15, len(all_q_flat)))
-    except Exception:
-        duel_questions = []
+    age = state.get("player_age", "mid")
+    duel_questions = build_duel_questions(age, 15)
+    if not duel_questions:
+        show_friends_view(page, state, status_message="Keine Duell-Fragen verfügbar.")
+        return
 
     duel_id = f"duel_{int(time.time())}_{random.randint(1000,9999)}"
     duel_doc = {
@@ -3441,10 +3520,17 @@ def send_duel_challenge(page: ft.Page, state: dict, opponent_email: str):
     )
 
 
+def start_duel_play(page: ft.Page, state: dict, duel: dict, role: str):
+    """Loads fresh duel data from Firestore and opens the quiz."""
+    fresh = refresh_duel_from_firestore(duel)
+    show_duel_play_view(page, state, fresh, role)
+
+
 def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
     """Shows a simplified quiz using the duel's questions. Role: 'challenger' or 'opponent'."""
     theme = get_theme(state)
     db, email, user = current_user_entry(state)
+    duel = refresh_duel_from_firestore(duel)
     duel_status = duel.get("status", "")
     if role == "challenger" and duel_status not in ("pending",):
         show_friends_view(
@@ -3458,23 +3544,28 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
             status_message="Du kannst erst spielen, wenn dein Freund seine Runde beendet hat.",
         )
         return
-    questions = duel.get("questions", [])
+    questions = normalize_duel_questions(duel.get("questions", []))
     if not questions:
-        page.snack_bar = ft.SnackBar(
-            content=ft.Text("Keine Fragen im Duell gefunden.", color="white"),
-            bgcolor=theme["danger"], open=True,
+        show_friends_view(
+            page, state,
+            status_message="Keine Fragen im Duell – bitte neue Herausforderung senden.",
         )
-        page.update()
-        show_friends_view(page, state)
         return
 
     duel_state = {"idx": 0, "correct": 0, "done": False}
-    opponent_name = duel.get("challenger_name", "Herausforderer") if role == "opponent" else duel.get("opponent_email", "Gegner")
+    if role == "opponent":
+        opponent_name = duel.get("challenger_name", duel.get("challenger_email", "Herausforderer"))
+    else:
+        opp_email = duel.get("opponent_email", "?")
+        opponent_name = db.get("users", {}).get(opp_email, {}).get("name", opp_email)
 
-    question_text = ft.Text("", size=18, weight="bold", color="white", text_align=ft.TextAlign.CENTER)
-    feedback_text = ft.Text("", size=14, text_align=ft.TextAlign.CENTER)
-    progress_text = ft.Text("", size=13, color="#AAAAAA")
-    answer_buttons = ft.Column(spacing=8)
+    page_width = page.width or 1100
+    is_mobile = page_width < 720
+
+    question_text = ft.Text("", size=16 if is_mobile else 18, weight="bold", color="white", text_align=ft.TextAlign.CENTER)
+    feedback_text = ft.Text("", size=13, text_align=ft.TextAlign.CENTER)
+    progress_text = ft.Text("", size=12, color="#AAAAAA")
+    answer_buttons = ft.Column(spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
     def load_question():
         idx = duel_state["idx"]
@@ -3483,26 +3574,26 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
             return
         q = questions[idx]
         progress_text.value = f"Frage {idx + 1} / {len(questions)}"
-        question_text.value = q.get("question", "?")
+        question_text.value = q["question"]
         feedback_text.value = ""
-        answers = q.get("answers", [])
+        answers = q["answers"]
         answer_buttons.controls.clear()
         for ans in answers:
             answer_buttons.controls.append(
                 ft.Container(
-                    content=ft.Text(ans, size=14, color="white", text_align=ft.TextAlign.CENTER),
+                    content=ft.Text(ans, size=13 if is_mobile else 14, color="white", text_align=ft.TextAlign.CENTER),
                     on_click=lambda e, a=ans, qobj=q: check_answer(a, qobj),
                     bgcolor=theme["accent"],
                     border_radius=10,
-                    padding=ft.Padding(16, 10, 16, 10),
+                    padding=ft.Padding(14, 10, 14, 10),
                     alignment=ft.Alignment(0, 0),
-                    width=340,
+                    width=None if is_mobile else 340,
                 )
             )
         page.update()
 
     def check_answer(chosen: str, q: dict):
-        correct_ans = q.get("correct", "")
+        correct_ans = q["correct"]
         if chosen == correct_ans:
             duel_state["correct"] += 1
             feedback_text.value = "✅ Richtig!"
@@ -3569,7 +3660,7 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
                     ft.Text(result_text, size=16, color=theme["gold"], text_align=ft.TextAlign.CENTER),
                     ft.Container(
                         content=ft.Text("Zurück zu Freunden", size=15, weight="bold", color="white"),
-                        on_click=lambda e: show_friends_view(e.page, state),
+                        on_click=lambda e: show_friends_view(page, state),
                         bgcolor=theme["accent"],
                         border_radius=30,
                         padding=ft.Padding(24, 12, 24, 12),
@@ -3581,6 +3672,7 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
         )
         page.update()
 
+    content_w = min(int(page_width) - 32, 420)
     page.controls.clear()
     page.add(
         ft.Container(
@@ -3588,21 +3680,21 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
             gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=theme["gradient"]),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text(f"⚔️ Duell vs. {opponent_name}", size=22, weight="bold", color="white"),
+                ft.Text(f"⚔️ Duell vs. {opponent_name}", size=20 if is_mobile else 22, weight="bold", color="white"),
                 progress_text,
                 ft.Container(
                     content=question_text,
                     bgcolor=theme["panel"],
                     border_radius=12,
-                    padding=20,
-                    width=380,
+                    padding=16 if is_mobile else 20,
+                    width=content_w,
                     alignment=ft.Alignment(0, 0),
                     border=ft.border.Border.all(1, theme["border"]),
                 ),
-                answer_buttons,
+                ft.Container(content=answer_buttons, width=content_w),
                 feedback_text,
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14, scroll=ft.ScrollMode.AUTO),
-            padding=20,
+            padding=16 if is_mobile else 20,
         )
     )
     page.update()
@@ -3900,7 +3992,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
                     ], expand=True, spacing=2),
                     ft.Container(
                         content=ft.Text("Spielen", size=13, color="white", weight="bold"),
-                        on_click=lambda e, duel=d: show_duel_play_view(page, state, duel, "opponent"),
+                        on_click=lambda e, duel=d: start_duel_play(page, state, duel, "opponent"),
                         bgcolor=theme["gold"],
                         border_radius=20,
                         padding=ft.Padding(14, 6, 14, 6),
@@ -3926,7 +4018,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
                     ], expand=True, spacing=2),
                     ft.Container(
                         content=ft.Text("Spielen", size=13, color="white", weight="bold"),
-                        on_click=lambda e, duel=d: show_duel_play_view(page, state, duel, "challenger"),
+                        on_click=lambda e, duel=d: start_duel_play(page, state, duel, "challenger"),
                         bgcolor=theme["gold"],
                         border_radius=20,
                         padding=ft.Padding(14, 6, 14, 6),

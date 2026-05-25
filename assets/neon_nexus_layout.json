@@ -1,0 +1,16 @@
+{
+  "reference_size": [1920, 1080],
+  "description": "Relative UI zones (0.0-1.0) for Neon Nexus backgrounds. New artwork should keep these areas clear for text.",
+  "zones": {
+    "exit": { "l": 0.02, "t": 0.02, "w": 0.22, "h": 0.05, "purpose": "Pause / exit button" },
+    "question": { "l": 0.045, "t": 0.07, "w": 0.58, "h": 0.21, "purpose": "Question text" },
+    "answers": { "l": 0.045, "t": 0.31, "w": 0.58, "h": 0.40, "purpose": "2x2 answer grid" },
+    "footer": { "l": 0.045, "t": 0.73, "w": 0.58, "h": 0.05, "purpose": "Progress and prize" },
+    "ladder": { "l": 0.665, "t": 0.07, "w": 0.29, "h": 0.86, "purpose": "Prize ladder + level bar" }
+  },
+  "notes": [
+    "Left ~62%: gameplay (question + answers)",
+    "Right ~30%: ladder only — no decorative frames needed there",
+    "Use dark hex texture; avoid extra empty boxes in question/answer zones"
+  ]
+}
