@@ -3278,6 +3278,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
                     ft.Text("👤 Profil", size=12, color=theme["gold"]),
                 ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 on_click=lambda e, fe=f_email: show_friend_profile_popup(e.page, state, fe),
+                ink=True,
                 bgcolor=theme["accent"],
                 border_radius=12,
                 padding=ft.Padding(12, 10, 12, 10),
@@ -3296,6 +3297,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         ft.Container(
             content=ft.Text("Anfrage senden", size=14, weight="bold", color="white"),
             on_click=send_request,
+            ink=True,
             bgcolor=theme["success"],
             border_radius=30,
             padding=ft.Padding(20, 9, 20, 9),
@@ -3309,7 +3311,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         ft.Divider(color=theme["border"]),
         ft.Text("👥 Deine Freunde", size=15, weight="bold", color=theme["gold"]),
         *friend_controls,
-    ], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO)
+    ], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     # ---- Tab 2: Wochenranking ----
     week_key = get_current_week_key()
@@ -3370,7 +3372,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         ft.Text(f"Woche: {week_key}", size=12, color="#AAAAAA"),
         ft.Divider(color=theme["border"]),
         *ranking_rows,
-    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO)
+    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     # ---- Tab 3: Duelle ----
     client = get_firestore_client()
@@ -3459,7 +3461,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         *finished_duel_controls,
         ft.Divider(color=theme["border"]),
         ft.Text("ℹ️ Tippe auf einen Freund → '⚔️ Herausfordern'", size=11, color="#888888", text_align=ft.TextAlign.CENTER),
-    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO)
+    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     # ---- Tab Bar ----
     tab_contents = [tab_friends, tab_ranking, tab_duels]
