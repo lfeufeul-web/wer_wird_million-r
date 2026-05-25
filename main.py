@@ -213,14 +213,10 @@ def save_db(db: dict):
 
 
 THEME_GAME_ZONES = {
-    "question": {"l": 0.0448, "t": 0.0704, "w": 0.5698, "h": 0.135},
-    "answer_a": {"l": 0.0448, "t": 0.218, "w": 0.2771, "h": 0.118},
-    "answer_b": {"l": 0.3375, "t": 0.218, "w": 0.2771, "h": 0.118},
-    "answer_c": {"l": 0.0448, "t": 0.348, "w": 0.2771, "h": 0.118},
-    "answer_d": {"l": 0.3375, "t": 0.348, "w": 0.2771, "h": 0.118},
-    "ladder": {"l": 0.6651, "t": 0.0704, "w": 0.2797, "h": 0.8593},
-    "footer": {"l": 0.0448, "t": 0.468, "w": 0.5698, "h": 0.098},
+    "play_column": {"l": 0.032, "t": 0.055, "w": 0.645, "h": 0.56},
+    "ladder": {"l": 0.695, "t": 0.055, "w": 0.205, "h": 0.88},
     "exit": {"l": 0.0198, "t": 0.0204, "w": 0.1146, "h": 0.0500},
+    "overlay": {"l": 0, "t": 0, "w": 1, "h": 1},
 }
 
 THEMES = {
@@ -977,13 +973,15 @@ def _set_themed_game_resize(page: ft.Page, state: dict):
 
     def on_resize(_e):
         if state.get("_themed_game_active") and uses_themed_game(get_theme(state)):
-            show_next_question_themed(page, state)
+            render_game_screen(page, state)
 
     page.on_resize = on_resize
 
 
 def _clear_themed_game_resize(state: dict):
     state["_themed_game_active"] = False
+    stop_game_timer(state)
+    state.pop("_timer_active_key", None)
 
 def money_level_value(money_level_idx: int) -> int:
     if money_level_idx < 0:
@@ -1340,25 +1338,277 @@ ANSWER_LETTERS = ["A", "B", "C", "D"]
 JOKER_SELECT_COUNT = 4
 
 JOKER_CATALOG = [
-    {"id": "half", "name": "50:50", "icon": "✂️", "desc": "Zwei falsche Antworten entfernen"},
-    {"id": "audience", "name": "Publikum", "icon": "👥", "desc": "Hinweis vom Publikum"},
-    {"id": "phone", "name": "Telefon", "icon": "📞", "desc": "Freund anrufen"},
-    {"id": "skip", "name": "Überspringen", "icon": "⏭️", "desc": "Frage überspringen"},
-    {"id": "double", "name": "Doppel", "icon": "🎯", "desc": "Zwei Antworten wählen dürfen"},
-    {"id": "hint", "name": "Hinweis", "icon": "💡", "desc": "Kleiner Tipp zur Frage"},
-    {"id": "swap", "name": "Tausch", "icon": "🔄", "desc": "Frage gegen neue tauschen"},
-    {"id": "freeze", "name": "Pause", "icon": "⏸️", "desc": "Mehr Zeit zum Nachdenken"},
-    {"id": "shield", "name": "Schutz", "icon": "🛡️", "desc": "Einmal falsch überleben"},
-    {"id": "fifty_plus", "name": "75:25", "icon": "📊", "desc": "Eine falsche Antwort entfernen"},
-    {"id": "wildcard", "name": "Joker", "icon": "🃏", "desc": "Freie Hilfe wählen"},
-    {"id": "reveal", "name": "Blick", "icon": "👁️", "desc": "Stärkste Antwort anzeigen"},
+    {"id": "half", "name": "50:50", "icon": "50:50", "desc": "Zwei falsche Antworten verschwinden"},
+    {"id": "friend", "name": "Freund", "icon": "Freund", "desc": "Frag eine andere Person"},
+    {"id": "swap", "name": "Tausch", "icon": "Tausch", "desc": "Neue Frage mit neuen Antworten"},
+    {"id": "moderator", "name": "Moderator", "icon": "Tipp", "desc": "Kleiner Moderator-Hinweis"},
+    {"id": "timestop", "name": "Zeit+", "icon": "+30s", "desc": "30 Sekunden extra"},
+    {"id": "truefalse", "name": "W/F", "icon": "W/F", "desc": "Eine Antwort testen"},
+    {"id": "emoji", "name": "Emoji", "icon": "Emoji", "desc": "Richtige Antwort als Emojis"},
+    {"id": "audience", "name": "Publikum", "icon": "Chart", "desc": "Zuschauer-Diagramm"},
+    {"id": "phone", "name": "Telefon", "icon": "Tel", "desc": "1 Minute zum Anrufen"},
 ]
+
+QUESTION_TIME_SEC = 30
+PHONE_JOKER_SEC = 60
 
 JOKER_BY_ID = {j["id"]: j for j in JOKER_CATALOG}
 
 
 def get_joker(joker_id: str) -> dict | None:
     return JOKER_BY_ID.get(joker_id)
+
+
+def stop_game_timer(state: dict):
+    state["_timer_cancel"] = True
+
+
+def mark_joker_used(state: dict, joker_id: str):
+    used = list(state.get("jokers_used_ids", []))
+    if joker_id not in used:
+        used.append(joker_id)
+        state["jokers_used_ids"] = used
+        state["jokers_used"] = state.get("jokers_used", 0) + 1
+        save_current_game(state)
+
+
+def generate_audience_percents(correct_idx: int, count: int = 4) -> list[int]:
+    """Returns integer % for A-D summing to 100; ~70% correct is highest."""
+    if count != 4:
+        count = 4
+    if random.random() < 0.7:
+        lead = random.randint(34, 52)
+        rest = 100 - lead
+        others = [random.randint(5, max(8, rest // 3)) for _ in range(3)]
+        s = sum(others)
+        others = [max(3, int(o * rest / s)) for o in others]
+        diff = 100 - lead - sum(others)
+        others[0] += diff
+        percents = [0, 0, 0, 0]
+        percents[correct_idx] = lead
+        idxs = [i for i in range(4) if i != correct_idx]
+        for i, p in zip(idxs, others):
+            percents[i] = p
+        if sum(percents) != 100:
+            percents[correct_idx] += 100 - sum(percents)
+        return percents
+    weights = [random.randint(8, 40) for _ in range(4)]
+    total = sum(weights)
+    return [max(3, int(w * 100 / total)) for w in weights]
+
+
+def emoji_hint_for_answer(answer: str) -> str:
+    text = answer.lower()
+    mapping = [
+        (("biene", "summ"), "🐝 🍯 🌸"),
+        (("frosch",), "🐸 💚 🪷"),
+        (("hund", "wau"), "🐕 ❤️ 🦴"),
+        (("katze", "miau"), "🐈 🐾 😺"),
+        (("elefant",), "🐘 🌴 💧"),
+        (("berlin", "deutsch"), "🇩🇪 🏛️ 🐻"),
+        (("wasser", "meer"), "💧 🌊 🐟"),
+        (("sonne", "licht"), "☀️ 🌞 🔆"),
+        (("buch", "lesen"), "📚 ✏️ 📖"),
+        (("auto", "fahr"), "🚗 🛣️ ⛽"),
+    ]
+    for keys, emojis in mapping:
+        if any(k in text for k in keys):
+            return emojis
+    return "✨ 🎯 👍"
+
+
+def moderator_hint_for(question: str, options: list, correct_idx: int) -> str:
+    correct = options[correct_idx] if 0 <= correct_idx < len(options) else ""
+    return (
+        f"Moderator: Denke an etwas mit „{correct[:3]}…“ – "
+        f"die Lösung hat {len(correct)} Buchstaben."
+    )
+
+
+def swap_question_at_index(state: dict) -> bool:
+    idx = state["question_index"]
+    used = {str(state["questions"][i][0]).strip().lower() for i in range(len(state["questions"]))}
+    if state.get("is_custom_game"):
+        pool = list(state["questions"])
+        random.shuffle(pool)
+        for cand in pool:
+            if str(cand[0]).strip().lower() not in used or len(pool) <= 1:
+                state["questions"][idx] = cand
+                return True
+        return False
+    age = state.get("player_age", "mid")
+    bank = build_level_question_bank(age)
+    level_idx = min(idx, len(bank) - 1)
+    candidates = list(bank[level_idx])
+    random.shuffle(candidates)
+    for cand in candidates:
+        key = str(cand[0]).strip().lower()
+        if key not in used:
+            state["questions"][idx] = cand
+            return True
+    if candidates:
+        state["questions"][idx] = candidates[0]
+        return True
+    return False
+
+
+def set_game_modal(state: dict, panel: ft.Control):
+    state["_modal_overlay"] = ft.Container(
+        content=panel,
+        alignment=ft.Alignment(0, 0),
+        bgcolor="#00000088",
+        expand=True,
+    )
+
+
+def clear_game_modal(state: dict):
+    state.pop("_modal_overlay", None)
+
+
+def show_game_message(page: ft.Page, state: dict, title: str, body: str, theme: dict):
+    def close(e=None):
+        clear_game_modal(state)
+        render_game_screen(page, state)
+
+    set_game_modal(
+        state,
+        ft.Container(
+            content=ft.Column([
+                ft.Text(title, size=20, weight="bold", color=theme_txt(theme, "primary"), text_align="center"),
+                ft.Text(body, size=14, color=theme_txt(theme, "secondary"), text_align="center"),
+                ft.Container(height=8),
+                _game_menu_button("OK", close, theme["accent"], width=160),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+            bgcolor=theme["panel"],
+            border_radius=16,
+            padding=24,
+            border=ft.border.Border.all(2, theme["gold"]),
+            width=360,
+        ),
+    )
+    render_game_screen(page, state)
+
+
+def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
+    if joker_id in state.get("jokers_used_ids", []):
+        return
+    theme = ctx["theme"]
+    correct_idx = ctx["correct_idx"]
+    options = ctx["options"]
+    question = ctx["question"]
+    answer_buttons = ctx["answer_buttons"]
+    hidden = set(state.get("hidden_answers", []))
+
+    if joker_id == "half":
+        wrong = [i for i in range(len(options)) if i != correct_idx]
+        random.shuffle(wrong)
+        for i in wrong[:2]:
+            hidden.add(i)
+            if i < len(answer_buttons):
+                answer_buttons[i].visible = False
+        state["hidden_answers"] = list(hidden)
+        mark_joker_used(state, joker_id)
+        page.update()
+        return
+
+    if joker_id == "friend":
+        mark_joker_used(state, joker_id)
+        show_game_message(
+            page, state,
+            "Frag einen Freund",
+            "Sprich jetzt mit einer anderen Person und hol dir einen Tipp!",
+            theme,
+        )
+        return
+
+    if joker_id == "swap":
+        if swap_question_at_index(state):
+            mark_joker_used(state, joker_id)
+            stop_game_timer(state)
+            render_game_screen(page, state)
+        return
+
+    if joker_id == "moderator":
+        mark_joker_used(state, joker_id)
+        show_game_message(page, state, "Moderator-Tipp", moderator_hint_for(question, options, correct_idx), theme)
+        return
+
+    if joker_id == "timestop":
+        state["time_left"] = int(state.get("time_left", QUESTION_TIME_SEC)) + 30
+        mark_joker_used(state, joker_id)
+        page.update()
+        return
+
+    if joker_id == "truefalse":
+        state["truefalse_mode"] = True
+        mark_joker_used(state, joker_id)
+        page.snack_bar = ft.SnackBar(content=ft.Text("Tippe eine Antwort zum Testen (kein Spielende)."))
+        page.snack_bar.open = True
+        page.update()
+        return
+
+    if joker_id == "emoji":
+        mark_joker_used(state, joker_id)
+        em = emoji_hint_for_answer(options[correct_idx])
+        show_game_message(page, state, "Emoji-Joker", f"Die richtige Antwort in Emojis:\n{em}", theme)
+        return
+
+    if joker_id == "audience":
+        mark_joker_used(state, joker_id)
+        percents = generate_audience_percents(correct_idx)
+        bars = []
+        for i, letter in enumerate(ANSWER_LETTERS[: len(options)]):
+            p = percents[i]
+            bars.append(
+                ft.Row([
+                    ft.Text(letter, width=24, weight="bold", color=theme["gold"]),
+                    ft.Container(
+                        width=max(4, int(2.4 * p)),
+                        height=18,
+                        bgcolor=theme["success"] if i == correct_idx else theme["accent"],
+                        border_radius=4,
+                    ),
+                    ft.Text(f"{p}%", size=12, color=theme_txt(theme, "secondary")),
+                ], spacing=8)
+            )
+
+        def close_audience(e=None):
+            clear_game_modal(state)
+            render_game_screen(page, state)
+
+        set_game_modal(
+            state,
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Zuschauer-Joker", size=20, weight="bold", color="white"),
+                    ft.Text(question[:100], size=13, color="#CCCCCC", text_align="center"),
+                    *bars,
+                    _game_menu_button("OK", close_audience, theme["accent"], width=140),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+                bgcolor=theme["panel"],
+                border_radius=16,
+                padding=20,
+                border=ft.border.Border.all(2, theme["border"]),
+                width=400,
+            ),
+        )
+        render_game_screen(page, state)
+        return
+
+    if joker_id == "phone":
+        mark_joker_used(state, joker_id)
+        state["phone_until"] = time.time() + PHONE_JOKER_SEC
+        try:
+            page.launch_url("tel:")
+        except Exception:
+            pass
+        show_game_message(
+            page, state,
+            "Telefon-Joker",
+            "Du hast 1 Minute zum Anrufen! Auf dem Handy öffnet sich ggf. die Telefon-App.",
+            theme,
+        )
+        return
 
 
 def reset_joker_pick_state(state: dict):
@@ -1448,23 +1698,15 @@ def build_joker_slot_row(
     return ft.Row(slots, spacing=10, alignment=ft.MainAxisAlignment.CENTER)
 
 
-def build_game_joker_bar(page: ft.Page, state: dict, theme: dict) -> ft.Control:
-    """White/panel row under 'Frage X von Y' showing the 4 chosen jokers."""
+def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | None = None) -> ft.Control:
+    """Separate white row with the 4 chosen jokers."""
     selected = state.get("selected_jokers", [])[:JOKER_SELECT_COUNT]
     used_ids = set(state.get("jokers_used_ids", []))
 
     def on_joker_tap(joker_id: str):
-        if joker_id in used_ids:
+        if joker_id in used_ids or not ctx:
             return
-        used_ids.add(joker_id)
-        state["jokers_used_ids"] = list(used_ids)
-        state["jokers_used"] = state.get("jokers_used", 0) + 1
-        save_current_game(state)
-        page.snack_bar = ft.SnackBar(
-            content=ft.Text(f"Joker „{get_joker(joker_id)['name']}“ markiert (Effekt folgt bald)."),
-        )
-        page.snack_bar.open = True
-        show_next_question(page, state)
+        activate_joker(page, state, joker_id, ctx)
 
     chips = []
     for jid in selected:
@@ -1493,14 +1735,7 @@ def build_game_joker_bar(page: ft.Page, state: dict, theme: dict) -> ft.Control:
             )
         )
 
-    bar_bg = theme.get("question_bg", "#FFFFFF")
-    return ft.Container(
-        content=ft.Row(chips, spacing=8, alignment=ft.MainAxisAlignment.CENTER),
-        bgcolor=bar_bg,
-        border_radius=10,
-        padding=ft.Padding(10, 8, 10, 8),
-        border=ft.border.Border.all(2, theme["border"]),
-    )
+    return ft.Row(chips, spacing=8, alignment=ft.MainAxisAlignment.CENTER)
 
 
 def _apply_joker_selection_and_start(state: dict, picked_ids: list[str], on_start):
@@ -1695,6 +1930,8 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
 
 def launch_game_after_jokers(page: ft.Page, state: dict):
     """Show joker picker for new games; resume skips if already chosen."""
+    valid_ids = set(JOKER_BY_ID.keys())
+    state["selected_jokers"] = [j for j in state.get("selected_jokers", []) if j in valid_ids]
     if not state.get("questions"):
         page.snack_bar = ft.SnackBar(content=ft.Text("Keine Fragen geladen. Bitte Spiel neu starten."))
         page.snack_bar.open = True
@@ -2403,7 +2640,7 @@ def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Cont
 
     return ft.Container(
         content=ladder_stack,
-        width=None if compact else 200,
+        width=None if compact else 132,
         expand=compact,
         padding=ft.Padding(4, 4, 4, 4),
     )
@@ -2472,7 +2709,7 @@ def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
             spacing=2,
             scroll=ft.ScrollMode.AUTO,
         ),
-        width=None if compact else 180,
+        width=None if compact else 132,
         height=230 if compact else None,
         padding=10,
         bgcolor=theme_value(get_theme(state), "panel", "#1A0A30"),
@@ -3292,36 +3529,99 @@ def _duel_cancel_button(page: ft.Page, state: dict, theme: dict, duel: dict) -> 
     )
 
 
-def show_next_question_themed(page: ft.Page, state: dict):
-    """Themed game screen with background image and readable UI panels."""
+def _game_panel(content: ft.Control, theme: dict, *, height: int | None = None) -> ft.Container:
+    """White/game panel with consistent width styling."""
+    return ft.Container(
+        content=content,
+        bgcolor=theme.get("question_bg", "#FFFFFF"),
+        border_radius=10,
+        padding=ft.Padding(12, 10, 12, 10),
+        border=ft.border.Border.all(2, theme["border"]),
+        height=height,
+    )
+
+
+async def _flash_red_screen(page: ft.Page, state: dict):
+    state["_flash_red"] = True
+    render_game_screen(page, state)
+    await asyncio.sleep(0.12)
+    state["_flash_red"] = False
+    render_game_screen(page, state)
+
+
+def _start_question_timer(page: ft.Page, state: dict):
+    timer_key = f"q{state['question_index']}"
+    if state.get("_timer_active_key") == timer_key:
+        return
+    stop_game_timer(state)
+    state["_timer_active_key"] = timer_key
+    state["time_left"] = QUESTION_TIME_SEC
+
+    async def tick():
+        while not state.get("_timer_cancel") and state.get("_timer_active_key") == timer_key:
+            if state.get("phone_until", 0) > time.time():
+                await asyncio.sleep(0.3)
+                continue
+            left = int(state.get("time_left", QUESTION_TIME_SEC))
+            if left <= 0:
+                stop_game_timer(state)
+                state.pop("_timer_active_key", None)
+                state["questions_answered"] += 1
+                state["game_finished"] = True
+                clear_saved_game(state)
+                _show_wrong_screen(page, state)
+                return
+            await asyncio.sleep(1)
+            if state.get("_timer_cancel") or state.get("_timer_active_key") != timer_key:
+                return
+            state["time_left"] = left - 1
+            ui = state.get("_timer_ui")
+            if ui:
+                sec = max(0, state["time_left"])
+                ui["text"].value = str(sec)
+                ui["bar"].value = sec / QUESTION_TIME_SEC
+                ui["text"].color = "#C62828" if sec <= 10 else theme_txt(get_theme(state), "primary")
+                try:
+                    page.update()
+                except Exception:
+                    pass
+            if state["time_left"] == 10:
+                await _flash_red_screen(page, state)
+            elif 1 <= state["time_left"] <= 5:
+                await _flash_red_screen(page, state)
+
+    page.run_task(tick)
+
+
+def render_game_screen(page: ft.Page, state: dict):
+    """Unified game UI: timer, question, answers, status, jokers; themed + classic."""
+    if state["question_index"] >= len(state["questions"]):
+        _show_win_screen(page, state)
+        return
+
     theme = get_theme(state)
+    themed = uses_themed_game(theme)
     zones = theme.get("layout_zones", THEME_GAME_ZONES)
     answer_palette = theme.get("answer_colors", ANSWER_COLORS)
-    question_text_color = theme_value(theme, "question_text", "#F5FFF5")
-    answer_text_color = theme_value(theme, "answer_text", "#F0FFF0")
-    answer_bg = theme_value(theme, "answer_bg", "#08120e")
+    question_text_color = theme_value(theme, "question_text", "#2C1654")
+    answer_text_color = theme_value(theme, "answer_text", "#2C1654")
+    answer_bg = theme_value(theme, "answer_bg", "#FFFFFF")
     question, options, correct_idx = state["questions"][state["question_index"]]
     q_num = state["question_index"] + 1
     total_q = len(state["questions"])
     page_w, page_h = _page_size(page)
     is_mobile = page_w < 720
 
+    state.setdefault("hidden_answers", [])
+    hidden = set(state.get("hidden_answers", []))
+
     answer_buttons: list[ft.Container] = []
     answers_disabled = [False]
 
-    def handle_answer(e):
-        if answers_disabled[0]:
-            return
-        answers_disabled[0] = True
-        chosen = e.control.data
-        for idx, btn_container in enumerate(answer_buttons):
-            if idx == correct_idx:
-                btn_container.bgcolor = "#00C853"
-                btn_container.border = ft.border.Border.all(3, "#76FF03")
-            elif idx == chosen and idx != correct_idx:
-                btn_container.bgcolor = "#B71C1C"
-                btn_container.border = ft.border.Border.all(3, "#FF1744")
-        page.update()
+    def finish_answer(chosen: int):
+        stop_game_timer(state)
+        state.pop("truefalse_mode", None)
+        state.pop("hidden_answers", None)
 
         async def _next():
             await asyncio.sleep(1.5)
@@ -3331,6 +3631,7 @@ def show_next_question_themed(page: ft.Page, state: dict):
                 state["money"] = levels[min(state["correct"] - 1, len(levels) - 1)]
                 state["questions_answered"] += 1
                 state["question_index"] += 1
+                state.pop("_timer_active_key", None)
                 if state["question_index"] >= len(state["questions"]):
                     _show_win_screen(page, state)
                 else:
@@ -3344,85 +3645,158 @@ def show_next_question_themed(page: ft.Page, state: dict):
 
         page.run_task(_next)
 
+    def handle_answer(e):
+        if answers_disabled[0]:
+            return
+        chosen = e.control.data
+        if state.get("truefalse_mode"):
+            for idx, btn in enumerate(answer_buttons):
+                if idx == chosen:
+                    if chosen == correct_idx:
+                        btn.border = ft.border.Border.all(3, "#2ECC71")
+                        btn.bgcolor = "#C8E6C9"
+                    else:
+                        btn.border = ft.border.Border.all(3, "#E74C3C")
+                        btn.bgcolor = "#FFCDD2"
+            page.update()
+            return
+        answers_disabled[0] = True
+        for idx, btn_container in enumerate(answer_buttons):
+            if idx == correct_idx:
+                btn_container.bgcolor = "#00C853" if themed else "#2ECC71"
+                btn_container.border = ft.border.Border.all(3, "#76FF03" if themed else "#27AE60")
+            elif idx == chosen and idx != correct_idx:
+                btn_container.bgcolor = "#B71C1C" if themed else "#E74C3C"
+                btn_container.border = ft.border.Border.all(3, "#FF1744" if themed else "#C0392B")
+        page.update()
+        finish_answer(chosen)
+
     def make_answer_box(idx: int, text: str) -> ft.Container:
         letter = ANSWER_LETTERS[idx]
         color = answer_palette[idx % len(answer_palette)]
         inner = ft.Row([
             ft.Container(
-                content=ft.Text(letter, size=12, weight="bold", color="#001a0a"),
-                width=26, height=26,
-                border_radius=4,
+                content=ft.Text(letter, size=13, weight="bold", color="white"),
+                width=30, height=30,
+                border_radius=15 if not themed else 4,
                 bgcolor=color,
                 alignment=ft.Alignment(0, 0),
-                border=ft.border.Border.all(1, theme["border"]),
             ),
             ft.Text(
-                text, size=12 if is_mobile else 13,
+                text, size=14 if is_mobile else 15,
                 color=answer_text_color, weight="bold", expand=True,
                 max_lines=2, no_wrap=False,
             ),
-        ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         box = ft.Container(
             content=inner,
             data=idx,
             on_click=handle_answer,
             bgcolor=answer_bg,
-            border_radius=6,
-            padding=ft.Padding(8, 5, 8, 5),
-            border=_neon_panel_border(theme),
+            border_radius=10 if not themed else 6,
+            padding=ft.Padding(10, 10, 10, 10),
+            border=ft.border.Border.all(2, theme["border"]),
             expand=True,
-            alignment=ft.Alignment(0, 0),
+            visible=idx not in hidden,
+            height=56 if not is_mobile else 50,
         )
         answer_buttons.append(box)
         return box
 
     answer_boxes = [make_answer_box(i, option) for i, option in enumerate(options)]
-    answer_zone_keys = ["answer_a", "answer_b", "answer_c", "answer_d"]
+    ctx = {
+        "theme": theme,
+        "question": question,
+        "options": options,
+        "correct_idx": correct_idx,
+        "answer_buttons": answer_buttons,
+    }
 
-    question_inner = ft.Column([
-        ft.Container(
-            content=ft.Text(f"FRAGE {q_num}", size=10, weight="bold", color="#001a0a"),
-            bgcolor=theme["gold"],
-            border_radius=4,
-            padding=ft.Padding(8, 3, 8, 3),
-        ),
-        ft.Container(
-            content=ft.Text(
-                question, size=14 if is_mobile else 16, weight="bold",
-                color=question_text_color, text_align=ft.TextAlign.CENTER,
-                max_lines=4 if is_mobile else 3, no_wrap=False,
-            ),
-            expand=True,
-            alignment=ft.Alignment(0, 0),
-        ),
-    ], spacing=5, expand=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-    question_panel = _neon_solid_panel(question_inner, theme, compact=True)
+    sec = max(0, int(state.get("time_left", QUESTION_TIME_SEC)))
+    timer_text = ft.Text(
+        str(sec), size=16, weight="bold",
+        color="#C62828" if sec <= 10 else theme_txt(theme, "primary"),
+    )
+    timer_bar = ft.ProgressBar(
+        value=sec / QUESTION_TIME_SEC,
+        width=400 if not is_mobile else 280,
+        height=10,
+        color="#C62828" if sec <= 10 else theme["success"],
+        bgcolor="#E0E0E0",
+    )
+    state["_timer_ui"] = {"text": timer_text, "bar": timer_bar}
 
-    ladder_inner = build_neon_nexus_money_ladder(state, compact=is_mobile)
-    ladder_panel = _neon_solid_panel(ladder_inner, theme, compact=True)
-    footer_panel = _neon_solid_panel(
+    timer_panel = _game_panel(
+        ft.Row([timer_text, timer_bar], spacing=12, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        theme,
+        height=44,
+    )
+
+    question_panel = _game_panel(
         ft.Column([
-            ft.Row([
-                ft.Text(f"Frage {q_num} von {total_q}", size=11, color=theme_txt(theme, "secondary"), weight="bold"),
-                ft.Text(f"◆ {state.get('money', '0 €')}", size=12, color=theme["gold"], weight="bold"),
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            build_game_joker_bar(page, state, theme),
-        ], spacing=6),
+            ft.Container(
+                content=ft.Text(f"FRAGE {q_num}", size=11, weight="bold", color="#001a0a"),
+                bgcolor=theme["gold"],
+                border_radius=4,
+                padding=ft.Padding(8, 3, 8, 3),
+            ),
+            ft.Text(
+                question, size=16 if is_mobile else 18, weight="bold",
+                color=question_text_color, text_align=ft.TextAlign.CENTER,
+                max_lines=4, no_wrap=False,
+            ),
+        ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        theme,
+        height=120 if not is_mobile else 100,
+    )
+
+    answers_panel = _game_panel(
+        ft.Column([
+            ft.Row([answer_boxes[0], answer_boxes[1]], spacing=10),
+            ft.Row([answer_boxes[2], answer_boxes[3]], spacing=10),
+        ], spacing=10) if not is_mobile else ft.Column(answer_boxes, spacing=8),
+        theme,
+    )
+
+    status_panel = _game_panel(
+        ft.Row([
+            ft.Text(f"Frage {q_num} von {total_q}", size=13, color=theme_txt(theme, "secondary"), weight="bold"),
+            ft.Text(f"◆ {state.get('money', '0 €')}", size=14, color=theme["gold"], weight="bold"),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        theme,
+        height=42,
+    )
+
+    joker_panel = _game_panel(
+        build_game_joker_bar(page, state, theme, ctx),
+        theme,
+        height=64,
+    )
+
+    play_column = ft.Column(
+        [timer_panel, question_panel, answers_panel, status_panel, joker_panel],
+        spacing=8,
+        expand=True,
+    )
+
+    ladder_panel = _neon_solid_panel(
+        build_neon_nexus_money_ladder(state, compact=is_mobile),
         theme,
         compact=True,
-    )
+    ) if themed else build_money_ladder(state, compact=is_mobile)
+
     exit_btn = ft.Container(
         content=ft.Row([
             ft.Text("🚪", size=12),
             ft.Text("Pause", size=11, weight="bold", color="white"),
         ], spacing=4),
-        on_click=lambda e: show_exit_confirmation(page, state),
+        on_click=lambda e: (stop_game_timer(state), show_exit_confirmation(page, state)),
         bgcolor=theme["danger"],
         border_radius=4,
         padding=ft.Padding(10, 6, 10, 6),
     )
 
-    bg_image = theme.get("game_bg")
+    bg_image = theme.get("game_bg") if themed else None
     overlay_color = "#00000099" if not theme.get("is_light") else "#00000055"
     if bg_image:
         bg_layer = _themed_game_background(bg_image, page_w, page_h, overlay_color)
@@ -3431,38 +3805,29 @@ def show_next_question_themed(page: ft.Page, state: dict):
             width=max(1, int(page_w)),
             height=max(1, int(page_h)),
             gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -0.5),
+                begin=ft.Alignment(-1, -1),
                 end=ft.Alignment(1, 1),
                 colors=theme["gradient"],
             ),
         )
 
+    flash = ft.Container(bgcolor="#FF000055", expand=True) if state.get("_flash_red") else None
+    modal = state.get("_modal_overlay")
+
+    hud_layers = [bg_layer]
     if is_mobile:
-        mobile_stack = ft.Column(
-            [
-                exit_btn,
-                question_panel,
-                ft.Row([answer_boxes[0], answer_boxes[1]], spacing=8),
-                ft.Row([answer_boxes[2], answer_boxes[3]], spacing=8),
-                footer_panel,
-                ladder_panel,
-            ],
-            spacing=10,
-            scroll=ft.ScrollMode.AUTO,
-        )
-        hud_layers = [bg_layer, ft.Container(expand=True, padding=12, content=mobile_stack)]
+        col_items = [exit_btn, play_column, ladder_panel]
+        hud_layers.append(ft.Container(expand=True, padding=12, content=ft.Column(col_items, spacing=10, scroll=ft.ScrollMode.AUTO)))
     else:
-        hud_layers = [
-            bg_layer,
+        hud_layers.extend([
             _neon_zone_box(zones["exit"], page_w, page_h, exit_btn),
-            _neon_zone_box(zones["question"], page_w, page_h, question_panel),
-            *[
-                _neon_zone_box(zones[key], page_w, page_h, answer_boxes[i])
-                for i, key in enumerate(answer_zone_keys)
-            ],
-            _neon_zone_box(zones["footer"], page_w, page_h, footer_panel),
-            _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel),
-        ]
+            _neon_zone_box(zones["play_column"], page_w, page_h, play_column),
+            _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel if themed else ft.Container(content=ladder_panel, padding=4)),
+        ])
+    if flash:
+        hud_layers.append(_neon_zone_box(zones["overlay"], page_w, page_h, flash))
+    if modal:
+        hud_layers.append(_neon_zone_box(zones["overlay"], page_w, page_h, modal))
 
     pw, ph = max(1, int(page_w)), max(1, int(page_h))
     page.controls.clear()
@@ -3475,206 +3840,23 @@ def show_next_question_themed(page: ft.Page, state: dict):
             content=ft.Stack(hud_layers, expand=True, width=pw, height=ph),
         )
     )
-    _set_themed_game_resize(page, state)
+    if themed:
+        _set_themed_game_resize(page, state)
+    _start_question_timer(page, state)
     page.update()
 
 
+def show_next_question_themed(page: ft.Page, state: dict):
+    render_game_screen(page, state)
+
+
 def show_next_question(page: ft.Page, state: dict):
-    """Display question with typing animation; all 4 answer boxes shown immediately."""
+    """Display active question with timer and jokers."""
     if state["question_index"] >= len(state["questions"]):
         _show_win_screen(page, state)
         return
 
-    theme = get_theme(state)
-    if uses_themed_game(theme):
-        show_next_question_themed(page, state)
-        return
-
-    answer_palette = theme.get("answer_colors", ANSWER_COLORS)
-    question_bg = theme_value(theme, "question_bg", "white")
-    question_text_color = theme_value(theme, "question_text", "#2C1654")
-    answer_bg = theme_value(theme, "answer_bg", "white")
-    answer_text_color = theme_value(theme, "answer_text", "#2C1654")
-    question, options, correct_idx = state["questions"][state["question_index"]]
-    q_num = state["question_index"] + 1
-    total_q = len(state["questions"])
-    page_width = page.width or page.window.width or 1100
-    is_mobile = page_width < 720
-
-    # ----- Answer button state tracking -----
-    answer_buttons: list[ft.Control] = []
-    answers_disabled = [False]  # mutable flag
-
-    def handle_answer(e):
-        if answers_disabled[0]:
-            return
-        answers_disabled[0] = True
-        chosen = e.control.data
-
-        # Highlight chosen & correct
-        for idx, btn_container in enumerate(answer_buttons):
-            btn_inner = btn_container.content  # Row inside
-            if idx == correct_idx:
-                btn_container.bgcolor = "#2ECC71"
-                btn_container.border = ft.border.Border.all(3, "#27AE60")
-            elif idx == chosen and idx != correct_idx:
-                btn_container.bgcolor = "#E74C3C"
-                btn_container.border = ft.border.Border.all(3, "#C0392B")
-        page.update()
-
-        async def _next():
-            await asyncio.sleep(1.5)
-            if chosen == correct_idx:
-                state["correct"] += 1
-                levels = money_levels_for_state(state)
-                state["money"] = levels[min(state["correct"] - 1, len(levels) - 1)]
-                state["questions_answered"] += 1
-                state["question_index"] += 1
-                if state["question_index"] >= len(state["questions"]):
-                    _show_win_screen(page, state)
-                else:
-                    save_current_game(state)
-                    _show_correct_screen(page, state)
-            else:
-                state["questions_answered"] += 1
-                state["game_finished"] = True
-                clear_saved_game(state)
-                _show_wrong_screen(page, state)
-
-        page.run_task(_next)
-
-    # ----- Build 4 answer boxes immediately -----
-    def make_answer_box(idx: int, text: str) -> ft.Container:
-        letter = ANSWER_LETTERS[idx]
-        color = answer_palette[idx % len(answer_palette)]
-        box = ft.Container(
-            content=ft.Row([
-                ft.Container(
-                    content=ft.Text(letter, size=15 if is_mobile else 16, weight="bold", color="white"),
-                    width=34 if is_mobile else 36,
-                    height=34 if is_mobile else 36,
-                    border_radius=17 if is_mobile else 18,
-                    bgcolor=color,
-                    alignment=ft.Alignment(0, 0),
-                ),
-                ft.Text(text, size=14 if is_mobile else 16, color=answer_text_color, weight="bold", expand=True),
-            ], spacing=8 if is_mobile else 10),
-            data=idx,
-            on_click=handle_answer,
-            bgcolor=answer_bg,
-            border_radius=22 if is_mobile else 50,
-            padding=ft.Padding(12, 10, 14 if is_mobile else 20, 10),
-            border=ft.border.Border.all(2, theme["border"]),
-            shadow=ft.BoxShadow(blur_radius=14, color="#30000000"),
-            expand=True,
-        )
-        answer_buttons.append(box)
-        return box
-
-    answer_boxes = [make_answer_box(i, option) for i, option in enumerate(options)]
-    if is_mobile:
-        answer_layout = ft.Column(answer_boxes, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
-    else:
-        answer_layout = ft.Column([
-            ft.Row([answer_boxes[0], answer_boxes[1]], spacing=16),
-            ft.Row([answer_boxes[2], answer_boxes[3]], spacing=16),
-        ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
-
-    # ----- Question box (text filled by animation) -----
-    question_text = ft.Text(
-        question,
-        size=18 if is_mobile else 22,
-        weight="bold",
-        color=question_text_color,
-        text_align="center",
-        max_lines=4 if is_mobile else 3,
-        no_wrap=False,
-    )
-    question_box = ft.Container(
-        content=ft.Column([
-            ft.Container(
-                content=ft.Text(f"FRAGE {q_num}", size=13 if is_mobile else 14, weight="bold", color="white"),
-                bgcolor=theme["accent"],
-                border_radius=20,
-                padding=ft.Padding(14 if is_mobile else 16, 6, 14 if is_mobile else 16, 6),
-            ),
-            ft.Container(
-                content=question_text,
-                expand=True,
-                alignment=ft.Alignment(0, 0),
-                width=900,
-            ),
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
-        bgcolor=question_bg,
-        border_radius=20,
-        padding=ft.Padding(18 if is_mobile else 24, 18 if is_mobile else 20, 18 if is_mobile else 24, 18 if is_mobile else 20),
-        border=ft.border.Border.all(2, theme["border"]),
-        shadow=ft.BoxShadow(blur_radius=26, color="#40000000"),
-        height=150 if is_mobile else 170,
-        alignment=ft.Alignment(0, 0),
-    )
-
-    # ----- Money ladder -----
-    ladder = build_money_ladder(state, compact=is_mobile)
-
-    # ----- Layout: left game area + right ladder -----
-    game_area = ft.Column([
-        ft.Row([
-            ft.Container(
-                content=ft.Row([
-                    ft.Text("🚪", size=13),
-                    ft.Text("Spiel unterbrechen", size=13, weight="bold", color="white"),
-                ], spacing=4),
-                on_click=lambda e: show_exit_confirmation(page, state),
-                bgcolor=theme["danger"],
-                border_radius=30,
-                padding=ft.Padding(16, 8, 16, 8),
-            )
-        ], alignment=ft.MainAxisAlignment.START),
-        question_box,
-        answer_layout,
-        ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Text(f"Frage {q_num} von {total_q}", size=13, color=theme_txt(theme, "secondary")),
-                    ft.Text(f"💰 {state.get('money', '0 €')}", size=13,
-                            color=theme["gold"], weight="bold"),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                build_game_joker_bar(page, state, theme),
-            ], spacing=8),
-            bgcolor=theme_value(theme, "question_bg", "white"),
-            border_radius=12,
-            padding=ft.Padding(12, 10, 12, 10),
-            border=ft.border.Border.all(2, theme["border"]),
-        ),
-    ], spacing=12 if is_mobile else 16, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, width=None if is_mobile else 700)
-
-    if is_mobile:
-        main_content = ft.Column([
-            game_area,
-            ladder,
-        ], spacing=14, scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
-    else:
-        main_content = ft.Row([
-            ft.Container(content=game_area, expand=True, alignment=ft.Alignment(0, -1)),
-            ft.Container(width=16),
-            ladder,
-        ], expand=True, vertical_alignment=ft.CrossAxisAlignment.START)
-
-    page.controls.clear()
-    page.add(
-        ft.Container(
-            expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
-            ),
-            padding=ft.Padding(12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20),
-            content=main_content,
-        )
-    )
-    page.update()
+    render_game_screen(page, state)
 
 
 def show_exit_confirmation(page: ft.Page, state: dict):
