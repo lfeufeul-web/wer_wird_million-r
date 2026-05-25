@@ -755,7 +755,8 @@ def friend_qr_base64(code: str) -> str | None:
         box_size=10,
         border=4,
     )
-    qr.add_data(normalize_friend_code(code))
+    url = f"https://wer-wird-million-r-eo5q.onrender.com/?add_friend={normalize_friend_code(code)}"
+    qr.add_data(url)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
     buffer = io.BytesIO()
@@ -2507,7 +2508,14 @@ def show_login_view(page: ft.Page, state: dict):
         state["current_user_email"] = email
         state["current_user_uid"] = uid
         page.run_task(save_remembered_login, page, auth_data, bool(remember_checkbox.value))
-        open_main_menu(page, state)
+        
+        # Check if there is a pending friend request from scanning a QR code
+        pending_friend = state.pop("pending_friend_add", None)
+        if pending_friend:
+            msg = save_friend_request(state, pending_friend)
+            show_friends_view(page, state, status_message=msg)
+        else:
+            open_main_menu(page, state)
 
     def validate_inputs() -> tuple[str | None, str | None]:
         email = email_input.value.strip()
@@ -3442,8 +3450,36 @@ def main(page: ft.Page):
     page.padding = 0
     page.window.width = 1100
     page.window.height = 680
+
+    def check_url_parameters():
+        if page.route:
+            match = re.search(r"add_friend=([A-Z0-9]+)", page.route, re.IGNORECASE)
+            if match:
+                friend_code = match.group(1).upper()
+                email = app_state.get("current_user_email")
+                if email:
+                    msg = save_friend_request(app_state, friend_code)
+                    show_friends_view(page, app_state, status_message=msg)
+                else:
+                    app_state["pending_friend_add"] = friend_code
+                    show_login_view(page, app_state)
+                    page.snack_bar = ft.SnackBar(
+                        content=ft.Text("Bitte logge dich ein, um die Freundschaftsanfrage abzusenden!"),
+                        open=True
+                    )
+                    page.update()
+
+    def on_route_change(e):
+        check_url_parameters()
+
+    page.on_route_change = on_route_change
     page.add(build_welcome_view(page, app_state))
-    page.run_task(restore_remembered_login, page, app_state)
+
+    async def init_task():
+        await restore_remembered_login(page, app_state)
+        check_url_parameters()
+
+    page.run_task(init_task)
     page.update()
 
 
