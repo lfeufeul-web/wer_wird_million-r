@@ -1379,6 +1379,8 @@ def reset_game_timer(state: dict):
     state.pop("_timer_active_key", None)
     state.pop("_timer_question_key", None)
     state.pop("time_left", None)
+    state.pop("phone_until", None)
+    state.pop("truefalse_mode", None)
 
 
 def reset_timer_for_new_question(state: dict):
@@ -1395,11 +1397,21 @@ def sync_timer_display(page: ft.Page, state: dict):
     ui = state.get("_timer_ui")
     if not ui:
         return
-    sec = max(0, int(state.get("time_left", QUESTION_TIME_SEC)))
-    ui["text"].value = str(sec)
-    ui["bar"].value = sec / QUESTION_TIME_SEC
-    ui["text"].color = "#C62828" if sec <= 10 else theme_txt(theme, "primary")
-    ui["bar"].color = "#C62828" if sec <= 10 else theme["success"]
+    phone_end = float(state.get("phone_until") or 0)
+    if phone_end > time.time():
+        sec = max(0, int(phone_end - time.time()))
+        ui["text"].value = f"📞 {sec}"
+        ui["bar"].value = min(1.0, sec / PHONE_JOKER_SEC)
+        ui["text"].color = theme["gold"]
+        ui["bar"].color = theme["accent"]
+    else:
+        if phone_end:
+            state.pop("phone_until", None)
+        sec = max(0, int(state.get("time_left", QUESTION_TIME_SEC)))
+        ui["text"].value = str(sec)
+        ui["bar"].value = sec / QUESTION_TIME_SEC
+        ui["text"].color = "#C62828" if sec <= 10 else theme_txt(theme, "primary")
+        ui["bar"].color = "#C62828" if sec <= 10 else theme["success"]
     try:
         page.update()
     except Exception:
@@ -1440,24 +1452,50 @@ def generate_audience_percents(correct_idx: int, count: int = 4) -> list[int]:
     return [max(3, int(w * 100 / total)) for w in weights]
 
 
+EMOJI_BY_WORD = {
+    "berlin": "🇩🇪", "münchen": "🍺", "hamburg": "⚓", "köln": "⛪", "deutschland": "🇩🇪",
+    "frankreich": "🇫🇷", "eiffelturm": "🗼", "paris": "🗼", "italien": "🇮🇹", "pizza": "🍕",
+    "spanien": "🇪🇸", "england": "🇬🇧", "griechenland": "🇬🇷", "japan": "🇯🇵", "tokio": "🗼",
+    "australien": "🦘", "kanada": "🍁", "rom": "🏛️", "dänemark": "🇩🇰",
+    "elefant": "🐘", "giraffe": "🦒", "spinne": "🕷️", "kuh": "🐄", "schwein": "🐷",
+    "schaf": "🐑", "pferd": "🐴", "biene": "🐝", "frosch": "🐸", "hund": "🐕", "katze": "🐈",
+    "vogel": "🐦", "fisch": "🐟", "nilpferd": "🦛", "nashorn": "🦏",
+    "sonne": "☀️", "mond": "🌙", "mars": "🔴", "venus": "🪐", "jupiter": "🪐", "saturn": "🪐",
+    "herz": "❤️", "lunge": "🫁", "gehirn": "🧠", "leber": "🫀", "niere": "🫘",
+    "wasser": "💧", "h2o": "💧", "sauerstoff": "💨", "feuer": "🔥",
+    "gelb": "🟡", "grün": "🟢", "rot": "🔴", "blau": "🔵", "banane": "🍌",
+    "herbst": "🍂", "frühling": "🌸", "sommer": "☀️", "winter": "❄️",
+    "flugzeug": "✈️", "auto": "🚗", "zug": "🚆", "fahrrad": "🚲",
+    "buch": "📚", "faust": "📜", "mozart": "🎵", "oper": "🎭",
+    "fußball": "⚽", "gold": "🥇", "silber": "🥈",
+    "zeit": "⏰", "stunde": "🕐", "tag": "📅", "woche": "📆", "jahr": "🗓️",
+    "mathe": "➗", "zahl": "🔢", "primzahl": "🔢",
+    "wissenschaft": "🔬", "chemie": "⚗️", "physik": "⚛️", "atom": "⚛️",
+    "weltraum": "🚀", "mondlandung": "🌕", "astronaut": "👨‍🚀",
+    "pokal": "🏆", "medaille": "🏅", "olympia": "🏅",
+    "tequila": "🍹", "agave": "🌵", "tee": "🍵",
+    "mauer": "🧱", "kolosseum": "🏟️", "titanic": "🚢",
+    "napoleon": "👑", "kaiser": "👑", "einstein": "🧑‍🔬", "goethe": "✍️",
+    "kalt": "🥶", "warm": "🌡️", "heiß": "🔥",
+    "samstag": "📅", "sonntag": "☀️", "montag": "📅",
+}
+
+
 def emoji_hint_for_answer(answer: str) -> str:
-    text = answer.lower()
-    mapping = [
-        (("biene", "summ"), "🐝 🍯 🌸"),
-        (("frosch",), "🐸 💚 🪷"),
-        (("hund", "wau"), "🐕 ❤️ 🦴"),
-        (("katze", "miau"), "🐈 🐾 😺"),
-        (("elefant",), "🐘 🌴 💧"),
-        (("berlin", "deutsch"), "🇩🇪 🏛️ 🐻"),
-        (("wasser", "meer"), "💧 🌊 🐟"),
-        (("sonne", "licht"), "☀️ 🌞 🔆"),
-        (("buch", "lesen"), "📚 ✏️ 📖"),
-        (("auto", "fahr"), "🚗 🛣️ ⛽"),
-    ]
-    for keys, emojis in mapping:
-        if any(k in text for k in keys):
-            return emojis
-    return "✨ 🎯 👍"
+    text = answer.lower().strip()
+    found: list[str] = []
+    for word, em in sorted(EMOJI_BY_WORD.items(), key=lambda x: -len(x[0])):
+        if word in text and em not in found:
+            found.append(em)
+        if len(found) >= 4:
+            break
+    if found:
+        return " ".join(found[:4])
+    if re.search(r"\d", text):
+        return "🔢 ➕ 🧮"
+    if len(text) <= 3:
+        return f"🔤 {text.upper()} ❓"
+    return "💡 🧩 🎯"
 
 
 def moderator_hint_for(question: str, options: list, correct_idx: int) -> str:
@@ -1469,33 +1507,83 @@ def moderator_hint_for(question: str, options: list, correct_idx: int) -> str:
 
 
 WIKIPEDIA_HINTS = {
-    "biene": "Biene: Ein Insekt, das Blüten bestäubt und Honig herstellt.",
-    "frosch": "Frosch: Ein springendes Amphib, das oft in Teichen lebt.",
-    "elefant": "Elefant: Das größte lebende Landtier mit einem Rüssel.",
-    "berlin": "Berlin: Hauptstadt von Deutschland mit Regierungssitz.",
-    "wasser": "Wasser: Flüssigkeit aus H und O, lebensnotwendig für Menschen.",
-    "sonne": "Sonne: Stern im Zentrum unseres Sonnensystems.",
-    "buch": "Buch: Gedruckte oder digitale Seiten zum Lesen und Lernen.",
-    "auto": "Auto: Kraftfahrzeug für den Straßenverkehr.",
-    "maus": "Maus: Kleines Nagetier oder Computer-Eingabegerät.",
-    "hund": "Hund: Haus- und Heimtier, enger Begleiter des Menschen.",
+    "biene": "Ein Insekt, das Blüten bestäubt und Honig herstellt.",
+    "frosch": "Ein springendes Amphib, das oft in Teichen und Feuchtgebieten lebt.",
+    "elefant": "Das größte lebende Landtier mit einem langen Rüssel.",
+    "berlin": "Großstadt in Mitteleuropa mit Regierungssitz und vielen Museen.",
+    "wasser": "Flüssigkeit aus Wasserstoff und Sauerstoff, lebensnotwendig für Menschen.",
+    "sonne": "Der Stern im Zentrum unseres Sonnensystems, liefert Licht und Wärme.",
+    "buch": "Gedruckte oder digitale Seiten zum Lesen und Lernen.",
+    "auto": "Kraftfahrzeug für den Straßenverkehr mit Motor.",
+    "maus": "Kleines Nagetier oder ein Computer-Eingabegerät.",
+    "hund": "Haus- und Heimtier, enger Begleiter des Menschen.",
+    "herbst": "Jahreszeit mit fallendem Laub zwischen Sommer und Winter.",
+    "frühling": "Jahreszeit, in der Natur erwacht und es wärmer wird.",
+    "herz": "Muskelorgan, das Blut durch den Körper pumpt.",
+    "jupiter": "Gasriese und größter Planet unseres Sonnensystems.",
+    "h2o": "Chemische Verbindung aus zwei Wasserstoff- und einem Sauerstoffatom.",
+    "sauerstoff": "Gas, das für Verbrennung und Atmung wichtig ist.",
+    "stickstoff": "Häufigstes Gas in der Erdatmosphäre.",
+    "frankreich": "Westeuropäisches Land, bekannt für Kultur und Küche.",
+    "italien": "Südeuropäisches Land mit langer Geschichte und Küche.",
+    "tokio": "Großstadt und wichtiges Zentrum auf einer ostasiatischen Insel.",
+    "rom": "Historische Hauptstadt eines europäischen Landes mit Kolosseum.",
+    "napoleon": "Französischer Kaiser und Feldherr des frühen 19. Jahrhunderts.",
+    "mozart": "Österreichischer Komponist der klassischen Epoche.",
+    "einstein": "Physiker, bekannt für Relativitätstheorie und E=mc².",
+    "goethe": "Deutscher Dichter der Klassik, schrieb auch Faust.",
+    "flugzeug": "Luftfahrzeug mit Tragflächen für Passagier- oder Frachtverkehr.",
+    "pazifik": "Größtes Meer der Erde, erstreckt sich zwischen Asien und Amerika.",
 }
 
 WORD_TIP_HINTS = {
-    "biene": "Honig",
-    "frosch": "Teich",
+    "biene": "Bestäubung",
+    "frosch": "Amphib",
     "elefant": "Rüssel",
-    "berlin": "Hauptstadt",
-    "wasser": "Flüssigkeit",
-    "sonne": "Stern",
-    "buch": "Lesen",
-    "auto": "Fahren",
+    "berlin": "Regierung",
+    "wasser": "Molekül",
+    "sonne": "Fusion",
+    "buch": "Literatur",
+    "auto": "Motor",
     "maus": "Nagetier",
-    "hund": "Treue",
+    "hund": "Haustier",
     "katze": "Schnurren",
-    "vogel": "Flügel",
-    "fisch": "Schwimmen",
+    "vogel": "Gefieder",
+    "fisch": "Kiemen",
+    "herbst": "Laub",
+    "frühling": "Knospung",
+    "herz": "Puls",
+    "jupiter": "Gasriese",
+    "sauerstoff": "Atmung",
+    "h2o": "Lösungsmittel",
+    "frankreich": "Europa",
+    "italien": "Mediterran",
+    "tokio": "Metropole",
+    "rom": "Antike",
+    "mozart": "Komponist",
+    "einstein": "Relativität",
+    "goethe": "Dichtung",
+    "flugzeug": "Aviation",
+    "spinne": "Arachnid",
+    "kuh": "Weidetier",
+    "gelb": "Spektrum",
+    "grün": "Chlorophyll",
 }
+
+QUESTION_WORD_TIPS = [
+    (("hauptstadt", "stadt", "land"), "Geografie"),
+    (("tier", "beine", "summt", "mensch"), "Lebewesen"),
+    (("farbe", "mischt"), "Farblehre"),
+    (("jahr", "monat", "tag", "stunde", "woche", "jahreszeit"), "Zeit"),
+    (("zahl", "viele", "wie viel", "wurzel", "gleichung"), "Mathematik"),
+    (("organ", "körper", "zähne", "knochen"), "Anatomie"),
+    (("planet", "mond", "sonne", "himmel"), "Astronomie"),
+    (("chem", "element", "formel", "gas"), "Chemie"),
+    (("schrieb", "malte", "oper", "drama"), "Kunst"),
+    (("krieg", "mauer", "kaiser", "jahr wurde"), "Geschichte"),
+    (("transport", "fliegt", "fährt"), "Verkehr"),
+    (("meer", "ozean", "graben"), "Geologie"),
+]
 
 
 def wikipedia_definition(term: str) -> str:
@@ -1503,10 +1591,13 @@ def wikipedia_definition(term: str) -> str:
     for hint_key, text in WIKIPEDIA_HINTS.items():
         if hint_key in key:
             return text
-    return (
-        f"{term}: Ein wichtiger Begriff aus Allgemeinwissen, "
-        f"den man oft in Schule, Medien oder Wikipedia findet."
-    )
+    q_words = re.findall(r"[a-zäöüß]{4,}", key)
+    if q_words:
+        return (
+            "Ein Begriff aus Allgemeinwissen – oft in Lexika und Enzyklopädien "
+            "mit Erklärung zu Herkunft, Bedeutung und Zusammenhängen beschrieben."
+        )
+    return "Ein Begriff aus Allgemeinwissen, den man in Lexika und Enzyklopädien nachschlagen kann."
 
 
 def word_tip_for(term: str, question: str = "") -> str:
@@ -1515,13 +1606,16 @@ def word_tip_for(term: str, question: str = "") -> str:
         if hint_key in key:
             return word
     q = question.lower()
-    if "hauptstadt" in q:
-        return "Stadt"
-    if "tier" in q or "summt" in q or "beine" in q:
-        return "Natur"
-    if "farbe" in q:
-        return "Farbe"
-    return "Denken"
+    for keys, tip in QUESTION_WORD_TIPS:
+        if any(k in q for k in keys):
+            return tip
+    if "hauptstadt" in q or "stadt" in q:
+        return "Metropole"
+    if len(key) > 6:
+        return "Fachbegriff"
+    if re.search(r"\d", key):
+        return "Zahl"
+    return "Überlege logisch"
 
 
 def swap_question_at_index(state: dict) -> bool:
@@ -1564,9 +1658,27 @@ def clear_game_modal(state: dict):
     state.pop("_modal_overlay", None)
 
 
+async def _flash_joker_activation(page: ft.Page, theme: dict):
+    """Brief gold flash when a joker is used."""
+    flash = ft.Container(bgcolor="#55FFD700", expand=True)
+    page.overlay.append(flash)
+    try:
+        page.update()
+    except Exception:
+        pass
+    await asyncio.sleep(0.2)
+    if flash in page.overlay:
+        page.overlay.remove(flash)
+    try:
+        page.update()
+    except Exception:
+        pass
+
+
 def show_game_message(page: ft.Page, state: dict, title: str, body: str, theme: dict):
     def close(e=None):
         clear_game_modal(state)
+        state.pop("truefalse_mode", None)
         render_game_screen(page, state)
 
     set_game_modal(
@@ -1635,6 +1747,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
     if joker_id == "timestop":
         state["time_left"] = int(state.get("time_left", QUESTION_TIME_SEC)) + 30
         mark_joker_used(state, joker_id)
+        save_current_game(state)
         sync_timer_display(page, state)
         return
 
@@ -1661,9 +1774,12 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
         return
 
     if joker_id == "truefalse":
-        state["truefalse_mode"] = True
         mark_joker_used(state, joker_id)
-        page.snack_bar = ft.SnackBar(content=ft.Text("Tippe eine Antwort zum Testen (kein Spielende)."))
+        state["truefalse_mode"] = True
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text("Tippe eine Antwort zum Testen – danach kannst du normal weiterwählen."),
+            duration=3500,
+        )
         page.snack_bar.open = True
         page.update()
         return
@@ -1695,6 +1811,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
 
         def close_audience(e=None):
             clear_game_modal(state)
+            state.pop("truefalse_mode", None)
             render_game_screen(page, state)
 
         set_game_modal(
@@ -1723,12 +1840,13 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
             page.launch_url("tel:")
         except Exception:
             pass
-        show_game_message(
-            page, state,
-            "Telefon-Joker",
-            "Du hast 1 Minute zum Anrufen! Auf dem Handy öffnet sich ggf. die Telefon-App.",
-            theme,
+        sync_timer_display(page, state)
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text("📞 60 Sekunden Anrufzeit – Countdown oben im Timer!"),
+            duration=4000,
         )
+        page.snack_bar.open = True
+        page.update()
         return
 
 
@@ -1834,7 +1952,12 @@ def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | No
             return
         if joker_id in used_ids:
             return
-        activate_joker(page, state, joker_id, ctx)
+
+        async def run_joker():
+            await _flash_joker_activation(page, theme)
+            activate_joker(page, state, joker_id, ctx)
+
+        page.run_task(run_joker)
 
     chips = []
     for jid in selected:
@@ -3716,6 +3839,7 @@ def _start_question_timer(page: ft.Page, state: dict):
     async def tick():
         while not state.get("_timer_cancel") and state.get("_timer_active_key") == timer_key:
             if state.get("phone_until", 0) > time.time():
+                sync_timer_display(page, state)
                 await asyncio.sleep(0.3)
                 continue
             left = int(state.get("time_left", QUESTION_TIME_SEC))
@@ -3730,7 +3854,7 @@ def _start_question_timer(page: ft.Page, state: dict):
             await asyncio.sleep(1)
             if state.get("_timer_cancel") or state.get("_timer_active_key") != timer_key:
                 return
-            state["time_left"] = left - 1
+            state["time_left"] = max(0, int(state.get("time_left", QUESTION_TIME_SEC)) - 1)
             sync_timer_display(page, state)
             if state["time_left"] == 10:
                 await _flash_red_screen(page, state)
@@ -3793,20 +3917,33 @@ def render_game_screen(page: ft.Page, state: dict):
 
         page.run_task(_next)
 
+    def reset_answer_styles():
+        for btn in answer_buttons:
+            btn.bgcolor = answer_bg
+            btn.border = ft.border.Border.all(2, theme["border"])
+
     def handle_answer(e):
         if answers_disabled[0]:
             return
         chosen = e.control.data
         if state.get("truefalse_mode"):
+            is_correct = chosen == correct_idx
             for idx, btn in enumerate(answer_buttons):
                 if idx == chosen:
-                    if chosen == correct_idx:
-                        btn.border = ft.border.Border.all(3, "#2ECC71")
-                        btn.bgcolor = "#C8E6C9"
-                    else:
-                        btn.border = ft.border.Border.all(3, "#E74C3C")
-                        btn.bgcolor = "#FFCDD2"
+                    btn.border = ft.border.Border.all(3, "#2ECC71" if is_correct else "#E74C3C")
+                    btn.bgcolor = "#C8E6C9" if is_correct else "#FFCDD2"
+                else:
+                    btn.bgcolor = answer_bg
+                    btn.border = ft.border.Border.all(2, theme["border"])
+            state.pop("truefalse_mode", None)
             page.update()
+
+            async def clear_test_feedback():
+                await asyncio.sleep(1.4)
+                reset_answer_styles()
+                page.update()
+
+            page.run_task(clear_test_feedback)
             return
         answers_disabled[0] = True
         for idx, btn_container in enumerate(answer_buttons):
