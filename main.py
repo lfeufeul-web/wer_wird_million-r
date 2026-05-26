@@ -278,6 +278,35 @@ THEMES = {
         "border": "#22D3EE",
         "accent": "#EC4899",
         "accent_2": "#F59E0B",
+        "success": "#34D399",
+        "danger": "#EF4444",
+        "gold": "#FCD34D",
+        "question_bg": "#020617",
+        "question_text": "#F1F5F9",
+        "answer_bg": "#0F172A",
+        "answer_text": "#F8FAFC",
+        "answer_colors": ["#EC4899", "#8B5CF6", "#3B82F6", "#06B6D4"],
+    },
+    "puls": {
+        "label": "Puls",
+        "is_light": False,
+        "text_primary": "#FFFFFF",
+        "text_secondary": "#DDDDDD",
+        "text_muted": "#AAAAAA",
+        "gradient": ["#110011", "#440044", "#880044"],
+        "panel": "#00000000",
+        "border": "#FFFFFF22",
+        "accent": "#FF0055",
+        "accent_2": "#00AAFF",
+        "success": "#00FF66",
+        "danger": "#FF0000",
+        "gold": "#FFD700",
+        "question_bg": "#11111166",
+        "question_text": "#FFFFFF",
+        "answer_bg": "#11111144",
+        "answer_text": "#FFFFFF",
+        "answer_colors": ["#FF0055", "#00AAFF", "#00FF66", "#FFD700"],
+    },
         "success": "#22C55E",
         "danger": "#F43F5E",
         "gold": "#FDE047",
@@ -1615,6 +1644,12 @@ EMOJI_BY_WORD: dict[str, str] = {
     # Zahlen & Zeit
     "zeit": "⏰", "stunde": "🕐", "tag": "📅", "woche": "📆", "jahr": "🗓️",
     "sekunde": "⏱️", "minute": "⏳",
+    
+    # Übergreifende Kategorien
+    "instrument": "🥁🎻🎺", "werkzeug": "🔨🔧", "fahrzeug": "🚗🚀⛵", "beruf": "👷🧑‍⚕️",
+    "planet": "🪐🌍", "kleidung": "👕👖👗", "möbel": "🛋️🛏️", "gebäude": "🏠🏢",
+    "tier": "🐾", "pflanze": "🌿", "krankheit": "🤒🦠", "sprache": "🗣️",
+    "religion": "⛪🕌🕍", "waffe": "⚔️🔫", "spiel": "🎲🎮", "süßigkeit": "🍬🍫",
 }
 
 
@@ -1757,6 +1792,11 @@ WORD_TIP_HINTS = {
     "kuh": "Weidetier",
     "gelb": "Spektrum",
     "grün": "Chlorophyll",
+    # Übergreifende Kategorien
+    "instrument": "Musikgerät", "werkzeug": "Hilfsmittel", "fahrzeug": "Verkehrsmittel",
+    "beruf": "Tätigkeit", "planet": "Himmelskörper", "kleidung": "Textil",
+    "möbel": "Einrichtung", "gebäude": "Bauwerk", "tier": "Lebewesen",
+    "pflanze": "Flora", "krankheit": "Symptom", "sprache": "Kommunikation",
 }
 
 QUESTION_WORD_TIPS = [
@@ -1790,6 +1830,7 @@ def wikipedia_definition(term: str) -> str:
             s_data = s_resp.json()
             if len(s_data) >= 2 and s_data[1]:
                 best_title = s_data[1][0]
+                base_title = best_title.split("(")[0].strip()
                 
                 # Get the summary for the exact title
                 url = "https://de.wikipedia.org/api/rest_v1/page/summary/" + requests.utils.quote(best_title)
@@ -1799,7 +1840,7 @@ def wikipedia_definition(term: str) -> str:
                     extract: str = data.get("extract", "")
                     if extract and len(extract) > 20:
                         # Replace occurrences of the answer to avoid spoiling
-                        for w in [term.strip(), term.strip().capitalize(), best_title, best_title.capitalize()]:
+                        for w in [term.strip(), term.strip().capitalize(), best_title, best_title.capitalize(), base_title, base_title.capitalize()]:
                             if w and len(w) > 3 and w in extract:
                                 extract = extract.replace(w, "___")
                         return extract[:300].rsplit(" ", 1)[0] + " …"
@@ -1883,60 +1924,67 @@ def _DraggableModal(panel: ft.Control) -> ft.Stack:
     The panel stays within the visible screen area and cannot be dragged off-screen.
     """
     PANEL_W = 400
-    pos = {"left": 0.0, "top": 0.0}
+    pos = {"left": -1.0, "top": -1.0}
+
+    handle = ft.Container(
+        content=ft.Text("⠿  verschieben", size=10, color="#AAAAAA", text_align="center"),
+        height=22,
+        bgcolor="#22222244",
+        border_radius=ft.BorderRadius(12, 12, 0, 0),
+        alignment=ft.Alignment(0, 0),
+        width=PANEL_W,
+    )
 
     card = ft.Column(
         [
-            ft.Container(
-                content=ft.Text("⠿  verschieben", size=10, color="#AAAAAA", text_align="center"),
-                height=22,
-                bgcolor="#22222244",
-                border_radius=ft.BorderRadius(12, 12, 0, 0),
-                alignment=ft.Alignment(0, 0),
-                width=PANEL_W,
-            ),
+            handle,
             ft.Container(content=panel, width=PANEL_W),
         ],
         spacing=0,
     )
 
     box = ft.Container(content=card, border_radius=16, width=PANEL_W)
-    wrapper = ft.Container(content=box)
     
-    # We use a center_container that switches from alignment to padding once dragged
-    center_container = ft.Container(content=wrapper, alignment=ft.Alignment(0, 0), expand=True)
+    # We will wrap only the handle with the GestureDetector to move it!
+    # Flet's drag works by tracking the drag on the handle.
+    
+    drag_container = ft.Container(content=box, left=0, top=0)
 
     def on_pan_update(e):
         try:
             page = e.control.page
+            if page is None: return
             pw = float(getattr(page, "width", None) or 1100)
             ph = float(getattr(page, "height", None) or 720)
             
-            # Initialize position to center if not dragged yet
-            if pos["left"] == 0.0 and pos["top"] == 0.0:
-                pos["left"] = (pw - PANEL_W) / 2
-                pos["top"] = (ph - 340) / 2
+            if pos["left"] < 0:
+                pos["left"] = drag_container.left
+                pos["top"] = drag_container.top
 
             pos["left"] += e.delta_x
             pos["top"] += e.delta_y
 
-            # Constrain to visible screen bounds so it cannot be dragged off-screen
+            # Constrain to visible screen bounds
             pos["left"] = max(0, min(pw - PANEL_W, pos["left"]))
             pos["top"] = max(0, min(ph - 150, pos["top"]))
 
-            # Switch from alignment to absolute padding
-            center_container.alignment = None
-            center_container.padding = ft.padding.only(left=pos["left"], top=pos["top"])
-            center_container.update()
+            drag_container.left = pos["left"]
+            drag_container.top = pos["top"]
+            drag_container.update()
         except Exception:
             pass
 
     gesture = ft.GestureDetector(
-        content=center_container,
+        content=drag_container,
         on_pan_update=on_pan_update,
         mouse_cursor=ft.MouseCursor.MOVE,
-        expand=True,
     )
+    
+    # We need to center the modal initially. We can do this in the build or via alignment.
+    # Since we're using Stack with absolute positioning, we'll let it be centered initially via Stack properties? No, Stack left/top are absolute.
+    # Let's initialize pos and center it initially via window size (assuming typical 1100x720 if not available)
+    drag_container.left = (1100 - PANEL_W) / 2
+    drag_container.top = (720 - 340) / 2
 
     backdrop = ft.Container(expand=True, bgcolor="#00000088")
     return ft.Stack([backdrop, gesture], expand=True)
@@ -2276,18 +2324,20 @@ def build_joker_tile(
     on_click=None,
     show_name: bool = True,
 ) -> ft.Container:
-    border_w = 3 if selected else 1
-    border_color = theme["gold"] if selected else theme["border"]
-    bgcolor = theme["accent"] if selected else (theme.get("question_bg", "#FFFFFF") if not used else "#55555588")
+    border_w = 3 if selected and not used else 1
+    border_color = theme["gold"] if selected and not used else theme["border"]
+    bgcolor = theme["accent"] if selected and not used else (theme.get("question_bg", "#FFFFFF") if not used else "#55555588")
     if used:
-        border_color = "#888888"
+        border_color = "#444444"
+        on_click = None  # disable click entirely
+        
     label = joker.get("short", joker.get("name", "?"))
     font_size = 8 if size <= 50 else (9 if size <= 58 else 10)
     content = ft.Text(
         label,
         size=font_size,
         weight="bold" if selected else "normal",
-        color=theme["question_text"] if not used else "#AAAAAA",
+        color=theme["question_text"] if not used else "#777777",
         text_align=ft.TextAlign.CENTER,
         max_lines=2,
         no_wrap=False,
@@ -2301,8 +2351,8 @@ def build_joker_tile(
         bgcolor=bgcolor,
         border=ft.border.Border.all(border_w, border_color),
         alignment=ft.Alignment(0, 0),
-        opacity=0.45 if used else 1.0,
-        shadow=ft.BoxShadow(blur_radius=14, color="#60FFD700") if selected else None,
+        opacity=0.35 if used else 1.0,
+        shadow=ft.BoxShadow(blur_radius=14, color="#60FFD700") if selected and not used else None,
         tooltip=joker.get("desc", ""),
     )
     if on_click is None:
@@ -2491,6 +2541,12 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
             state["question_time_sec"] = QUESTION_TIME_SEC
         rebuild()
 
+    state.setdefault("jokers_enabled", True)
+
+    def on_jokers_enabled_change(e):
+        state["jokers_enabled"] = bool(e.control.value)
+        rebuild()
+
     def rebuild():
         show_joker_selection(page, state, on_start)
 
@@ -2503,6 +2559,12 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
         rebuild()
 
     def on_check(e):
+        if not state.get("jokers_enabled", True):
+            # If jokers are disabled, bypass the selection validation
+            state["selected_jokers"] = []
+            show_joker_confirm_screen(page, state, [], on_start)
+            return
+
         current = list(state.get("joker_pick_buffer", []))
         if len(current) != JOKER_SELECT_COUNT:
             page.snack_bar = ft.SnackBar(
@@ -2582,6 +2644,15 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
                                         check_color="white",
                                         label_style=ft.TextStyle(color=theme_txt(theme, "secondary"), size=13),
                                     ),
+                                    ft.Container(width=20),
+                                    ft.Checkbox(
+                                        label="Joker aktivieren",
+                                        value=bool(state.get("jokers_enabled", True)),
+                                        on_change=on_jokers_enabled_change,
+                                        fill_color=theme["accent"],
+                                        check_color="white",
+                                        label_style=ft.TextStyle(color=theme_txt(theme, "secondary"), size=13),
+                                    ),
                                 ],
                                 alignment=ft.MainAxisAlignment.CENTER,
                             ),
@@ -2627,8 +2698,12 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
                     border_radius=14,
                     padding=16,
                     border=ft.border.Border.all(2, theme["border"]),
+                    visible=state.get("jokers_enabled", True),
+                ) if state.get("jokers_enabled", True) else ft.Container(
+                    content=ft.ElevatedButton("Start ohne Joker", on_click=on_check, style=ft.ButtonStyle(bgcolor=theme["success"], color="white")),
+                    padding=20,
                 ),
-                ft.Text("Deine Auswahl", size=13, color=theme["gold"], weight="bold"),
+                ft.Text("Deine Auswahl", size=13, color=theme["gold"], weight="bold", visible=state.get("jokers_enabled", True)),
                 ft.Container(
                     content=ft.Row(
                         catalog_tiles,
@@ -2639,6 +2714,7 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
                     ),
                     width=520,
                     padding=10,
+                    visible=state.get("jokers_enabled", True),
                 ),
                 ft.TextButton("← Zurück", on_click=on_back, style=ft.ButtonStyle(color="white")),
             ],
@@ -4650,7 +4726,28 @@ def render_game_screen(page: ft.Page, state: dict):
                 end=ft.Alignment(1, 1),
                 colors=theme["gradient"],
             ),
+            animate=ft.animation.Animation(2000, ft.AnimationCurve.EASE_IN_OUT) if state.get("theme") == "puls" else None,
         )
+
+    if state.get("theme") == "puls":
+        # Launch pulse animation task
+        async def _pulse_bg():
+            step = 0
+            while True:
+                await asyncio.sleep(2)
+                try:
+                    # check if still on same screen and theme
+                    if state.get("theme") != "puls" or state.get("question_index") != q_num - 1:
+                        break
+                    if step % 2 == 0:
+                        bg_layer.gradient.colors = ["#220022", "#660066", "#AA0055"]
+                    else:
+                        bg_layer.gradient.colors = theme["gradient"]
+                    bg_layer.update()
+                    step += 1
+                except Exception:
+                    break
+        page.run_task(_pulse_bg)
 
     modal = state.get("_modal_overlay")
 
