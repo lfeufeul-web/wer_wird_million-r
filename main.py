@@ -1298,6 +1298,7 @@ def start_custom_quiz_play(page: ft.Page, state: dict, quiz: dict):
         page.update()
         return
     clear_saved_game(state)
+    reset_game_timer(state)
     state.update({
         "money": "0 €",
         "questions_answered": 0,
@@ -1370,6 +1371,22 @@ def get_joker(joker_id: str) -> dict | None:
 
 def stop_game_timer(state: dict):
     state["_timer_cancel"] = True
+
+
+def reset_game_timer(state: dict):
+    """Full timer reset for a new game or after game over (not for pause/resume)."""
+    stop_game_timer(state)
+    state.pop("_timer_active_key", None)
+    state.pop("_timer_question_key", None)
+    state.pop("time_left", None)
+
+
+def reset_timer_for_new_question(state: dict):
+    """30 seconds for the next question in the same run."""
+    stop_game_timer(state)
+    state.pop("_timer_active_key", None)
+    state.pop("_timer_question_key", None)
+    state["time_left"] = QUESTION_TIME_SEC
 
 
 def sync_timer_display(page: ft.Page, state: dict):
@@ -3509,6 +3526,7 @@ def start_new_game(page: ft.Page, state: dict, force_new: bool = False):
 
 def show_age_selection(page: ft.Page, state: dict):
     """Reset state and ask for age group (standard quiz)."""
+    reset_game_timer(state)
     theme = get_theme(state)
     state.update({
         "money": "0 €",
@@ -3683,6 +3701,8 @@ def _start_question_timer(page: ft.Page, state: dict):
     if state.get("_timer_question_key") != timer_key:
         state["_timer_question_key"] = timer_key
         state["time_left"] = QUESTION_TIME_SEC
+    elif state.get("time_left") is None:
+        state["time_left"] = QUESTION_TIME_SEC
 
     if state.get("_timer_active_key") == timer_key and not state.get("_timer_cancel"):
         sync_timer_display(page, state)
@@ -3759,9 +3779,7 @@ def render_game_screen(page: ft.Page, state: dict):
                 state["money"] = levels[min(state["correct"] - 1, len(levels) - 1)]
                 state["questions_answered"] += 1
                 state["question_index"] += 1
-                state.pop("_timer_active_key", None)
-                state.pop("_timer_question_key", None)
-                state["time_left"] = QUESTION_TIME_SEC
+                reset_timer_for_new_question(state)
                 if state["question_index"] >= len(state["questions"]):
                     _show_win_screen(page, state)
                 else:
@@ -4136,6 +4154,7 @@ def _show_correct_screen(page: ft.Page, state: dict):
 
 def _show_wrong_screen(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
+    reset_game_timer(state)
     state["game_finished"] = True
     clear_saved_game(state)
     # Update persistent stats
@@ -4189,6 +4208,7 @@ def _show_wrong_screen(page: ft.Page, state: dict):
 
 def _show_win_screen(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
+    reset_game_timer(state)
     state["game_finished"] = True
     clear_saved_game(state)
     # Update persistent stats
