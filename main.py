@@ -956,21 +956,16 @@ def _page_size(page: ft.Page) -> tuple[float, float]:
     return float(w or 1100), float(h or 720)
 
 
-def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay_color: str) -> ft.Container:
-    """Background stretched to the full viewport; ignores pointer so HUD stays clickable."""
+def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay_color: str) -> ft.Stack:
+    """Background stretched to the full viewport (bottom layer in game Stack)."""
     w, h = max(1, int(page_w)), max(1, int(page_h))
-    return ft.Container(
+    return ft.Stack(
+        [
+            ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h),
+            ft.Container(width=w, height=h, bgcolor=overlay_color),
+        ],
         width=w,
         height=h,
-        ignore_pointer=True,
-        content=ft.Stack(
-            [
-                ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h),
-                ft.Container(width=w, height=h, bgcolor=overlay_color),
-            ],
-            width=w,
-            height=h,
-        ),
     )
 
 
@@ -3949,7 +3944,6 @@ def render_game_screen(page: ft.Page, state: dict):
         bg_layer = ft.Container(
             width=max(1, int(page_w)),
             height=max(1, int(page_h)),
-            ignore_pointer=True,
             gradient=ft.LinearGradient(
                 begin=ft.Alignment(-1, -1),
                 end=ft.Alignment(1, 1),
