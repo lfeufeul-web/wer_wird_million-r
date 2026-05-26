@@ -213,10 +213,10 @@ def save_db(db: dict):
 
 
 THEME_GAME_ZONES = {
-    "play_column": {"l": 0.032, "t": 0.052, "w": 0.648, "h": 0.50},
+    "play_column": {"l": 0.032, "t": 0.062, "w": 0.648, "h": 0.49},
     "jokers": {"l": 0.032, "t": 0.555, "w": 0.648, "h": 0.075},
-    "ladder": {"l": 0.695, "t": 0.055, "w": 0.205, "h": 0.88},
-    "exit": {"l": 0.0198, "t": 0.0204, "w": 0.1146, "h": 0.0500},
+    "ladder": {"l": 0.695, "t": 0.055, "w": 0.205, "h": 0.72},
+    "exit": {"l": 0.0198, "t": 0.028, "w": 0.1146, "h": 0.055},
     "overlay": {"l": 0, "t": 0, "w": 1, "h": 1},
 }
 
@@ -1077,6 +1077,10 @@ def save_current_game(state: dict):
         "jokers_used_ids": state.get("jokers_used_ids", []),
         "time_left": max(0, int(state.get("time_left", QUESTION_TIME_SEC))),
         "hidden_answers": state.get("hidden_answers", []),
+        "time_pressure_enabled": bool(state.get("time_pressure_enabled", True)),
+        "question_time_sec": int(state.get("question_time_sec", QUESTION_TIME_SEC)),
+        "phone_until": state.get("phone_until"),
+        "friend_until": state.get("friend_until"),
     }
     db["users"][email]["saved_game"] = saved_game
     state["saved_game"] = saved_game
@@ -1157,6 +1161,10 @@ def resume_saved_game(page: ft.Page, state: dict, saved: dict | None = None):
         "jokers_used_ids": saved.get("jokers_used_ids", []),
         "time_left": max(0, int(saved.get("time_left", QUESTION_TIME_SEC))),
         "hidden_answers": list(saved.get("hidden_answers", [])),
+        "time_pressure_enabled": bool(saved.get("time_pressure_enabled", True)),
+        "question_time_sec": int(saved.get("question_time_sec", QUESTION_TIME_SEC)),
+        "phone_until": saved.get("phone_until"),
+        "friend_until": saved.get("friend_until"),
     })
     state.pop("_timer_active_key", None)
     state["_timer_question_key"] = f"q{state['question_index']}"
@@ -1238,6 +1246,8 @@ def new_empty_custom_quiz(title: str = "Mein Quiz") -> dict:
         "updated_at": now,
         "is_draft": True,
         "questions": [],
+        "time_pressure_enabled": True,
+        "question_time_sec": QUESTION_TIME_SEC,
     }
 
 
@@ -1299,6 +1309,8 @@ def start_custom_quiz_play(page: ft.Page, state: dict, quiz: dict):
         return
     clear_saved_game(state)
     reset_game_timer(state)
+    state["time_pressure_enabled"] = bool(quiz.get("time_pressure_enabled", True))
+    state["question_time_sec"] = int(quiz.get("question_time_sec", QUESTION_TIME_SEC)) or QUESTION_TIME_SEC
     state.update({
         "money": "0 €",
         "questions_answered": 0,
@@ -1361,6 +1373,10 @@ JOKER_CATALOG = [
 
 QUESTION_TIME_SEC = 30
 PHONE_JOKER_SEC = 60
+FRIEND_JOKER_SEC = 60
+
+# UI options for the timer configuration (in joker select + custom quiz editor)
+QUESTION_TIME_OPTIONS = [10, 20, 30, 45, 60]
 
 JOKER_BY_ID = {j["id"]: j for j in JOKER_CATALOG}
 
@@ -1380,6 +1396,7 @@ def reset_game_timer(state: dict):
     state.pop("_timer_question_key", None)
     state.pop("time_left", None)
     state.pop("phone_until", None)
+    state.pop("friend_until", None)
     state.pop("truefalse_mode", None)
 
 
@@ -1388,7 +1405,8 @@ def reset_timer_for_new_question(state: dict):
     stop_game_timer(state)
     state.pop("_timer_active_key", None)
     state.pop("_timer_question_key", None)
-    state["time_left"] = QUESTION_TIME_SEC
+    # Keep per-game timer configuration (used for custom quizzes).
+    state["time_left"] = int(state.get("question_time_sec", QUESTION_TIME_SEC))
 
 
 def sync_timer_display(page: ft.Page, state: dict):
@@ -1397,21 +1415,61 @@ def sync_timer_display(page: ft.Page, state: dict):
     ui = state.get("_timer_ui")
     if not ui:
         return
+    now = time.time()
     phone_end = float(state.get("phone_until") or 0)
-    if phone_end > time.time():
-        sec = max(0, int(phone_end - time.time()))
+    friend_end = float(state.get("friend_until") or 0)
+
+    question_time_sec = int(state.get("question_time_sec", QUESTION_TIME_SEC)) or QUESTION_TIME_SEC
+    time_pressure_enabled = bool(state.get("time_pressure_enabled", True))
+
+    # Joker-spezifische Countdown-Anzeige
+    if friend_end > now:
+        sec = max(0, int(friend_end - now))
+        ui["text"].value = f"👥 {sec}"
+        ui["bar"].value = min(1.0, sec / FRIEND_JOKER_SEC)
+        ui["text"].color = theme["gold"]
+        ui["bar"].color = theme["accent"]
+        try:
+            page.update()
+        except Exception:
+            pass
+        return
+
+    if phone_end > now:
+        sec = max(0, int(phone_end - now))
         ui["text"].value = f"📞 {sec}"
         ui["bar"].value = min(1.0, sec / PHONE_JOKER_SEC)
         ui["text"].color = theme["gold"]
         ui["bar"].color = theme["accent"]
-    else:
-        if phone_end:
-            state.pop("phone_until", None)
-        sec = max(0, int(state.get("time_left", QUESTION_TIME_SEC)))
-        ui["text"].value = str(sec)
-        ui["bar"].value = sec / QUESTION_TIME_SEC
-        ui["text"].color = "#C62828" if sec <= 10 else theme_txt(theme, "primary")
-        ui["bar"].color = "#C62828" if sec <= 10 else theme["success"]
+        try:
+            page.update()
+        except Exception:
+            pass
+        return
+
+    # Aufräumen abgelaufener Joker-Countdowns
+    if phone_end:
+        state.pop("phone_until", None)
+    if friend_end:
+        state.pop("friend_until", None)
+
+    # Zeitdruck aus -> kein Countdown, Balken bleibt voll
+    if not time_pressure_enabled:
+        ui["text"].value = "∞"
+        ui["bar"].value = 1.0
+        ui["text"].color = theme_txt(theme, "primary")
+        ui["bar"].color = theme["success"]
+        try:
+            page.update()
+        except Exception:
+            pass
+        return
+
+    sec = max(0, int(state.get("time_left", question_time_sec)))
+    ui["text"].value = str(sec)
+    ui["bar"].value = sec / max(1, question_time_sec)
+    ui["text"].color = "#C62828" if sec <= 10 else theme_txt(theme, "primary")
+    ui["bar"].color = "#C62828" if sec <= 10 else theme["success"]
     try:
         page.update()
     except Exception:
@@ -1478,6 +1536,16 @@ EMOJI_BY_WORD = {
     "napoleon": "👑", "kaiser": "👑", "einstein": "🧑‍🔬", "goethe": "✍️",
     "kalt": "🥶", "warm": "🌡️", "heiß": "🔥",
     "samstag": "📅", "sonntag": "☀️", "montag": "📅",
+
+    # Blut / Biologie
+    "blutplättchen": "🩹 🩸",
+    "blutkörperchen": "🩸 🧬",
+    "rote blutkörperchen": "🟥🩸",
+    "weisse blutkörperchen": "🤍🧫",
+    "weiße blutkörperchen": "🤍🧫",
+    "sauerstoff": "🫁 🌬️",
+    "nervenzellen": "🧠 ⚡",
+    "nerven": "🧠 ⚡",
 }
 
 
@@ -1571,18 +1639,18 @@ WORD_TIP_HINTS = {
 }
 
 QUESTION_WORD_TIPS = [
-    (("hauptstadt", "stadt", "land"), "Geografie"),
-    (("tier", "beine", "summt", "mensch"), "Lebewesen"),
-    (("farbe", "mischt"), "Farblehre"),
+    (("hauptstadt", "stadt", "land"), "Stadt"),
+    (("tier", "beine", "summt", "mensch"), "Tier"),
+    (("farbe", "mischt"), "Farbe"),
     (("jahr", "monat", "tag", "stunde", "woche", "jahreszeit"), "Zeit"),
-    (("zahl", "viele", "wie viel", "wurzel", "gleichung"), "Mathematik"),
-    (("organ", "körper", "zähne", "knochen"), "Anatomie"),
-    (("planet", "mond", "sonne", "himmel"), "Astronomie"),
-    (("chem", "element", "formel", "gas"), "Chemie"),
-    (("schrieb", "malte", "oper", "drama"), "Kunst"),
+    (("zahl", "viele", "wie viel", "wurzel", "gleichung"), "Zahl"),
+    (("organ", "körper", "zähne", "knochen"), "Körper"),
+    (("planet", "mond", "sonne", "himmel"), "Planet"),
+    (("chem", "element", "formel", "gas"), "Element"),
+    (("schrieb", "malte", "oper", "drama"), "Autor"),
     (("krieg", "mauer", "kaiser", "jahr wurde"), "Geschichte"),
-    (("transport", "fliegt", "fährt"), "Verkehr"),
-    (("meer", "ozean", "graben"), "Geologie"),
+    (("transport", "transportieren", "fliegt", "fährt", "sauerstoff"), "Blut"),
+    (("meer", "ozean", "graben"), "Ozean"),
 ]
 
 
@@ -1610,12 +1678,18 @@ def word_tip_for(term: str, question: str = "") -> str:
         if any(k in q for k in keys):
             return tip
     if "hauptstadt" in q or "stadt" in q:
-        return "Metropole"
-    if len(key) > 6:
-        return "Fachbegriff"
+        return "Hauptstadt"
+    if "farbe" in q:
+        return "Farbkombination"
     if re.search(r"\d", key):
         return "Zahl"
-    return "Überlege logisch"
+
+    # Wenn kein passender Hinweis greifbar ist, geben wir deterministisch
+    # ein anderes "Hinweiswort" zurück (statt immer das gleiche).
+    fallback_words = list(dict.fromkeys(list(WORD_TIP_HINTS.values()) + [t for _, t in QUESTION_WORD_TIPS]))
+    if fallback_words:
+        return fallback_words[abs(hash(key)) % len(fallback_words)]
+    return "Hinweis"
 
 
 def swap_question_at_index(state: dict) -> bool:
@@ -1703,6 +1777,8 @@ def show_game_message(page: ft.Page, state: dict, title: str, body: str, theme: 
 def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
     if joker_id in state.get("jokers_used_ids", []):
         return
+    # Joker sollen immer einen evtl. laufenden Testmodus "ausknipsen".
+    state.pop("truefalse_mode", None)
     theme = ctx["theme"]
     correct_idx = ctx["correct_idx"]
     options = ctx["options"]
@@ -1724,12 +1800,14 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
 
     if joker_id == "friend":
         mark_joker_used(state, joker_id)
-        show_game_message(
-            page, state,
-            "Frag einen Freund",
-            "Sprich jetzt mit einer anderen Person und hol dir einen Tipp!",
-            theme,
+        state["friend_until"] = time.time() + FRIEND_JOKER_SEC
+        sync_timer_display(page, state)
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text("👥 Frag einen Freund: 60 Sekunden Zeit!"),
+            duration=4500,
         )
+        page.snack_bar.open = True
+        page.update()
         return
 
     if joker_id == "swap":
@@ -2066,6 +2144,19 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
     """Pick 4 jokers from catalog, confirm, then start the game."""
     theme = get_theme(state)
     pick = list(state.get("joker_pick_buffer", []))
+    state.setdefault("time_pressure_enabled", True)
+    state.setdefault("question_time_sec", QUESTION_TIME_SEC)
+
+    def on_time_pressure_change(e):
+        state["time_pressure_enabled"] = bool(e.control.value)
+        rebuild()
+
+    def on_question_time_change(e):
+        try:
+            state["question_time_sec"] = int(e.control.value)
+        except Exception:
+            state["question_time_sec"] = QUESTION_TIME_SEC
+        rebuild()
 
     def rebuild():
         show_joker_selection(page, state, on_start)
@@ -2145,6 +2236,50 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
                     text_align="center",
                 ),
                 ft.Container(height=8),
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Checkbox(
+                                        label="Zeitdruck aktiv",
+                                        value=bool(state.get("time_pressure_enabled", True)),
+                                        on_change=on_time_pressure_change,
+                                        fill_color=theme["accent"],
+                                        check_color="white",
+                                        label_style=ft.TextStyle(color=theme_txt(theme, "secondary"), size=13),
+                                    ),
+                                ],
+                                alignment=ft.MainAxisAlignment.CENTER,
+                            ),
+                            ft.Container(height=6),
+                            ft.Row(
+                                [
+                                    ft.Text("Sekunden pro Frage:", size=13, color=theme_txt(theme, "secondary")),
+                                    ft.Dropdown(
+                                        options=[ft.dropdown.Option(str(v)) for v in QUESTION_TIME_OPTIONS],
+                                        value=str(int(state.get("question_time_sec", QUESTION_TIME_SEC))),
+                                        width=120,
+                                        on_change=on_question_time_change,
+                                    ) if bool(state.get("time_pressure_enabled", True)) else ft.Text(
+                                        "Timer aus – kein Countdown",
+                                        size=13,
+                                        color=theme_txt(theme, "secondary"),
+                                        weight="bold",
+                                    ),
+                                ],
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=10,
+                            ),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    bgcolor=theme["panel"],
+                    border_radius=14,
+                    padding=12,
+                    border=ft.border.Border.all(2, theme["border"]),
+                ),
+                ft.Container(height=10),
                 ft.Container(
                     content=ft.Row([
                         build_joker_slot_row(
@@ -3372,6 +3507,39 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         on_change=on_title_change,
     )
 
+    time_pressure_checkbox = ft.Checkbox(
+        label="Zeitdruck aktiv",
+        value=bool(quiz.get("time_pressure_enabled", True)),
+        fill_color=theme["accent"],
+        check_color="white",
+        label_style=ft.TextStyle(color=theme_txt(theme, "secondary"), size=13),
+    )
+
+    def on_time_pressure_change(e):
+        state["editing_quiz"]["time_pressure_enabled"] = bool(e.control.value)
+        auto_save_editing_quiz(state, title=title_field.value)
+
+    time_pressure_checkbox.on_change = on_time_pressure_change
+
+    time_sec_dropdown = ft.Dropdown(
+        label="Sekunden pro Frage",
+        value=str(int(quiz.get("question_time_sec", QUESTION_TIME_SEC))),
+        options=[ft.dropdown.Option(str(v)) for v in QUESTION_TIME_OPTIONS],
+        width=220,
+        bgcolor=theme["question_bg"],
+        color=theme["question_text"],
+        border_color=theme["border"],
+    )
+
+    def on_time_sec_change(e):
+        try:
+            state["editing_quiz"]["question_time_sec"] = int(e.control.value)
+        except Exception:
+            state["editing_quiz"]["question_time_sec"] = QUESTION_TIME_SEC
+        auto_save_editing_quiz(state, title=title_field.value)
+
+    time_sec_dropdown.on_change = on_time_sec_change
+
     def save_finished(e):
         q = state["editing_quiz"]
         auto_save_editing_quiz(state, title=title_field.value)
@@ -3456,6 +3624,22 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                 ft.Text("Quiz bearbeiten", size=26, weight="bold", color="white", text_align="center"),
                 title_field,
                 ft.Container(height=6),
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            time_pressure_checkbox,
+                            ft.Container(height=8),
+                            time_sec_dropdown,
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    width=420,
+                    padding=12,
+                    bgcolor=theme["panel"],
+                    border_radius=12,
+                    border=ft.border.Border.all(1, theme["border"]),
+                ),
+                ft.Container(height=10),
                 ft.Container(
                     content=ft.Column(question_items or [
                         ft.Text("Noch keine Fragen", size=13, color=theme_txt(theme, "muted"))
@@ -3651,6 +3835,8 @@ def show_age_selection(page: ft.Page, state: dict):
     """Reset state and ask for age group (standard quiz)."""
     reset_game_timer(state)
     theme = get_theme(state)
+    state["time_pressure_enabled"] = True
+    state["question_time_sec"] = QUESTION_TIME_SEC
     state.update({
         "money": "0 €",
         "questions_answered": 0,
@@ -3821,11 +4007,14 @@ async def _flash_red_screen(page: ft.Page, state: dict):
 
 def _start_question_timer(page: ft.Page, state: dict):
     timer_key = f"q{state['question_index']}"
+    question_time_sec = int(state.get("question_time_sec", QUESTION_TIME_SEC)) or QUESTION_TIME_SEC
+    time_pressure_enabled = bool(state.get("time_pressure_enabled", True))
+
     if state.get("_timer_question_key") != timer_key:
         state["_timer_question_key"] = timer_key
-        state["time_left"] = QUESTION_TIME_SEC
+        state["time_left"] = question_time_sec
     elif state.get("time_left") is None:
-        state["time_left"] = QUESTION_TIME_SEC
+        state["time_left"] = question_time_sec
 
     if state.get("_timer_active_key") == timer_key and not state.get("_timer_cancel"):
         sync_timer_display(page, state)
@@ -3838,11 +4027,25 @@ def _start_question_timer(page: ft.Page, state: dict):
 
     async def tick():
         while not state.get("_timer_cancel") and state.get("_timer_active_key") == timer_key:
-            if state.get("phone_until", 0) > time.time():
+            now = time.time()
+            phone_until = float(state.get("phone_until") or 0)
+            friend_until = float(state.get("friend_until") or 0)
+
+            # Joker-Countdowns laufen unabhängig vom Frage-Timer
+            if phone_until > now or friend_until > now:
                 sync_timer_display(page, state)
                 await asyncio.sleep(0.3)
                 continue
-            left = int(state.get("time_left", QUESTION_TIME_SEC))
+
+            time_pressure_enabled_now = bool(state.get("time_pressure_enabled", True))
+            if not time_pressure_enabled_now:
+                # Zeitdruck aus: keine Auto-"FALSCH"-Auslösung.
+                sync_timer_display(page, state)
+                await asyncio.sleep(0.6)
+                continue
+
+            question_time_sec_now = int(state.get("question_time_sec", QUESTION_TIME_SEC)) or QUESTION_TIME_SEC
+            left = int(state.get("time_left", question_time_sec_now))
             if left <= 0:
                 stop_game_timer(state)
                 state.pop("_timer_active_key", None)
@@ -3851,10 +4054,12 @@ def _start_question_timer(page: ft.Page, state: dict):
                 clear_saved_game(state)
                 _show_wrong_screen(page, state)
                 return
+
             await asyncio.sleep(1)
             if state.get("_timer_cancel") or state.get("_timer_active_key") != timer_key:
                 return
-            state["time_left"] = max(0, int(state.get("time_left", QUESTION_TIME_SEC)) - 1)
+
+            state["time_left"] = max(0, int(state.get("time_left", question_time_sec_now)) - 1)
             sync_timer_display(page, state)
             if state["time_left"] == 10:
                 await _flash_red_screen(page, state)
@@ -3927,6 +4132,7 @@ def render_game_screen(page: ft.Page, state: dict):
             return
         chosen = e.control.data
         if state.get("truefalse_mode"):
+            answers_disabled[0] = True
             is_correct = chosen == correct_idx
             for idx, btn in enumerate(answer_buttons):
                 if idx == chosen:
@@ -3935,12 +4141,13 @@ def render_game_screen(page: ft.Page, state: dict):
                 else:
                     btn.bgcolor = answer_bg
                     btn.border = ft.border.Border.all(2, theme["border"])
-            state.pop("truefalse_mode", None)
             page.update()
 
             async def clear_test_feedback():
                 await asyncio.sleep(1.4)
                 reset_answer_styles()
+                state.pop("truefalse_mode", None)
+                answers_disabled[0] = False
                 page.update()
 
             page.run_task(clear_test_feedback)
@@ -3997,16 +4204,20 @@ def render_game_screen(page: ft.Page, state: dict):
         "answer_buttons": answer_buttons,
     }
 
-    sec = max(0, int(state.get("time_left", QUESTION_TIME_SEC)))
+    question_time_sec = int(state.get("question_time_sec", QUESTION_TIME_SEC)) or QUESTION_TIME_SEC
+    time_pressure_enabled = bool(state.get("time_pressure_enabled", True))
+    sec = max(0, int(state.get("time_left", question_time_sec))) if time_pressure_enabled else question_time_sec
     timer_text = ft.Text(
-        str(sec), size=16, weight="bold",
-        color="#C62828" if sec <= 10 else theme_txt(theme, "primary"),
+        "∞" if not time_pressure_enabled else str(sec),
+        size=16,
+        weight="bold",
+        color=theme_txt(theme, "primary") if not time_pressure_enabled else ("#C62828" if sec <= 10 else theme_txt(theme, "primary")),
     )
     timer_bar = ft.ProgressBar(
-        value=sec / QUESTION_TIME_SEC,
+        value=1.0 if not time_pressure_enabled else sec / question_time_sec,
         expand=True,
         height=10,
-        color="#C62828" if sec <= 10 else theme["success"],
+        color=theme["success"] if not time_pressure_enabled else ("#C62828" if sec <= 10 else theme["success"]),
         bgcolor="#E0E0E0",
     )
     state["_timer_ui"] = {"text": timer_text, "bar": timer_bar}
@@ -4193,6 +4404,10 @@ def show_exit_confirmation(page: ft.Page, state: dict):
                     "jokers_used_ids": state.get("jokers_used_ids", []),
                     "time_left": max(0, int(state.get("time_left", QUESTION_TIME_SEC))),
                     "hidden_answers": state.get("hidden_answers", []),
+                    "time_pressure_enabled": bool(state.get("time_pressure_enabled", True)),
+                    "question_time_sec": int(state.get("question_time_sec", QUESTION_TIME_SEC)),
+                    "phone_until": state.get("phone_until"),
+                    "friend_until": state.get("friend_until"),
                 }
                 save_db(db_current)
         open_main_menu(e.page, state)
