@@ -1620,7 +1620,7 @@ EMOJI_BY_WORD: dict[str, str] = {
 
 def emoji_hint_for_answer(answer: str) -> str:
     text = answer.lower().strip()
-    words = [w.strip() for w in text.split()]
+    words = [w.strip(" ,.-!?") for w in text.split()]
     found: list[str] = []
     
     # First priority: direct exact word matches
@@ -1635,6 +1635,27 @@ def emoji_hint_for_answer(answer: str) -> str:
                 found.append(em)
             if len(found) >= 3:
                 break
+
+    # Third priority: Context from Wikipedia
+    if not found:
+        try:
+            search_url = "https://de.wikipedia.org/w/api.php?action=opensearch&search=" + requests.utils.quote(answer.strip()) + "&limit=1&format=json"
+            s_resp = requests.get(search_url, timeout=3)
+            if s_resp.status_code == 200:
+                s_data = s_resp.json()
+                if len(s_data) >= 2 and s_data[1]:
+                    best_title = s_data[1][0]
+                    url = "https://de.wikipedia.org/api/rest_v1/page/summary/" + requests.utils.quote(best_title)
+                    resp = requests.get(url, timeout=4)
+                    if resp.status_code == 200:
+                        extract = resp.json().get("extract", "").lower()
+                        for word, em in sorted(EMOJI_BY_WORD.items(), key=lambda x: -len(x[0])):
+                            if len(word) >= 4 and re.search(r'\b' + re.escape(word) + r'\b', extract) and em not in found:
+                                found.append(em)
+                            if len(found) >= 3:
+                                break
+        except Exception:
+            pass
 
     if found:
         return "  ".join(found[:3])
@@ -2042,6 +2063,7 @@ def _show_joker_countdown_dialog(
             pass
         state.pop(until_key, None)
         sync_timer_display(page, state)
+        render_game_screen(page, state)
         try:
             page.update()
         except Exception:
@@ -2165,8 +2187,23 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
 
     if joker_id == "emoji":
         mark_joker_used(state, joker_id)
-        em = emoji_hint_for_answer(options[correct_idx])
-        show_game_message(page, state, "Emoji-Joker", f"Die richtige Antwort in Emojis:\n{em}", theme)
+        term = options[correct_idx]
+        body_ref = ft.Text("⏳ Suche Emojis …", size=24, color=theme_txt(theme, "secondary"), text_align="center")
+        show_game_message_with_body(page, state, "Emoji-Joker", body_ref, theme)
+
+        async def _load_emoji():
+            loop = asyncio.get_event_loop()
+            try:
+                em = await loop.run_in_executor(None, lambda: emoji_hint_for_answer(term))
+            except Exception:
+                em = "💡 🧩 🎯"
+            body_ref.value = f"Die richtige Antwort in Emojis:\n\n{em}"
+            try:
+                body_ref.update()
+            except Exception:
+                pass
+
+        asyncio.ensure_future(_load_emoji())
         return
 
     if joker_id == "audience":
@@ -2538,7 +2575,7 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
                             ft.Row(
                                 [
                                     ft.Checkbox(
-                                        label="Zeitdruck aktiv",
+                                        label="Timer aktivieren",
                                         value=bool(state.get("time_pressure_enabled", True)),
                                         on_change=on_time_pressure_change,
                                         fill_color=theme["accent"],
@@ -3263,8 +3300,6 @@ def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Cont
     header_h = 46 if compact else 52
     n = len(levels)
     i_current = n - 1 - correct
-    bar_top = header_h + i_current * row_h + max(0, (row_h - 8) // 2)
-
     rows = []
     for i, level in enumerate(reversed(levels)):
         orig_idx = n - 1 - i
@@ -3272,57 +3307,58 @@ def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Cont
         is_reached = orig_idx < correct
         dot_color = theme["gold"] if is_current else (theme["accent_2"] if is_reached else "#143d28")
         text_color = "#FFFFFF" if is_current else ("#B8FFD0" if is_reached else "#7AE8A8")
+        
+        row_content = ft.Row([
+            ft.Container(
+                width=7, height=7, border_radius=4,
+                bgcolor=dot_color,
+                border=ft.border.Border.all(1, theme["border"]) if is_current else None,
+            ),
+            ft.Text(
+                level,
+                size=12 if compact else 13,
+                color=text_color,
+                weight="bold" if is_current else "normal",
+                expand=True,
+                text_align=ft.TextAlign.RIGHT,
+            ),
+        ], spacing=6)
+
+        if is_current:
+            cell_content = ft.Stack([
+                ft.Container(
+                    left=4, right=4, top=(row_h - 8) / 2, height=8,
+                    bgcolor=theme["gold"],
+                    border_radius=4,
+                    shadow=ft.BoxShadow(blur_radius=18, color="#B000FF66", spread_radius=1),
+                ),
+                ft.Container(content=row_content, alignment=ft.Alignment(0, 0), height=row_h)
+            ])
+        else:
+            cell_content = ft.Container(content=row_content, alignment=ft.Alignment(0, 0), height=row_h)
+
         rows.append(
             ft.Container(
-                content=ft.Row([
-                    ft.Container(
-                        width=7, height=7, border_radius=4,
-                        bgcolor=dot_color,
-                        border=ft.border.Border.all(1, theme["border"]) if is_current else None,
-                    ),
-                    ft.Text(
-                        level,
-                        size=12 if compact else 13,
-                        color=text_color,
-                        weight="bold" if is_current else "normal",
-                        expand=True,
-                        text_align=ft.TextAlign.RIGHT,
-                    ),
-                ], spacing=6),
+                content=cell_content,
                 height=row_h,
-                alignment=ft.Alignment(0, 0),
                 bgcolor="#0a140e" if is_current else None,
                 border_radius=4,
             )
         )
 
-    ladder_stack = ft.Stack(
+    ladder_stack = ft.Column(
         [
-            ft.Column(
-                [
-                    ft.Text(
-                        "PREISSTUFEN",
-                        size=12 if compact else 13,
-                        weight="bold",
-                        color=theme["gold"],
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                    ft.Divider(color=theme["border"], height=1, thickness=1),
-                    *rows,
-                ],
-                spacing=0,
+            ft.Text(
+                "PREISSTUFEN",
+                size=12 if compact else 13,
+                weight="bold",
+                color=theme["gold"],
+                text_align=ft.TextAlign.CENTER,
             ),
-            ft.Container(
-                top=bar_top,
-                left=4,
-                right=4,
-                height=8,
-                bgcolor=theme["gold"],
-                border_radius=4,
-                shadow=ft.BoxShadow(blur_radius=18, color="#B000FF66", spread_radius=1),
-            ),
+            ft.Divider(color=theme["border"], height=1, thickness=1),
+            *rows,
         ],
-        height=header_h + n * row_h + 4,
+        spacing=0,
     )
 
     return ft.Container(
@@ -3807,7 +3843,7 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
     )
 
     time_pressure_checkbox = ft.Checkbox(
-        label="Zeitdruck aktiv",
+        label="Timer aktivieren",
         value=bool(quiz.get("time_pressure_enabled", True)),
         fill_color=theme["accent"],
         check_color="white",
