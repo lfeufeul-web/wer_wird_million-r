@@ -1510,59 +1510,159 @@ def generate_audience_percents(correct_idx: int, count: int = 4) -> list[int]:
     return [max(3, int(w * 100 / total)) for w in weights]
 
 
-EMOJI_BY_WORD = {
-    "berlin": "🇩🇪", "münchen": "🍺", "hamburg": "⚓", "köln": "⛪", "deutschland": "🇩🇪",
-    "frankreich": "🇫🇷", "eiffelturm": "🗼", "paris": "🗼", "italien": "🇮🇹", "pizza": "🍕",
-    "spanien": "🇪🇸", "england": "🇬🇧", "griechenland": "🇬🇷", "japan": "🇯🇵", "tokio": "🗼",
-    "australien": "🦘", "kanada": "🍁", "rom": "🏛️", "dänemark": "🇩🇰",
-    "elefant": "🐘", "giraffe": "🦒", "spinne": "🕷️", "kuh": "🐄", "schwein": "🐷",
-    "schaf": "🐑", "pferd": "🐴", "biene": "🐝", "frosch": "🐸", "hund": "🐕", "katze": "🐈",
-    "vogel": "🐦", "fisch": "🐟", "nilpferd": "🦛", "nashorn": "🦏",
-    "sonne": "☀️", "mond": "🌙", "mars": "🔴", "venus": "🪐", "jupiter": "🪐", "saturn": "🪐",
-    "herz": "❤️", "lunge": "🫁", "gehirn": "🧠", "leber": "🫀", "niere": "🫘",
-    "wasser": "💧", "h2o": "💧", "sauerstoff": "💨", "feuer": "🔥",
-    "gelb": "🟡", "grün": "🟢", "rot": "🔴", "blau": "🔵", "banane": "🍌",
-    "herbst": "🍂", "frühling": "🌸", "sommer": "☀️", "winter": "❄️",
-    "flugzeug": "✈️", "auto": "🚗", "zug": "🚆", "fahrrad": "🚲",
-    "buch": "📚", "faust": "📜", "mozart": "🎵", "oper": "🎭",
-    "fußball": "⚽", "gold": "🥇", "silber": "🥈",
-    "zeit": "⏰", "stunde": "🕐", "tag": "📅", "woche": "📆", "jahr": "🗓️",
-    "mathe": "➗", "zahl": "🔢", "primzahl": "🔢",
-    "wissenschaft": "🔬", "chemie": "⚗️", "physik": "⚛️", "atom": "⚛️",
-    "weltraum": "🚀", "mondlandung": "🌕", "astronaut": "👨‍🚀",
-    "pokal": "🏆", "medaille": "🏅", "olympia": "🏅",
-    "tequila": "🍹", "agave": "🌵", "tee": "🍵",
-    "mauer": "🧱", "kolosseum": "🏟️", "titanic": "🚢",
-    "napoleon": "👑", "kaiser": "👑", "einstein": "🧑‍🔬", "goethe": "✍️",
-    "kalt": "🥶", "warm": "🌡️", "heiß": "🔥",
-    "samstag": "📅", "sonntag": "☀️", "montag": "📅",
+EMOJI_BY_WORD: dict[str, str] = {
+    # Länder & Städte
+    "berlin": "🏙️🇩🇪", "münchen": "🍺🏔️", "hamburg": "⚓🌊", "köln": "⛪🎉", "frankfurt": "🏦🌆",
+    "deutschland": "🇩🇪", "österreich": "🇦🇹🏔️", "schweiz": "🇨🇭🧀", "frankreich": "🇫🇷",
+    "eiffelturm": "🗼✨", "paris": "🗼❤️", "italien": "🇮🇹🍕", "pizza": "🍕",
+    "spanien": "🇪🇸💃", "england": "🇬🇧☕", "griechenland": "🇬🇷🏛️", "japan": "🇯🇵🗻",
+    "tokio": "🌆🗻", "australien": "🦘🌏", "kanada": "🍁🌲", "usa": "🗽🇺🇸",
+    "china": "🇨🇳🐉", "indien": "🇮🇳🐘", "brasilien": "🇧🇷🌴", "mexiko": "🇲🇽🌮",
+    "rom": "🏛️🍕", "london": "🎡🇬🇧", "new york": "🗽🌆", "moskau": "🏛️❄️",
+    "amsterdam": "🚲🌷", "wien": "🎵🏰", "prag": "🏰🇨🇿", "dänemark": "🇩🇰🧊",
+    "schweden": "🇸🇪❄️", "norwegen": "🇳🇴🌊", "finnland": "🇫🇮🎿", "portugal": "🇵🇹🐟",
+    "türkei": "🇹🇷🕌", "ägypten": "🇪🇬🏜️🔺", "russland": "🇷🇺❄️",
+    "hauptstadt": "🏛️🌆",
 
-    # Blut / Biologie
-    "blutplättchen": "🩹 🩸",
-    "blutkörperchen": "🩸 🧬",
-    "rote blutkörperchen": "🟥🩸",
-    "weisse blutkörperchen": "🤍🧫",
-    "weiße blutkörperchen": "🤍🧫",
-    "sauerstoff": "🫁 🌬️",
-    "nervenzellen": "🧠 ⚡",
-    "nerven": "🧠 ⚡",
+    # Tiere
+    "elefant": "🐘", "giraffe": "🦒", "spinne": "🕷️", "kuh": "🐄🥛", "schwein": "🐷",
+    "schaf": "🐑🧶", "pferd": "🐴", "biene": "🐝🍯", "frosch": "🐸", "hund": "🐕", "katze": "🐈",
+    "vogel": "🐦", "fisch": "🐟", "nilpferd": "🦛", "nashorn": "🦏", "löwe": "🦁",
+    "tiger": "🐯", "bär": "🐻", "panda": "🐼", "delfin": "🐬", "hai": "🦈",
+    "oktopus": "🐙", "krebs": "🦀", "pinguin": "🐧", "eule": "🦉", "adler": "🦅",
+    "schlange": "🐍", "krokodil": "🐊", "eidechse": "🦎", "dinosaurier": "🦕",
+    "maus": "🐭", "ratte": "🐀", "kaninchen": "🐇", "igel": "🦔", "fuchs": "🦊",
+    "wolf": "🐺", "affe": "🐒", "gorilla": "🦍", "zebra": "🦓", "känguru": "🦘",
+    "koala": "🐨", "fledermaus": "🦇", "biber": "🦫", "otter": "🦦",
+
+    # Pflanzen & Natur
+    "baum": "🌲", "blume": "🌸", "rose": "🌹", "tulpe": "🌷", "sonnenblume": "🌻",
+    "gras": "🌿", "pilz": "🍄", "kaktus": "🌵", "palme": "🌴", "bambus": "🎋",
+    "wald": "🌲🌳", "dschungel": "🌿🦁", "wüste": "🏜️🐪", "strand": "🏖️", "berg": "⛰️",
+    "ozean": "🌊", "see": "🏞️", "fluss": "🏞️", "gletscher": "🧊🏔️",
+
+    # Weltraum & Astronomie
+    "sonne": "☀️", "mond": "🌙", "mars": "🔴🪐", "venus": "🪐💛", "jupiter": "🪐🌀",
+    "saturn": "🪐💫", "merkur": "🌑", "uranus": "🪐🌊", "neptun": "🔵🪐",
+    "stern": "⭐", "galaxie": "🌌", "weltraum": "🚀🌌", "mondlandung": "🌕🚀",
+    "asteroid": "☄️", "komet": "☄️", "schwarzes loch": "🕳️🌌",
+
+    # Körper & Biologie
+    "herz": "❤️", "lunge": "🫁", "gehirn": "🧠", "leber": "🫀", "niere": "🫘",
+    "blut": "🩸", "blutplättchen": "🩹🩸", "blutkörperchen": "🩸🧬",
+    "rote blutkörperchen": "🔴🩸", "weiße blutkörperchen": "🤍🧫",
+    "sauerstoff": "💨🫁", "dna": "🧬", "zelle": "🔬🧬", "nervenzellen": "🧠⚡",
+    "knochen": "🦴", "muskel": "💪", "haut": "🖐️", "auge": "👁️", "ohr": "👂",
+    "mund": "👄", "nase": "👃", "hand": "✋", "fußb": "🦶",
+
+    # Chemie & Physik
+    "wasser": "💧", "h2o": "💧🧪", "feuer": "🔥", "eis": "🧊", "dampf": "💨",
+    "stickstoff": "🫧", "helium": "🎈", "kohlenstoff": "⬛", "eisen": "⚙️",
+    "gold": "🥇✨", "silber": "🥈", "kupfer": "🔶", "atom": "⚛️", "elektron": "⚡",
+    "magnetismus": "🧲", "gravitation": "🍎⬇️", "licht": "💡", "laser": "🔴💡",
+    "radioaktiv": "☢️", "explosion": "💥",
+
+    # Mathematik
+    "pi": "🟠π", "primzahl": "🔢", "quadrat": "🔲", "kreis": "⭕", "dreieck": "🔺",
+    "gleichung": "⚖️", "integral": "∫", "algebra": "➗",
+
+    # Geschichte & Personen
+    "napoleon": "👑⚔️", "kaiser": "👑", "einstein": "🧑‍🔬E=mc²", "goethe": "✍️📜",
+    "mozart": "🎵🎼", "beethoven": "🎹🎶", "shakespeare": "🎭", "aristoteles": "📖🏛️",
+    "kleopatra": "👑🐍", "kolumbus": "⛵🗺️", "galilei": "🔭🌍", "newton": "🍎⬇️",
+    "hitler": "⚠️", "stalin": "⚠️", "churchill": "🎩", "kennedy": "🗽",
+    "martin luther king": "✊", "darwin": "🦎🔬",
+    "mittelalter": "⚔️🏰", "renaissance": "🎨🏛️", "revolution": "🔥✊",
+    "weltkrieg": "⚔️💣", "krieg": "⚔️",
+
+    # Essen & Trinken
+    "brot": "🍞", "käse": "🧀", "milch": "🥛", "butter": "🧈", "ei": "🥚",
+    "fleisch": "🥩", "fisch": "🐟🍽️", "gemüse": "🥦", "obst": "🍎", "apfel": "🍎",
+    "banane": "🍌", "erdbeere": "🍓", "orange": "🍊", "zitrone": "🍋",
+    "tomate": "🍅", "kartoffel": "🥔", "zwiebel": "🧅", "knoblauch": "🧄",
+    "nudeln": "🍝", "reis": "🍚", "suppe": "🍲", "kuchen": "🎂", "schokolade": "🍫",
+    "kaffee": "☕", "tee": "🍵", "bier": "🍺", "wein": "🍷", "saft": "🧃",
+
+    # Jahreszeiten & Wetter
+    "herbst": "🍂🍁", "frühling": "🌸🌱", "sommer": "☀️🏖️", "winter": "❄️⛄",
+    "regen": "🌧️", "schnee": "❄️", "gewitter": "⛈️", "regenbogen": "🌈",
+    "wind": "💨", "tornado": "🌪️", "nebel": "🌫️", "hitze": "🥵",
+
+    # Transport
+    "flugzeug": "✈️", "auto": "🚗", "zug": "🚆", "fahrrad": "🚲", "schiff": "🚢",
+    "rakete": "🚀", "hubschrauber": "🚁", "bus": "🚌", "u-bahn": "🚇", "taxi": "🚕",
+    "motorrad": "🏍️", "boot": "⛵",
+
+    # Technologie
+    "computer": "💻", "handy": "📱", "telefon": "📞", "fernseher": "📺",
+    "kamera": "📷", "roboter": "🤖", "internet": "🌐", "ki": "🤖🧠",
+    "algorithmus": "⚙️💡", "datenbank": "🗄️",
+
+    # Sport
+    "fußball": "⚽", "basketball": "🏀", "tennis": "🎾", "schwimmen": "🏊",
+    "laufen": "🏃", "boxen": "🥊", "radfahren": "🚴", "ski": "⛷️",
+    "olympia": "🏅", "marathon": "🏃🏅",
+
+    # Kunst & Kultur
+    "musik": "🎵", "klavier": "🎹", "gitarre": "🎸", "geige": "🎻", "oper": "🎭",
+    "theater": "🎭", "film": "🎬", "buch": "📚", "malen": "🎨", "skulptur": "🗿",
+    "tanz": "💃", "gesang": "🎤",
+
+    # Farben
+    "gelb": "🟡", "grün": "🟢", "rot": "🔴", "blau": "🔵", "schwarz": "⬛",
+    "weiß": "⬜", "lila": "🟣", "orange": "🟠", "rosa": "🩷", "braun": "🟫",
+
+    # Zahlen & Zeit
+    "zeit": "⏰", "stunde": "🕐", "tag": "📅", "woche": "📆", "jahr": "🗓️",
+    "sekunde": "⏱️", "minute": "⏳",
 }
 
 
 def emoji_hint_for_answer(answer: str) -> str:
     text = answer.lower().strip()
+    words = [w.strip() for w in text.split()]
     found: list[str] = []
-    for word, em in sorted(EMOJI_BY_WORD.items(), key=lambda x: -len(x[0])):
-        if word in text and em not in found:
-            found.append(em)
-        if len(found) >= 4:
-            break
+    
+    # First priority: direct exact word matches
+    for w in words:
+        if w in EMOJI_BY_WORD and EMOJI_BY_WORD[w] not in found:
+            found.append(EMOJI_BY_WORD[w])
+            
+    # Second priority: partial matches for longer keys
+    if not found:
+        for word, em in sorted(EMOJI_BY_WORD.items(), key=lambda x: -len(x[0])):
+            if len(word) >= 4 and word in text and em not in found:
+                found.append(em)
+            if len(found) >= 3:
+                break
+
     if found:
-        return " ".join(found[:4])
+        return "  ".join(found[:3])
+
+    # Fallback: derive emojis from word properties
+    if re.search(r"\d{4}", text):
+        return "📅 🗓️ 🔢"  # looks like a year
     if re.search(r"\d", text):
-        return "🔢 ➕ 🧮"
+        return "🔢 🧮 ➕"
     if len(text) <= 3:
-        return f"🔤 {text.upper()} ❓"
+        return f"🔤 ❓"  # abbreviation / short code
+    # Category guessing from common syllables
+    if any(w in text for w in ("burg", "stadt", "dorf", "heim")):
+        return "🏙️ 🗺️ 🏘️"
+    if any(w in text for w in ("berg", "stein", "fels")):
+        return "⛰️ 🪨"
+    if any(w in text for w in ("meer", "see", "bach", "fluss")):
+        return "🌊 💧"
+    if any(w in text for w in ("tier", "vieh", "wild")):
+        return "🐾 🦁"
+    if any(w in text for w in ("pflanz", "baum", "gras", "blatt")):
+        return "🌿 🌱"
+    if any(w in text for w in ("krieg", "schlacht", "soldat")):
+        return "⚔️ 🏳️"
+    if any(w in text for w in ("musik", "lied", "ton", "klang")):
+        return "🎵 🎶"
+    if any(w in text for w in ("buch", "schreib", "lese", "text")):
+        return "📖 ✍️"
     return "💡 🧩 🎯"
 
 
@@ -1655,17 +1755,45 @@ QUESTION_WORD_TIPS = [
 
 
 def wikipedia_definition(term: str) -> str:
+    """
+    Fetches a short extract from the German Wikipedia using OpenSearch API to find the best title first.
+    """
     key = term.strip().lower()
+
+    # 1. Try Wikipedia API (German)
+    try:
+        # First, search for the best matching article title
+        search_url = "https://de.wikipedia.org/w/api.php?action=opensearch&search=" + requests.utils.quote(term.strip()) + "&limit=1&format=json"
+        s_resp = requests.get(search_url, timeout=3)
+        if s_resp.status_code == 200:
+            s_data = s_resp.json()
+            if len(s_data) >= 2 and s_data[1]:
+                best_title = s_data[1][0]
+                
+                # Get the summary for the exact title
+                url = "https://de.wikipedia.org/api/rest_v1/page/summary/" + requests.utils.quote(best_title)
+                resp = requests.get(url, timeout=4)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    extract: str = data.get("extract", "")
+                    if extract and len(extract) > 20:
+                        # Replace occurrences of the answer to avoid spoiling
+                        for w in [term.strip(), term.strip().capitalize(), best_title, best_title.capitalize()]:
+                            if w and len(w) > 3 and w in extract:
+                                extract = extract.replace(w, "___")
+                        return extract[:300].rsplit(" ", 1)[0] + " …"
+    except Exception:
+        pass
+
+    # 2. Local fallback
     for hint_key, text in WIKIPEDIA_HINTS.items():
         if hint_key in key:
             return text
-    q_words = re.findall(r"[a-zäöüß]{4,}", key)
-    if q_words:
-        return (
-            "Ein Begriff aus Allgemeinwissen – oft in Lexika und Enzyklopädien "
-            "mit Erklärung zu Herkunft, Bedeutung und Zusammenhängen beschrieben."
-        )
-    return "Ein Begriff aus Allgemeinwissen, den man in Lexika und Enzyklopädien nachschlagen kann."
+
+    return (
+        "Ein Begriff aus Allgemeinwissen – nähere Informationen findest du "
+        "in Lexika und Enzyklopädien (z. B. Wikipedia)."
+    )
 
 
 def word_tip_for(term: str, question: str = "") -> str:
@@ -1720,16 +1848,77 @@ def swap_question_at_index(state: dict) -> bool:
 
 
 def set_game_modal(state: dict, panel: ft.Control):
-    state["_modal_overlay"] = ft.Container(
-        content=panel,
-        alignment=ft.Alignment(0, 0),
-        bgcolor="#00000088",
-        expand=True,
-    )
+    """Wrap panel in a draggable overlay that cannot leave the screen."""
+    state["_modal_overlay"] = _DraggableModal(panel)
 
 
 def clear_game_modal(state: dict):
     state.pop("_modal_overlay", None)
+
+
+def _DraggableModal(panel: ft.Control) -> ft.Stack:
+    """
+    Full-screen darkened overlay whose inner panel can be dragged.
+    The panel stays within the visible screen area and cannot be dragged off-screen.
+    """
+    PANEL_W = 400
+    pos = {"left": 0.0, "top": 0.0}
+
+    card = ft.Column(
+        [
+            ft.Container(
+                content=ft.Text("⠿  verschieben", size=10, color="#AAAAAA", text_align="center"),
+                height=22,
+                bgcolor="#22222244",
+                border_radius=ft.BorderRadius(12, 12, 0, 0),
+                alignment=ft.Alignment(0, 0),
+                width=PANEL_W,
+            ),
+            ft.Container(content=panel, width=PANEL_W),
+        ],
+        spacing=0,
+    )
+
+    box = ft.Container(content=card, border_radius=16, width=PANEL_W)
+    wrapper = ft.Container(content=box)
+    
+    # We use a center_container that switches from alignment to padding once dragged
+    center_container = ft.Container(content=wrapper, alignment=ft.Alignment(0, 0), expand=True)
+
+    def on_pan_update(e):
+        try:
+            page = e.control.page
+            pw = float(getattr(page, "width", None) or 1100)
+            ph = float(getattr(page, "height", None) or 720)
+            
+            # Initialize position to center if not dragged yet
+            if pos["left"] == 0.0 and pos["top"] == 0.0:
+                pos["left"] = (pw - PANEL_W) / 2
+                pos["top"] = (ph - 340) / 2
+
+            pos["left"] += e.delta_x
+            pos["top"] += e.delta_y
+
+            # Constrain to visible screen bounds so it cannot be dragged off-screen
+            pos["left"] = max(0, min(pw - PANEL_W, pos["left"]))
+            pos["top"] = max(0, min(ph - 150, pos["top"]))
+
+            # Switch from alignment to absolute padding
+            center_container.alignment = None
+            center_container.padding = ft.padding.only(left=pos["left"], top=pos["top"])
+            center_container.update()
+        except Exception:
+            pass
+
+    gesture = ft.GestureDetector(
+        content=center_container,
+        on_pan_update=on_pan_update,
+        mouse_cursor=ft.MouseCursor.MOVE,
+        expand=True,
+    )
+
+    backdrop = ft.Container(expand=True, bgcolor="#00000088")
+    return ft.Stack([backdrop, gesture], expand=True)
 
 
 async def _flash_joker_activation(page: ft.Page, theme: dict):
@@ -1749,7 +1938,8 @@ async def _flash_joker_activation(page: ft.Page, theme: dict):
         pass
 
 
-def show_game_message(page: ft.Page, state: dict, title: str, body: str, theme: dict):
+def show_game_message_with_body(page: ft.Page, state: dict, title: str, body_ctrl: ft.Control, theme: dict):
+    """Like show_game_message but accepts a pre-built body control (allows async updating)."""
     def close(e=None):
         clear_game_modal(state)
         state.pop("truefalse_mode", None)
@@ -1760,7 +1950,7 @@ def show_game_message(page: ft.Page, state: dict, title: str, body: str, theme: 
         ft.Container(
             content=ft.Column([
                 ft.Text(title, size=20, weight="bold", color=theme_txt(theme, "primary"), text_align="center"),
-                ft.Text(body, size=14, color=theme_txt(theme, "secondary"), text_align="center"),
+                body_ctrl,
                 ft.Container(height=8),
                 _game_menu_button("OK", close, theme["accent"], width=160),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
@@ -1772,6 +1962,111 @@ def show_game_message(page: ft.Page, state: dict, title: str, body: str, theme: 
         ),
     )
     render_game_screen(page, state)
+
+
+def show_game_message(page: ft.Page, state: dict, title: str, body: str, theme: dict):
+    body_ctrl = ft.Text(body, size=14, color=theme_txt(theme, "secondary"), text_align="center")
+    show_game_message_with_body(page, state, title, body_ctrl, theme)
+
+
+def _show_joker_countdown_dialog(
+    page: ft.Page,
+    state: dict,
+    theme: dict,
+    title: str,
+    total_sec: int,
+    until_key: str,
+):
+    """
+    Shows a live countdown dialog in page.overlay.
+    The user can close it early with a button.
+    Automatically closes when time runs out.
+    """
+    countdown_text = ft.Text(
+        str(total_sec),
+        size=56,
+        weight="bold",
+        color=theme.get("gold", "#FFD700"),
+        text_align="center",
+    )
+    subtitle = ft.Text(
+        "Du kannst jetzt anrufen / fragen!",
+        size=14,
+        color="#CCCCCC",
+        text_align="center",
+    )
+
+    dialog_container = ft.Container(
+        content=ft.Column(
+            [
+                ft.Text(title, size=20, weight="bold", color="white", text_align="center"),
+                subtitle,
+                ft.Container(height=8),
+                countdown_text,
+                ft.Container(height=12),
+                ft.ElevatedButton(
+                    "Fertig – weiter spielen",
+                    on_click=lambda e: close_dialog(),
+                    bgcolor=theme.get("accent", "#C00"),
+                    color="white",
+                    width=220,
+                ),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=6,
+        ),
+        bgcolor=theme.get("panel", "#1A1A1A"),
+        border_radius=18,
+        padding=28,
+        border=ft.border.Border.all(2, theme.get("gold", "#FFD700")),
+        width=340,
+    )
+
+    overlay_container = ft.Container(
+        content=ft.Container(
+            content=dialog_container,
+            alignment=ft.Alignment(0, 0),
+            expand=True,
+            bgcolor="#00000088",
+        ),
+        expand=True,
+    )
+
+    overlay_ref = [overlay_container]
+
+    def close_dialog():
+        try:
+            if overlay_ref[0] in page.overlay:
+                page.overlay.remove(overlay_ref[0])
+        except Exception:
+            pass
+        state.pop(until_key, None)
+        sync_timer_display(page, state)
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    async def _tick():
+        while True:
+            await asyncio.sleep(1)
+            if overlay_ref[0] not in page.overlay:
+                break
+            remaining = int(state.get(until_key, 0) - time.time())
+            if remaining <= 0:
+                close_dialog()
+                break
+            countdown_text.value = str(remaining)
+            color = "#C62828" if remaining <= 10 else theme.get("gold", "#FFD700")
+            countdown_text.color = color
+            try:
+                countdown_text.update()
+            except Exception:
+                break
+
+    page.overlay.append(overlay_container)
+    page.update()
+    asyncio.ensure_future(_tick())
 
 
 def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
@@ -1802,18 +2097,13 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
         mark_joker_used(state, joker_id)
         state["friend_until"] = time.time() + FRIEND_JOKER_SEC
         sync_timer_display(page, state)
-        page.snack_bar = ft.SnackBar(
-            content=ft.Text("👥 Frag einen Freund: 60 Sekunden Zeit!"),
-            duration=4500,
-        )
-        page.snack_bar.open = True
-        page.update()
+        _show_joker_countdown_dialog(page, state, theme, "👥 Frag einen Freund", FRIEND_JOKER_SEC, "friend_until")
         return
 
     if joker_id == "swap":
         if swap_question_at_index(state):
             mark_joker_used(state, joker_id)
-            stop_game_timer(state)
+            reset_timer_for_new_question(state)   # treat new question like a fresh start
             render_game_screen(page, state)
         return
 
@@ -1823,21 +2113,32 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
         return
 
     if joker_id == "timestop":
-        state["time_left"] = int(state.get("time_left", QUESTION_TIME_SEC)) + 30
+        # Mark used first (prevents double-tap race) then add time
         mark_joker_used(state, joker_id)
+        state["time_left"] = int(state.get("time_left", QUESTION_TIME_SEC)) + 30
         save_current_game(state)
-        sync_timer_display(page, state)
+        render_game_screen(page, state)   # rebuild joker bar so button greys out immediately
         return
 
     if joker_id == "wikipedia":
         mark_joker_used(state, joker_id)
         term = options[correct_idx]
-        show_game_message(
-            page, state,
-            "Wikipedia-Lösung",
-            wikipedia_definition(term),
-            theme,
-        )
+        body_ref = ft.Text("⏳ Lade Wikipedia-Artikel …", size=14, color=theme_txt(theme, "secondary"), text_align="center")
+        show_game_message_with_body(page, state, "Wikipedia", body_ref, theme)
+
+        async def _load_wiki():
+            loop = asyncio.get_event_loop()
+            try:
+                definition = await loop.run_in_executor(None, lambda: wikipedia_definition(term))
+            except Exception:
+                definition = "Kein Wikipedia-Eintrag gefunden."
+            body_ref.value = definition
+            try:
+                body_ref.update()
+            except Exception:
+                pass
+
+        asyncio.ensure_future(_load_wiki())
         return
 
     if joker_id == "wordtip":
@@ -1919,12 +2220,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
         except Exception:
             pass
         sync_timer_display(page, state)
-        page.snack_bar = ft.SnackBar(
-            content=ft.Text("📞 60 Sekunden Anrufzeit – Countdown oben im Timer!"),
-            duration=4000,
-        )
-        page.snack_bar.open = True
-        page.update()
+        _show_joker_countdown_dialog(page, state, theme, "📞 Telefon-Joker", PHONE_JOKER_SEC, "phone_until")
         return
 
 
@@ -2256,12 +2552,15 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
                             ft.Row(
                                 [
                                     ft.Text("Sekunden pro Frage:", size=13, color=theme_txt(theme, "secondary")),
-                                    ft.Dropdown(
-                                        options=[ft.dropdown.Option(str(v)) for v in QUESTION_TIME_OPTIONS],
-                                        value=str(int(state.get("question_time_sec", QUESTION_TIME_SEC))),
-                                        width=120,
-                                        on_change=on_question_time_change,
-                                    ) if bool(state.get("time_pressure_enabled", True)) else ft.Text(
+                                    (lambda: (
+                                        d := ft.Dropdown(
+                                            options=[ft.dropdown.Option(str(v)) for v in QUESTION_TIME_OPTIONS],
+                                            value=str(int(state.get("question_time_sec", QUESTION_TIME_SEC))),
+                                            width=120,
+                                        ),
+                                        setattr(d, 'on_change', lambda e: on_question_time_change(e)),
+                                        d
+                                    )[-1])() if bool(state.get("time_pressure_enabled", True)) else ft.Text(
                                         "Timer aus – kein Countdown",
                                         size=13,
                                         color=theme_txt(theme, "secondary"),
@@ -4332,17 +4631,7 @@ def render_game_screen(page: ft.Page, state: dict):
         ])
     if modal:
         hud_layers.append(
-            _neon_zone_box(
-                zones["overlay"],
-                page_w,
-                page_h,
-                ft.Container(
-                    content=modal,
-                    alignment=ft.Alignment(0, 0),
-                    expand=True,
-                    bgcolor="#00000088",
-                ),
-            )
+            _neon_zone_box(zones["overlay"], page_w, page_h, modal)
         )
 
     pw, ph = max(1, int(page_w)), max(1, int(page_h))
