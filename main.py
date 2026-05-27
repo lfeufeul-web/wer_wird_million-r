@@ -6942,11 +6942,18 @@ def show_edit_profile_view(page: ft.Page, state: dict):
                     width=360,
                 ),
                 ft.Container(height=10),
-                ft.TextButton(
-                    "← Zurück",
-                    on_click=lambda e: open_main_menu(e.page, state),
-                    style=ft.ButtonStyle(color="white"),
-                )
+                ft.Row([
+                    ft.TextButton(
+                        "← Zurück",
+                        on_click=lambda e: open_main_menu(e.page, state),
+                        style=ft.ButtonStyle(color="white"),
+                    ),
+                    ft.TextButton(
+                        "🚪 Abmelden",
+                        on_click=lambda e: page.run_task(_do_logout, page, state),
+                        style=ft.ButtonStyle(color="#FF6B6B"),
+                    ),
+                ], alignment=ft.MainAxisAlignment.CENTER)
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                spacing=14)
