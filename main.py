@@ -7350,7 +7350,7 @@ def show_shop_screen(page: ft.Page, state: dict):
                 ),
                 content=ft.Column([
                     ft.Row([
-                        ft.IconButton(ft.icons.ARROW_BACK, icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                        ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
                         ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
                     ]),
                     ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
@@ -7413,7 +7413,7 @@ def show_achievements_screen(page: ft.Page, state: dict):
             ),
             content=ft.Column([
                 ft.Row([
-                    ft.IconButton(ft.icons.ARROW_BACK, icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                    ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
                     ft.Text("Erfolge", size=24, weight="bold", color="white"),
                 ]),
                 ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
@@ -7467,7 +7467,7 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
             ),
             content=ft.Column([
                 ft.Row([
-                    ft.IconButton(ft.icons.ARROW_BACK, icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                    ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
                     ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
                 ]),
                 ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
