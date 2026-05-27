@@ -7604,7 +7604,6 @@ def main(page: ft.Page):
         on_route_change(None)
 
     page.run_task(init_task)
-    on_route_change(None)
     page.update()
 
 
