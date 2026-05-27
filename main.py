@@ -395,14 +395,17 @@ def play_tts(page: ft.Page, text: str):
             tts.save(filepath)
             
             # play via flet audio
-            audio = ft.Audio(
-                src=f"audio/{filename}",
-                autoplay=True,
-                volume=1.0,
-                on_state_changed=lambda e: _cleanup_tts(e, filepath, audio, page)
-            )
-            page.overlay.append(audio)
-            page.update()
+            try:
+                audio = ft.Audio(
+                    src=f"audio/{filename}",
+                    autoplay=True,
+                    volume=1.0,
+                    on_state_changed=lambda e: _cleanup_tts(e, filepath, audio, page)
+                )
+                page.overlay.append(audio)
+                page.update()
+            except AttributeError:
+                print("ft.Audio not available - TTS audio playback disabled")
         except Exception as e:
             print(f"TTS Error: {e}")
 
@@ -419,24 +422,27 @@ def _cleanup_tts(e, filepath, audio_ctrl, page):
         except Exception:
             pass
 
-def init_bg_music(page: ft.Page) -> ft.Audio:
+def init_bg_music(page: ft.Page):
     """Returns the background music audio control (placeholder for now)."""
-    bg = ft.Audio(
-        src=f"audio/{BG_MUSIC_FILE}",
-        autoplay=True,
-        volume=0.3,
-    )
-    # create dummy file if not exists so it doesn't crash on load
     try:
-        dummy_path = os.path.join(AUDIO_DIR, BG_MUSIC_FILE)
-        if not os.path.exists(dummy_path):
-            os.makedirs(AUDIO_DIR, exist_ok=True)
-            with open(dummy_path, "wb") as f:
-                pass  # empty placeholder
-    except Exception:
-        pass  # ignore on read-only filesystems
-    
-    return bg
+        bg = ft.Audio(
+            src=f"audio/{BG_MUSIC_FILE}",
+            autoplay=True,
+            volume=0.3,
+        )
+        # create dummy file if not exists so it doesn't crash on load
+        try:
+            dummy_path = os.path.join(AUDIO_DIR, BG_MUSIC_FILE)
+            if not os.path.exists(dummy_path):
+                os.makedirs(AUDIO_DIR, exist_ok=True)
+                with open(dummy_path, "wb") as f:
+                    pass  # empty placeholder
+        except Exception:
+            pass  # ignore on read-only filesystems
+        return bg
+    except AttributeError:
+        print("ft.Audio not available in this Flet version - audio disabled")
+        return None
 
 
 
