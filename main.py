@@ -715,6 +715,8 @@ async def clear_remembered_login(page: ft.Page):
 
 
 async def restore_remembered_login(page: ft.Page, state: dict):
+    import asyncio
+    await asyncio.sleep(0.8) # Wait for client storage to sync over WebSocket
     refresh_token = await storage_get(page, AUTH_REFRESH_TOKEN_KEY)
     email = await storage_get(page, AUTH_EMAIL_KEY)
     uid = await storage_get(page, AUTH_UID_KEY)
@@ -7369,7 +7371,7 @@ def show_shop_screen(page: ft.Page, state: dict):
                     padding=20,
                     content=ft.Column([
                         ft.Row([
-                            ft.IconButton(icon="arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                            ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
                             ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
                         ]),
                         ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
@@ -7435,7 +7437,7 @@ def show_achievements_screen(page: ft.Page, state: dict):
                 padding=20,
                 content=ft.Column([
                     ft.Row([
-                        ft.IconButton(icon="arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                        ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
                         ft.Text("Erfolge", size=24, weight="bold", color="white"),
                     ]),
                     ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
@@ -7529,7 +7531,7 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
                 padding=20,
                 content=ft.Column([
                     ft.Row([
-                        ft.IconButton(icon="arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                        ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
                         ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
                     ]),
                     ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
