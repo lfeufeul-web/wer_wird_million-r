@@ -721,6 +721,7 @@ async def restore_remembered_login(page: ft.Page, state: dict):
     email = await storage_get(page, AUTH_EMAIL_KEY)
     uid = await storage_get(page, AUTH_UID_KEY)
     if not refresh_token or not email or not uid:
+        open_main_menu(page, state)
         return
 
     try:
@@ -741,6 +742,7 @@ async def restore_remembered_login(page: ft.Page, state: dict):
         open_main_menu(page, state)
     except Exception as e:
         print(f"Auto-login failed: {e}")
+        open_main_menu(page, state)
 
 
 def ensure_user_settings(db: dict, email: str):
@@ -7604,6 +7606,7 @@ def main(page: ft.Page):
         on_route_change(None)
 
     page.run_task(init_task)
+    on_route_change(None)
     page.update()
 
 
