@@ -7,13 +7,12 @@ import random
 import re
 import urllib.request
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import uuid
 import smtplib
 import ssl
 import base64
 import io
-from datetime import datetime, timezone
 from email.message import EmailMessage
 
 import requests
@@ -374,7 +373,10 @@ SHOP_CATALOG = {
 
 # ---------- Audio & TTS System ----------
 AUDIO_DIR = os.path.join("assets", "audio")
-os.makedirs(AUDIO_DIR, exist_ok=True)
+try:
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+except Exception:
+    pass  # read-only filesystem on Render is fine, TTS just won't work
 BG_MUSIC_FILE = "bg_music.mp3"
 
 def play_tts(page: ft.Page, text: str):
@@ -384,8 +386,9 @@ def play_tts(page: ft.Page, text: str):
     # check if user disabled audio
     # we don't have access to state directly here, but let's assume it's passed or global isn't used
     
-    def generate_and_play():
+    async def generate_and_play():
         try:
+            os.makedirs(AUDIO_DIR, exist_ok=True)
             filename = f"tts_{uuid.uuid4().hex[:8]}.mp3"
             filepath = os.path.join(AUDIO_DIR, filename)
             tts = gTTS(text, lang="de")
@@ -424,12 +427,15 @@ def init_bg_music(page: ft.Page) -> ft.Audio:
         volume=0.3,
     )
     # create dummy file if not exists so it doesn't crash on load
-    dummy_path = os.path.join(AUDIO_DIR, BG_MUSIC_FILE)
-    if not os.path.exists(dummy_path):
-        with open(dummy_path, "wb") as f:
-            pass # Just an empty file; browser might complain but won't crash Python
+    try:
+        dummy_path = os.path.join(AUDIO_DIR, BG_MUSIC_FILE)
+        if not os.path.exists(dummy_path):
+            os.makedirs(AUDIO_DIR, exist_ok=True)
+            with open(dummy_path, "wb") as f:
+                pass  # empty placeholder
+    except Exception:
+        pass  # ignore on read-only filesystems
     
-    # We must append bg to page.overlay in main()
     return bg
 
 
