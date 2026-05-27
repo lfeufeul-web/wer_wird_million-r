@@ -5879,8 +5879,11 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
         else:
             duel_hint = "Offenes Duell – siehe Tab „Duelle“."
 
+    dlg_ref = [None]  # mutable container so close_dlg can reference dlg before it's defined
+
     def close_dlg():
-        _close_overlay(page, dlg)
+        if dlg_ref[0] is not None:
+            _close_overlay(page, dlg_ref[0])
 
     def on_stats(e):
         close_dlg()
@@ -5963,6 +5966,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
         bgcolor=theme["panel"],
         actions_alignment=ft.MainAxisAlignment.END,
     )
+    dlg_ref[0] = dlg
     open_page_dialog(page, dlg)
 
 
@@ -7600,13 +7604,26 @@ def main(page: ft.Page):
 
     page.on_route_change = on_route_change
 
+    # Show main menu immediately so the page is not blank while init runs.
+    # We mark app_state so that restore_remembered_login can signal whether
+    # it already handled navigation (logged-in) — in that case we skip the
+    # second on_route_change that would overwrite the authenticated screen.
+    app_state["_init_nav_done"] = False
+
     async def init_task():
         await restore_remembered_login(page, app_state)
+        # restore_remembered_login always ends with open_main_menu, so mark done.
+        app_state["_init_nav_done"] = True
         check_url_parameters()
-        on_route_change(None)
+        # Only re-run route logic for special deep-link paths.
+        route = page.route or "/"
+        path = route.split("?")[0]
+        if path in ("/shop", "/achievements", "/daily"):
+            on_route_change(None)
 
     page.run_task(init_task)
-    on_route_change(None)
+    # Render a blank/loading screen immediately; init_task will replace it.
+    open_main_menu(page, app_state)
     page.update()
 
 
