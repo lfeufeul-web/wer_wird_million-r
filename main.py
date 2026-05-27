@@ -5673,7 +5673,7 @@ def show_settings_view(page: ft.Page, state: dict):
                     width=240,
                 ),
             ] if logged_in else []),
-            ], spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=theme["panel"],
             border_radius=16,
             padding=24,
