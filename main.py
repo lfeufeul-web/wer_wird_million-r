@@ -306,6 +306,7 @@ THEMES = {
         "answer_bg": "#11111144",
         "answer_text": "#FFFFFF",
         "answer_colors": ["#FF0055", "#00AAFF", "#00FF66", "#FFD700"],
+    },
     "forest": {
         "label": "Forest",
         "game_layout": "themed",
