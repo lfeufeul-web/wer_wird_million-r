@@ -661,7 +661,7 @@ def ensure_firebase_user(uid: str, email: str) -> dict:
 
 
 def get_page_storage(page: ft.Page):
-    return getattr(page, "client_storage", None) or getattr(page, "shared_preferences", None)
+    return getattr(page, "shared_preferences", None) or getattr(page, "client_storage", None)
 
 
 async def call_storage_method(method, *args):
@@ -717,34 +717,30 @@ async def clear_remembered_login(page: ft.Page):
 async def restore_remembered_login(page: ft.Page, state: dict):
     import asyncio
     await asyncio.sleep(0.5) # Wait for client storage to sync over WebSocket
+    refresh_token = await storage_get(page, AUTH_REFRESH_TOKEN_KEY)
     email = await storage_get(page, AUTH_EMAIL_KEY)
     uid = await storage_get(page, AUTH_UID_KEY)
-    refresh_token = await storage_get(page, AUTH_REFRESH_TOKEN_KEY)
-    
-    if not email or not uid:
+    if not refresh_token or not email or not uid:
         return
 
-    # Log in locally immediately to keep user logged in on refresh!
-    db = load_db()
-    if email in db.get("users", {}):
-        user = db["users"][email]
+    try:
+        refreshed = firebase_refresh_auth(refresh_token)
+        uid = refreshed.get("user_id", uid)
+        refresh_token = refreshed.get("refresh_token", refresh_token)
+        user = ensure_firebase_user(uid, email)
+
+        db = load_db()
+        db["users"][email] = user
+        update_last_active(db, email)
+        save_db(db)
+
         state["current_user_email"] = email
         state["current_user_uid"] = uid
+        await storage_set(page, AUTH_UID_KEY, uid)
+        await storage_set(page, AUTH_REFRESH_TOKEN_KEY, refresh_token)
         open_main_menu(page, state)
-        
-        # Perform token refresh in background to keep Firebase session fresh,
-        # but don't block or kick user out if it fails temporarily
-        if refresh_token:
-            try:
-                # Run the blocking request in a separate thread so it doesn't block the UI
-                loop = asyncio.get_running_loop()
-                refreshed = await loop.run_in_executor(None, firebase_refresh_auth, refresh_token)
-                new_uid = refreshed.get("user_id", uid)
-                new_token = refreshed.get("refresh_token", refresh_token)
-                await storage_set(page, AUTH_UID_KEY, new_uid)
-                await storage_set(page, AUTH_REFRESH_TOKEN_KEY, new_token)
-            except Exception as e:
-                print(f"Background token refresh failed (user kept logged in): {e}")
+    except Exception as e:
+        print(f"Auto-login failed: {e}")
 
 
 def ensure_user_settings(db: dict, email: str):
