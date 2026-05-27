@@ -661,7 +661,20 @@ def ensure_firebase_user(uid: str, email: str) -> dict:
 
 
 def get_page_storage(page: ft.Page):
-    return getattr(page, "shared_preferences", None) or getattr(page, "client_storage", None)
+    # Try new API first (Flet 0.80+), then fallback to old API
+    try:
+        sp = getattr(page, "shared_preferences", None)
+        if sp is not None:
+            return sp
+    except Exception:
+        pass
+    try:
+        from flet import SharedPreferences
+        sp = SharedPreferences()
+        return sp
+    except Exception:
+        pass
+    return getattr(page, "client_storage", None)
 
 
 async def call_storage_method(method, *args):
@@ -7348,19 +7361,22 @@ def show_shop_screen(page: ft.Page, state: dict):
                     end=ft.Alignment(1, 1),
                     colors=theme["gradient"],
                 ),
-                content=ft.Column([
-                    ft.Row([
-                        ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
-                        ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
-                    ]),
-                    ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
-                    ft.Divider(color=theme["border"]),
-                    ft.Text("🎨 Designs", size=20, weight="bold", color="white"),
-                    ft.Column(theme_cards, scroll=ft.ScrollMode.AUTO, height=200),
-                    ft.Divider(color=theme["border"]),
-                    ft.Text("🏷️ Titel", size=20, weight="bold", color="white"),
-                    ft.Column(title_cards, scroll=ft.ScrollMode.AUTO, height=200),
-                ], padding=20)
+                content=ft.Container(
+                    padding=20,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                            ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
+                        ]),
+                        ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
+                        ft.Divider(color=theme["border"]),
+                        ft.Text("🎨 Designs", size=20, weight="bold", color="white"),
+                        ft.Column(theme_cards, scroll=ft.ScrollMode.AUTO, height=200),
+                        ft.Divider(color=theme["border"]),
+                        ft.Text("🏷️ Titel", size=20, weight="bold", color="white"),
+                        ft.Column(title_cards, scroll=ft.ScrollMode.AUTO, height=200),
+                    ])
+                )
             )
         )
         page.update()
@@ -7411,13 +7427,16 @@ def show_achievements_screen(page: ft.Page, state: dict):
                 end=ft.Alignment(1, 1),
                 colors=theme["gradient"],
             ),
-            content=ft.Column([
-                ft.Row([
-                    ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
-                    ft.Text("Erfolge", size=24, weight="bold", color="white"),
-                ]),
-                ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
-            ], padding=20)
+            content=ft.Container(
+                padding=20,
+                content=ft.Column([
+                    ft.Row([
+                        ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                        ft.Text("Erfolge", size=24, weight="bold", color="white"),
+                    ]),
+                    ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
+                ])
+            )
         )
     )
     page.update()
@@ -7465,20 +7484,23 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
                 end=ft.Alignment(1, 1),
                 colors=theme["gradient"],
             ),
-            content=ft.Column([
-                ft.Row([
-                    ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
-                    ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
-                ]),
-                ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
-                ft.Container(height=20),
-                btn,
-                ft.Container(height=20),
-                ft.Text("Deine Daily Stats:", size=18, weight="bold", color=theme["gold"]),
-                ft.Text(f"🔥 Aktueller Streak: {stats.get('daily_current_streak', 0)} Tage", color="white"),
-                ft.Text(f"👑 Bester Streak: {stats.get('daily_best_streak', 0)} Tage", color="white"),
-                ft.Text(f"💰 Bestes Ergebnis: {stats.get('daily_best_result', '0 €')}", color="white"),
-            ], padding=20)
+            content=ft.Container(
+                padding=20,
+                content=ft.Column([
+                    ft.Row([
+                        ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                        ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
+                    ]),
+                    ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
+                    ft.Container(height=20),
+                    btn,
+                    ft.Container(height=20),
+                    ft.Text("Deine Daily Stats:", size=18, weight="bold", color=theme["gold"]),
+                    ft.Text(f"🔥 Aktueller Streak: {stats.get('daily_current_streak', 0)} Tage", color="white"),
+                    ft.Text(f"👑 Bester Streak: {stats.get('daily_best_streak', 0)} Tage", color="white"),
+                    ft.Text(f"💰 Bestes Ergebnis: {stats.get('daily_best_result', '0 €')}", color="white"),
+                ])
+            )
         )
     )
     page.update()
