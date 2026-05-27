@@ -1,11 +1,14 @@
 import flet as ft
 import asyncio
-import random
+import copy
 import json
 import os
-import time
+import random
 import re
-import inspect
+import urllib.request
+import time
+from datetime import datetime, date
+import uuid
 import smtplib
 import ssl
 import base64
@@ -19,6 +22,12 @@ try:
     import qrcode
 except ImportError:
     qrcode = None
+
+try:
+    from gtts import gTTS
+    HAS_TTS = True
+except ImportError:
+    HAS_TTS = False
 
 try:
     import firebase_admin
@@ -66,6 +75,13 @@ EXTRA_STATS_DEFAULTS = {
     "jokers_used": 0,
     "best_streak": 0,
     "current_streak": 0,
+    "wallet_balance": 0,
+    "daily_current_streak": 0,
+    "daily_best_streak": 0,
+    "daily_best_result": "0 €",
+    "daily_avg_correct": 0.0,
+    "daily_games_played": 0,
+    "last_daily_played": "",
 }
 
 
@@ -277,8 +293,145 @@ THEMES = {
         "answer_text": "#1E293B",
         "answer_colors": ["#0ea5e9", "#d946ef", "#10b981", "#f59e0b"],
     },
+    "hacker": {
+        "label": "Hacker Matrix",
+        "is_light": False,
+        "text_primary": "#00FF41",
+        "text_secondary": "#008F11",
+        "text_muted": "#003B00",
+        "gradient": ["#000000", "#0B0C10", "#000000"],
+        "panel": "#000000",
+        "border": "#00FF41",
+        "accent": "#00FF41",
+        "accent_2": "#008F11",
+        "success": "#00FF41",
+        "danger": "#FF0000",
+        "gold": "#FFFFFF",
+        "question_bg": "#000000",
+        "question_text": "#00FF41",
+        "answer_bg": "#000000",
+        "answer_text": "#00FF41",
+        "answer_colors": ["#008F11", "#00FF41", "#008F11", "#00FF41"],
+    },
+    "royal": {
+        "label": "Royal Gold",
+        "is_light": False,
+        "text_primary": "#FFFFFF",
+        "text_secondary": "#F3E5AB",
+        "text_muted": "#B5A642",
+        "gradient": ["#2B0000", "#4A0E17", "#1A0000"],
+        "panel": "#330000",
+        "border": "#D4AF37",
+        "accent": "#D4AF37",
+        "accent_2": "#AA6C39",
+        "success": "#32CD32",
+        "danger": "#DC143C",
+        "gold": "#FFD700",
+        "question_bg": "#200000",
+        "question_text": "#F3E5AB",
+        "answer_bg": "#200000",
+        "answer_text": "#FFD700",
+        "answer_colors": ["#8B0000", "#4A0E17", "#8B0000", "#4A0E17"],
+    },
+    "cyberpunk": {
+        "label": "Cyberpunk 2077",
+        "is_light": False,
+        "text_primary": "#00FFFF",
+        "text_secondary": "#FF00FF",
+        "text_muted": "#888888",
+        "gradient": ["#090909", "#111133", "#330033"],
+        "panel": "#111111",
+        "border": "#FF00FF",
+        "accent": "#00FFFF",
+        "accent_2": "#FFFF00",
+        "success": "#00FF00",
+        "danger": "#FF0055",
+        "gold": "#FFFF00",
+        "question_bg": "#1A1A1A",
+        "question_text": "#00FFFF",
+        "answer_bg": "#1A1A1A",
+        "answer_text": "#FF00FF",
+        "answer_colors": ["#FF00FF", "#00FFFF", "#FFFF00", "#FF0055"],
+    },
 }
-DEFAULT_USER_SETTINGS = {"theme": "classic"}
+DEFAULT_USER_SETTINGS = {"theme": "classic", "play_audio": True}
+
+SHOP_CATALOG = {
+    "themes": [
+        {"id": "hacker", "name": "Hacker Matrix", "price": 500, "type": "theme"},
+        {"id": "royal", "name": "Royal Gold", "price": 1500, "type": "theme"},
+        {"id": "cyberpunk", "name": "Cyberpunk 2077", "price": 5000, "type": "theme"},
+    ],
+    "titles": [
+        {"id": "Neuling", "name": "Neuling", "price": 0, "type": "title"},
+        {"id": "Quiz-Lehrling", "name": "Quiz-Lehrling", "price": 200, "type": "title"},
+        {"id": "Alleswisser", "name": "Alleswisser", "price": 1000, "type": "title"},
+        {"id": "Millionär-Club", "name": "Millionär-Club", "price": 10000, "type": "title"},
+        {"id": "Quiz-Gott", "name": "Quiz-Gott", "price": 50000, "type": "title"},
+    ]
+}
+
+
+# ---------- Audio & TTS System ----------
+AUDIO_DIR = os.path.join("assets", "audio")
+os.makedirs(AUDIO_DIR, exist_ok=True)
+BG_MUSIC_FILE = "bg_music.mp3"
+
+def play_tts(page: ft.Page, text: str):
+    """Generates an MP3 via gTTS and plays it on the page."""
+    if not HAS_TTS:
+        return
+    # check if user disabled audio
+    # we don't have access to state directly here, but let's assume it's passed or global isn't used
+    
+    def generate_and_play():
+        try:
+            filename = f"tts_{uuid.uuid4().hex[:8]}.mp3"
+            filepath = os.path.join(AUDIO_DIR, filename)
+            tts = gTTS(text, lang="de")
+            tts.save(filepath)
+            
+            # play via flet audio
+            audio = ft.Audio(
+                src=f"audio/{filename}",
+                autoplay=True,
+                volume=1.0,
+                on_state_changed=lambda e: _cleanup_tts(e, filepath, audio, page)
+            )
+            page.overlay.append(audio)
+            page.update()
+        except Exception as e:
+            print(f"TTS Error: {e}")
+
+    page.run_task(generate_and_play)
+
+def _cleanup_tts(e, filepath, audio_ctrl, page):
+    if e.data == "completed":
+        try:
+            if audio_ctrl in page.overlay:
+                page.overlay.remove(audio_ctrl)
+                page.update()
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except Exception:
+            pass
+
+def init_bg_music(page: ft.Page) -> ft.Audio:
+    """Returns the background music audio control (placeholder for now)."""
+    bg = ft.Audio(
+        src=f"audio/{BG_MUSIC_FILE}",
+        autoplay=True,
+        volume=0.3,
+    )
+    # create dummy file if not exists so it doesn't crash on load
+    dummy_path = os.path.join(AUDIO_DIR, BG_MUSIC_FILE)
+    if not os.path.exists(dummy_path):
+        with open(dummy_path, "wb") as f:
+            pass # Just an empty file; browser might complain but won't crash Python
+    
+    # We must append bg to page.overlay in main()
+    return bg
+
 
 
 def default_db() -> dict:
@@ -302,6 +455,10 @@ def default_user(email: str, uid: str | None = None) -> dict:
         "friends": [],
         "friend_requests_in": [],
         "friend_requests_out": [],
+        "unlocked_themes": ["classic", "neon_nexus"],
+        "unlocked_titles": ["Neuling"],
+        "active_title": "Neuling",
+        "unlocked_achievements": [],
     }
     if uid:
         user["uid"] = uid
@@ -828,6 +985,14 @@ def update_stats_block(stats: dict, correct: int, answered: int, money: str, mon
     stats["wrong_answers"] += wrong
     stats["total_money_level"] += money_level_value(money_level_idx)
     stats["jokers_used"] += jokers_used
+    
+    # Parse money string to add to wallet
+    try:
+        money_amount = int(money.replace(" €", "").replace(".", "").replace(",", ""))
+    except ValueError:
+        money_amount = 0
+    stats["wallet_balance"] = stats.get("wallet_balance", 0) + money_amount
+
     if won:
         stats["games_won"] += 1
         stats["perfect_games"] += 1 if wrong == 0 else 0
@@ -2376,16 +2541,18 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
 
     def on_check(e):
         if not state.get("jokers_enabled", True):
-            # If jokers are disabled, bypass the selection validation
-            state["selected_jokers"] = []
-            show_joker_confirm_screen(page, state, [], on_start)
+            _apply_joker_selection_and_start(state, [], on_start)
             return
 
         current = list(state.get("joker_pick_buffer", []))
+        if len(current) == 0:
+            _apply_joker_selection_and_start(state, [], on_start)
+            return
+
         if len(current) != JOKER_SELECT_COUNT:
             page.snack_bar = ft.SnackBar(
                 content=ft.Text(
-                    f"Bitte genau {JOKER_SELECT_COUNT} Joker auswählen ({len(current)}/{JOKER_SELECT_COUNT})."
+                    f"Bitte genau {JOKER_SELECT_COUNT} Joker auswählen ({len(current)}/{JOKER_SELECT_COUNT}), oder gar keinen."
                 ),
             )
             page.snack_bar.open = True
@@ -3400,6 +3567,20 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         menu_buttons.append(
             _menu_button("Anmelden",
                          lambda e: show_login_view(e.page, state), "#2ECC71")
+        )
+    else:
+        # Mega-Update buttons
+        menu_buttons.append(
+            _menu_button("📅  Daily Challenge",
+                         lambda e: show_daily_challenge_hub(e.page, state), "#E67E22")
+        )
+        menu_buttons.append(
+            _menu_button("🛒  Shop",
+                         lambda e: show_shop_screen(e.page, state), "#3498DB")
+        )
+        menu_buttons.append(
+            _menu_button("🏆  Erfolge",
+                         lambda e: show_achievements_screen(e.page, state), "#F1C40F")
         )
 
     menu_items = [
@@ -4544,6 +4725,11 @@ def render_game_screen(page: ft.Page, state: dict):
             ),
             _game_panel(build_game_joker_bar(page, state, theme, ctx), theme),
         ], spacing=8)
+        
+        has_jokers = len(state.get("selected_jokers", [])) > 0
+        if not has_jokers:
+            footer_content.controls.pop() # Remove the joker panel
+            
         ladder_panel = _neon_solid_panel(
             build_neon_nexus_money_ladder(state, compact=is_mobile), theme, compact=True)
 
@@ -4643,25 +4829,29 @@ def render_game_screen(page: ft.Page, state: dict):
     )
 
     # Joker bar — always its own row, never overlaps timer or question
+    has_jokers = len(state.get("selected_jokers", [])) > 0
     joker_bar = ft.Container(
         content=build_game_joker_bar(page, state, theme, ctx),
         bgcolor=theme.get("question_bg", "#FFFFFF"),
         border_radius=8,
         padding=ft.Padding(10, 10, 10, 10),
         border=ft.border.Border.all(2, theme["border"]),
+        visible=has_jokers,
     )
 
     # Left column: stacked vertically with natural flow
     left_col = ft.Column(
-        [top_bar, question_panel, answers_grid, status_bar, joker_bar],
+        [top_bar, question_panel, answers_grid, status_bar],
         spacing=10,
         expand=True,
     )
+    if has_jokers:
+        left_col.controls.append(joker_bar)
 
     if is_mobile:
         main_content = ft.Container(
             content=ft.Column(
-                [top_bar, question_panel, answers_grid, status_bar, joker_bar, ladder_panel],
+                [top_bar, question_panel, answers_grid, status_bar, joker_bar, ladder_panel] if has_jokers else [top_bar, question_panel, answers_grid, status_bar, ladder_panel],
                 spacing=10,
                 scroll=ft.ScrollMode.AUTO,
             ),
@@ -4698,6 +4888,14 @@ def show_next_question(page: ft.Page, state: dict):
     if state["question_index"] >= len(state["questions"]):
         _show_win_screen(page, state)
         return
+
+    q_idx = state["question_index"]
+    if state.get("_last_spoken_q_idx") != q_idx:
+        state["_last_spoken_q_idx"] = q_idx
+        question, _, _ = state["questions"][q_idx]
+        money = state.get("money", "0 €")
+        text = f"Frage {q_idx + 1} für {money}. {question}"
+        play_tts(page, text)
 
     render_game_screen(page, state)
 
@@ -4853,6 +5051,28 @@ def _show_wrong_screen(page: ft.Page, state: dict):
         jokers_used=state.get("jokers_used", 0),
     )
 
+    # Check achievements
+    _check_and_show_achievements(page, state, money, won=False)
+    
+    # Daily challenge updates
+    if state.get("is_daily_challenge"):
+        db = load_db()
+        email = state.get("current_user_email")
+        if email and email in db["users"]:
+            stats = db["users"][email]["stats"]
+            stats["last_daily_played"] = state.get("daily_date", "")
+            stats["daily_games_played"] = stats.get("daily_games_played", 0) + 1
+            stats["daily_current_streak"] = 0 # reset streak on loss
+            
+            prev_total = stats.get("daily_avg_correct", 0) * (stats["daily_games_played"] - 1)
+            stats["daily_avg_correct"] = (prev_total + correct) / stats["daily_games_played"]
+            
+            best_res = stats.get("daily_best_result", "0 €")
+            best_idx = MONEY_LEVELS.index(best_res) if best_res in MONEY_LEVELS else -1
+            if money_idx > best_idx:
+                stats["daily_best_result"] = money
+            save_db(db)
+
     page.controls.clear()
     page.add(
         ft.Container(
@@ -4885,6 +5105,33 @@ def _show_wrong_screen(page: ft.Page, state: dict):
     page.update()
 
 
+def _check_and_show_achievements(page: ft.Page, state: dict, money: str, won: bool):
+    db = load_db()
+    email = state.get("current_user_email")
+    if email and email in db["users"]:
+        user = db["users"][email]
+        stats = user["stats"]
+        unlocked = user.setdefault("unlocked_achievements", [])
+        newly_unlocked = []
+        
+        if won and "purist" not in unlocked and state.get("jokers_used", 0) == 0:
+            unlocked.append("purist")
+            newly_unlocked.append("Purist")
+            
+        if "millionaire" not in unlocked and money == "1.000.000 €":
+            unlocked.append("millionaire")
+            newly_unlocked.append("Millionär")
+            
+        if "marathon" not in unlocked and stats.get("games_played", 0) >= 10:
+            unlocked.append("marathon")
+            newly_unlocked.append("Marathon")
+            
+        if newly_unlocked:
+            save_db(db)
+            ach_text = ", ".join(newly_unlocked)
+            page.snack_bar = ft.SnackBar(content=ft.Text(f"🏆 Neue Erfolge freigeschaltet: {ach_text}!", size=16), bgcolor="green")
+            page.snack_bar.open = True
+
 def _show_win_screen(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
     reset_game_timer(state)
@@ -4906,6 +5153,30 @@ def _show_win_screen(page: ft.Page, state: dict):
         won=True,
         jokers_used=state.get("jokers_used", 0),
     )
+    
+    # Check achievements
+    _check_and_show_achievements(page, state, money, won=True)
+    
+    # Daily challenge updates
+    if state.get("is_daily_challenge"):
+        db_d = load_db()
+        email_d = state.get("current_user_email")
+        if email_d and email_d in db_d["users"]:
+            stats_d = db_d["users"][email_d]["stats"]
+            stats_d["last_daily_played"] = state.get("daily_date", "")
+            stats_d["daily_games_played"] = stats_d.get("daily_games_played", 0) + 1
+            stats_d["daily_current_streak"] = stats_d.get("daily_current_streak", 0) + 1
+            if stats_d["daily_current_streak"] > stats_d.get("daily_best_streak", 0):
+                stats_d["daily_best_streak"] = stats_d["daily_current_streak"]
+            
+            prev_total = stats_d.get("daily_avg_correct", 0) * (stats_d["daily_games_played"] - 1)
+            stats_d["daily_avg_correct"] = (prev_total + correct) / stats_d["daily_games_played"]
+            
+            best_res = stats_d.get("daily_best_result", "0 €")
+            best_idx = MONEY_LEVELS.index(best_res) if best_res in MONEY_LEVELS else -1
+            if money_idx > best_idx:
+                stats_d["daily_best_result"] = money
+            save_db(db_d)
 
     page.controls.clear()
     page.add(
@@ -6971,6 +7242,236 @@ def _stat_row(label: str, value: str) -> ft.Control:
 
 
 # ---------- Entry Point ----------
+# ---------- Mega-Update Screens ----------
+
+def show_shop_screen(page: ft.Page, state: dict):
+    db = load_db()
+    email = state.get("current_user_email")
+    if not email or email not in db["users"]:
+        open_main_menu(page, state)
+        return
+    user = db["users"][email]
+    theme = get_theme(state)
+    
+    def on_buy_theme(e, item):
+        price = item["price"]
+        if user["stats"].get("wallet_balance", 0) >= price:
+            user["stats"]["wallet_balance"] -= price
+            user.setdefault("unlocked_themes", ["classic", "neon_nexus"]).append(item["id"])
+            save_db(db)
+            build_shop()
+        else:
+            page.snack_bar = ft.SnackBar(content=ft.Text("Nicht genug Geld!"))
+            page.snack_bar.open = True
+            page.update()
+
+    def on_buy_title(e, item):
+        price = item["price"]
+        if user["stats"].get("wallet_balance", 0) >= price:
+            user["stats"]["wallet_balance"] -= price
+            user.setdefault("unlocked_titles", ["Neuling"]).append(item["id"])
+            save_db(db)
+            build_shop()
+        else:
+            page.snack_bar = ft.SnackBar(content=ft.Text("Nicht genug Geld!"))
+            page.snack_bar.open = True
+            page.update()
+
+    def on_equip_theme(e, theme_id):
+        user["settings"]["theme"] = theme_id
+        state["settings"]["theme"] = theme_id
+        save_db(db)
+        show_shop_screen(page, state)
+
+    def on_equip_title(e, title_id):
+        user["active_title"] = title_id
+        save_db(db)
+        build_shop()
+
+    def build_shop():
+        unlocked_themes = user.get("unlocked_themes", ["classic", "neon_nexus"])
+        unlocked_titles = user.get("unlocked_titles", ["Neuling"])
+        current_theme = user.get("settings", {}).get("theme", "classic")
+        current_title = user.get("active_title", "Neuling")
+        wallet = user["stats"].get("wallet_balance", 0)
+
+        theme_cards = []
+        for t in SHOP_CATALOG["themes"]:
+            is_unlocked = t["id"] in unlocked_themes
+            is_equipped = current_theme == t["id"]
+            if is_equipped:
+                btn = ft.ElevatedButton("Ausgerüstet", disabled=True, color="green")
+            elif is_unlocked:
+                btn = ft.ElevatedButton("Ausrüsten", on_click=lambda e, tid=t["id"]: on_equip_theme(e, tid))
+            else:
+                btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: on_buy_theme(e, itm))
+            
+            theme_cards.append(ft.Container(
+                content=ft.Row([ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")), btn], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                padding=10, border_radius=8, bgcolor=theme["panel"], border=ft.border.Border.all(1, theme["border"])
+            ))
+
+        title_cards = []
+        for t in SHOP_CATALOG["titles"]:
+            is_unlocked = t["id"] in unlocked_titles
+            is_equipped = current_title == t["id"]
+            if is_equipped:
+                btn = ft.ElevatedButton("Ausgerüstet", disabled=True, color="green")
+            elif is_unlocked:
+                btn = ft.ElevatedButton("Ausrüsten", on_click=lambda e, tid=t["id"]: on_equip_title(e, tid))
+            else:
+                btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: on_buy_title(e, itm))
+            
+            title_cards.append(ft.Container(
+                content=ft.Row([ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")), btn], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                padding=10, border_radius=8, bgcolor=theme["panel"], border=ft.border.Border.all(1, theme["border"])
+            ))
+
+        page.controls.clear()
+        page.add(
+            ft.Container(
+                expand=True,
+                gradient=ft.LinearGradient(
+                    begin=ft.Alignment(-1, -1),
+                    end=ft.Alignment(1, 1),
+                    colors=theme["gradient"],
+                ),
+                content=ft.Column([
+                    ft.Row([
+                        ft.IconButton(ft.icons.ARROW_BACK, icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                        ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
+                    ]),
+                    ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
+                    ft.Divider(color=theme["border"]),
+                    ft.Text("🎨 Designs", size=20, weight="bold", color="white"),
+                    ft.Column(theme_cards, scroll=ft.ScrollMode.AUTO, height=200),
+                    ft.Divider(color=theme["border"]),
+                    ft.Text("🏷️ Titel", size=20, weight="bold", color="white"),
+                    ft.Column(title_cards, scroll=ft.ScrollMode.AUTO, height=200),
+                ], padding=20)
+            )
+        )
+        page.update()
+    
+    build_shop()
+
+
+def show_achievements_screen(page: ft.Page, state: dict):
+    db = load_db()
+    email = state.get("current_user_email")
+    if not email or email not in db["users"]:
+        open_main_menu(page, state)
+        return
+    user = db["users"][email]
+    theme = get_theme(state)
+
+    # Hardcoded achievements for now (can be expanded)
+    achievements = [
+        {"id": "purist", "name": "Purist", "desc": "Ein Spiel gewinnen, ohne Joker zu nutzen."},
+        {"id": "millionaire", "name": "Millionär", "desc": "Die Million gewinnen."},
+        {"id": "marathon", "name": "Marathon", "desc": "10 Spiele insgesamt gespielt."},
+    ]
+    unlocked = user.get("unlocked_achievements", [])
+
+    cards = []
+    for a in achievements:
+        is_unlocked = a["id"] in unlocked
+        icon = "🏆" if is_unlocked else "🔒"
+        color = theme["gold"] if is_unlocked else "gray"
+        
+        cards.append(ft.Container(
+            content=ft.Row([
+                ft.Text(icon, size=30),
+                ft.Column([
+                    ft.Text(a["name"], size=16, weight="bold", color=color),
+                    ft.Text(a["desc"], size=12, color=theme_txt(theme, "muted")),
+                ])
+            ]),
+            padding=10, border_radius=8, bgcolor=theme["panel"], border=ft.border.Border.all(1, color)
+        ))
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            content=ft.Column([
+                ft.Row([
+                    ft.IconButton(ft.icons.ARROW_BACK, icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                    ft.Text("Erfolge", size=24, weight="bold", color="white"),
+                ]),
+                ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
+            ], padding=20)
+        )
+    )
+    page.update()
+
+
+def show_daily_challenge_hub(page: ft.Page, state: dict):
+    db = load_db()
+    email = state.get("current_user_email")
+    if not email or email not in db["users"]:
+        open_main_menu(page, state)
+        return
+    user = db["users"][email]
+    theme = get_theme(state)
+    stats = user.get("stats", {})
+
+    today_str = str(date.today())
+    has_played_today = stats.get("last_daily_played") == today_str
+
+    def start_daily(e):
+        # Generate seeded game
+        random.seed(today_str)
+        # Assuming we just start a normal game for now but mark it as daily
+        state["is_daily_challenge"] = True
+        state["daily_date"] = today_str
+        start_new_game(page, state)
+        # Restore random seed
+        random.seed()
+
+    btn = ft.ElevatedButton(
+        "Bereits gespielt!" if has_played_today else "Daily Challenge starten",
+        disabled=has_played_today,
+        on_click=start_daily,
+        bgcolor="gray" if has_played_today else theme["success"],
+        color="white",
+        width=300,
+        height=50
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            content=ft.Column([
+                ft.Row([
+                    ft.IconButton(ft.icons.ARROW_BACK, icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                    ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
+                ]),
+                ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
+                ft.Container(height=20),
+                btn,
+                ft.Container(height=20),
+                ft.Text("Deine Daily Stats:", size=18, weight="bold", color=theme["gold"]),
+                ft.Text(f"🔥 Aktueller Streak: {stats.get('daily_current_streak', 0)} Tage", color="white"),
+                ft.Text(f"👑 Bester Streak: {stats.get('daily_best_streak', 0)} Tage", color="white"),
+                ft.Text(f"💰 Bestes Ergebnis: {stats.get('daily_best_result', '0 €')}", color="white"),
+            ], padding=20)
+        )
+    )
+    page.update()
+
+
 def main(page: ft.Page):
     app_state = {
         "money": "0 €",
