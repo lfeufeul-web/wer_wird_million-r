@@ -5600,6 +5600,15 @@ def show_login_view(page: ft.Page, state: dict):
     page.update()
 
 
+async def _do_logout(page: ft.Page, state: dict):
+    """Clears saved credentials and returns the user to the guest main menu."""
+    await clear_remembered_login(page)
+    state["current_user_email"] = None
+    state["current_user_uid"] = None
+    print("[logout] User logged out, credentials cleared.")
+    open_main_menu(page, state)
+
+
 def show_settings_view(page: ft.Page, state: dict):
     theme = get_theme(state)
     email = state.get("current_user_email")
@@ -5652,6 +5661,18 @@ def show_settings_view(page: ft.Page, state: dict):
                     color=theme_txt(theme, "secondary"),
                     text_align="center",
                 ),
+            ] + ([
+                ft.Container(height=4),
+                ft.Container(
+                    content=ft.Text("🚪 Abmelden", size=16, weight="bold", color="white"),
+                    on_click=lambda e: page.run_task(_do_logout, page, state),
+                    bgcolor=theme["danger"],
+                    border_radius=30,
+                    padding=ft.Padding(30, 12, 30, 12),
+                    alignment=ft.Alignment(0, 0),
+                    width=240,
+                ),
+            ] if logged_in else []),
             ], spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=theme["panel"],
             border_radius=16,
