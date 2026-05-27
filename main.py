@@ -213,6 +213,8 @@ def save_db(db: dict):
 
 
 THEME_GAME_ZONES = {
+    # Classic / gradient themes use flow layout — these zones are only
+    # used by the neon_nexus image-based theme.
     "play_column": {"l": 0.032, "t": 0.09, "w": 0.648, "h": 0.65},
     "jokers": {"l": 0.032, "t": 0.75, "w": 0.648, "h": 0.10},
     "ladder": {"l": 0.695, "t": 0.09, "w": 0.205, "h": 0.76},
@@ -251,210 +253,6 @@ THEMES = {
         "answer_bg": "#FFFFFF",
         "answer_text": "#2C1654",
         "answer_colors": ["#F4A460", "#9B59B6", "#2ECC71", "#E91E8C"],
-    },
-    "ocean": {
-        "label": "Ocean",
-        "game_layout": "themed",
-        "game_bg": "bg_ocean.png",
-        "layout_zones": THEME_GAME_ZONES,
-        "is_light": False,
-        "text_primary": "#F0FDFF",
-        "text_secondary": "#BAE6FD",
-        "text_muted": "#7DD3FC",
-        "gradient": ["#062A38", "#0E7490", "#14B8A6"],
-        "panel": "#06202A",
-        "border": "#38BDF8",
-        "accent": "#0891B2",
-        "accent_2": "#22C55E",
-        "success": "#10B981",
-        "danger": "#E11D48",
-        "gold": "#FDE68A",
-        "question_bg": "#06202A",
-        "question_text": "#E0F7FA",
-        "answer_bg": "#073540",
-        "answer_text": "#CCFBF1",
-        "answer_colors": ["#0891B2", "#14B8A6", "#22C55E", "#38BDF8"],
-    },
-    "neon": {
-        "label": "Neon Night",
-        "game_layout": "themed",
-        "game_bg": "bg_neon.png",
-        "layout_zones": THEME_GAME_ZONES,
-        "is_light": False,
-        "text_primary": "#F8FAFC",
-        "text_secondary": "#E0E7FF",
-        "text_muted": "#A5B4FC",
-        "gradient": ["#020617", "#11126B", "#E11D8E"],
-        "panel": "#070A2D",
-        "border": "#22D3EE",
-        "accent": "#EC4899",
-        "accent_2": "#F59E0B",
-        "success": "#34D399",
-        "danger": "#EF4444",
-        "gold": "#FCD34D",
-        "question_bg": "#020617",
-        "question_text": "#F1F5F9",
-        "answer_bg": "#0F172A",
-        "answer_text": "#F8FAFC",
-        "answer_colors": ["#EC4899", "#8B5CF6", "#3B82F6", "#06B6D4"],
-    },
-    "puls": {
-        "label": "Puls",
-        "is_light": False,
-        "text_primary": "#FFFFFF",
-        "text_secondary": "#DDDDDD",
-        "text_muted": "#AAAAAA",
-        "gradient": ["#110011", "#440044", "#880044"],
-        "panel": "#00000000",
-        "border": "#FFFFFF22",
-        "accent": "#FF0055",
-        "accent_2": "#00AAFF",
-        "success": "#00FF66",
-        "danger": "#FF0000",
-        "gold": "#FFD700",
-        "question_bg": "#11111166",
-        "question_text": "#FFFFFF",
-        "answer_bg": "#11111144",
-        "answer_text": "#FFFFFF",
-        "answer_colors": ["#FF0055", "#00AAFF", "#00FF66", "#FFD700"],
-    },
-    "forest": {
-        "label": "Forest",
-        "game_layout": "themed",
-        "game_bg": "bg_forest.png",
-        "layout_zones": THEME_GAME_ZONES,
-        "is_light": False,
-        "text_primary": "#F8FFF8",
-        "text_secondary": "#D8F0D8",
-        "text_muted": "#A8D4A8",
-        "gradient": ["#1a3d2a", "#2d5a3d", "#4a7c59"],
-        "panel": "#1e3d2a",
-        "border": "#7DA88A",
-        "accent": "#3D7A59",
-        "accent_2": "#F2B84B",
-        "success": "#2F855A",
-        "danger": "#B45309",
-        "gold": "#FFE08A",
-        "question_bg": "#1e3d2a",
-        "question_text": "#F0FFF0",
-        "answer_bg": "#243d2a",
-        "answer_text": "#E8F5E9",
-        "answer_colors": ["#7DA88A", "#F2B84B", "#3D7A59", "#F59E0B"],
-    },
-    "arcade": {
-        "label": "Arcade",
-        "game_layout": "themed",
-        "game_bg": "bg_arcade.png",
-        "layout_zones": THEME_GAME_ZONES,
-        "is_light": False,
-        "text_primary": "#F7FEE7",
-        "text_secondary": "#D9F99D",
-        "text_muted": "#BEF264",
-        "gradient": ["#050807", "#0B1F12", "#4D7C0F"],
-        "panel": "#06110B",
-        "border": "#84CC16",
-        "accent": "#65A30D",
-        "accent_2": "#A3E635",
-        "success": "#84CC16",
-        "danger": "#DC2626",
-        "gold": "#BEF264",
-        "question_bg": "#020604",
-        "question_text": "#D9F99D",
-        "answer_bg": "#050807",
-        "answer_text": "#F7FEE7",
-        "answer_colors": ["#84CC16", "#65A30D", "#A3E635", "#22C55E"],
-    },
-    "candy": {
-        "label": "Candy Pop",
-        "game_layout": "themed",
-        "game_bg": "bg_candy.png",
-        "layout_zones": THEME_GAME_ZONES,
-        "is_light": True,
-        "text_primary": "#1e1b4b",
-        "text_secondary": "#312e81",
-        "text_muted": "#4338ca",
-        "gradient": ["#DFF6FF", "#BDEBFF", "#FFE66D"],
-        "panel": "#FFFFFF",
-        "border": "#60A5FA",
-        "accent": "#3B82F6",
-        "accent_2": "#F97316",
-        "success": "#22C55E",
-        "danger": "#FB7185",
-        "gold": "#FACC15",
-        "question_bg": "#FFFFFF",
-        "question_text": "#172554",
-        "answer_bg": "#FFFFFF",
-        "answer_text": "#172554",
-        "answer_colors": ["#3B82F6", "#F97316", "#22C55E", "#8B5CF6"],
-    },
-    "royal": {
-        "label": "Royal Gold",
-        "game_layout": "themed",
-        "game_bg": "bg_royal.png",
-        "layout_zones": THEME_GAME_ZONES,
-        "is_light": False,
-        "text_primary": "#FFF7ED",
-        "text_secondary": "#FDE68A",
-        "text_muted": "#D8B4FE",
-        "gradient": ["#1E1B4B", "#581C87", "#92400E"],
-        "panel": "#17122F",
-        "border": "#C084FC",
-        "accent": "#7C3AED",
-        "accent_2": "#D97706",
-        "success": "#16A34A",
-        "danger": "#DC2626",
-        "gold": "#FBBF24",
-        "question_bg": "#2B174F",
-        "question_text": "#FFF7ED",
-        "answer_bg": "#24123E",
-        "answer_text": "#FFF7ED",
-        "answer_colors": ["#D97706", "#7C3AED", "#16A34A", "#DB2777"],
-    },
-    "sunset": {
-        "label": "Sunset",
-        "game_layout": "themed",
-        "game_bg": "bg_sunset.png",
-        "layout_zones": THEME_GAME_ZONES,
-        "is_light": False,
-        "text_primary": "#FFF7ED",
-        "text_secondary": "#FECDD3",
-        "text_muted": "#FDBA74",
-        "gradient": ["#2D0B36", "#B91C1C", "#F59E0B"],
-        "panel": "#2A1020",
-        "border": "#FB7185",
-        "accent": "#F97316",
-        "accent_2": "#FBBF24",
-        "success": "#22C55E",
-        "danger": "#BE123C",
-        "gold": "#FEF08A",
-        "question_bg": "#FFF1F2",
-        "question_text": "#4A102A",
-        "answer_bg": "#FFF7ED",
-        "answer_text": "#4A102A",
-        "answer_colors": ["#F97316", "#FB7185", "#FBBF24", "#A855F7"],
-    },
-    "ice": {
-        "label": "Ice Crystal",
-        "game_layout": "themed",
-        "game_bg": "bg_ice.png",
-        "layout_zones": THEME_GAME_ZONES,
-        "is_light": True,
-        "text_primary": "#0c4a6e",
-        "text_secondary": "#075985",
-        "text_muted": "#0369a1",
-        "gradient": ["#E0F2FE", "#7DD3FC", "#1D4ED8"],
-        "panel": "#F0F9FF",
-        "border": "#38BDF8",
-        "accent": "#2563EB",
-        "accent_2": "#06B6D4",
-        "success": "#059669",
-        "danger": "#E11D48",
-        "gold": "#0F766E",
-        "question_bg": "#FFFFFF",
-        "question_text": "#0F172A",
-        "answer_bg": "#F8FAFC",
-        "answer_text": "#0F172A",
-        "answer_colors": ["#2563EB", "#06B6D4", "#0EA5E9", "#38BDF8"],
     },
     "neon_nexus": {
         "label": "Neon Nexus",
@@ -4510,14 +4308,14 @@ def _start_question_timer(page: ft.Page, state: dict):
 
 
 def render_game_screen(page: ft.Page, state: dict):
-    """Unified game UI: timer, question, answers, status, jokers; themed + classic."""
+    """Unified game UI: timer, question, answers, status, jokers; classic + neon_nexus."""
     if state["question_index"] >= len(state["questions"]):
         _show_win_screen(page, state)
         return
 
     theme = get_theme(state)
     themed = uses_themed_game(theme)
-    zones = theme.get("layout_zones", THEME_GAME_ZONES)
+    zones = theme.get("layout_zones", NEON_NEXUS_ZONES)
     answer_palette = theme.get("answer_colors", ANSWER_COLORS)
     question_text_color = theme_value(theme, "question_text", "#2C1654")
     answer_text_color = theme_value(theme, "answer_text", "#2C1654")
@@ -4528,13 +4326,6 @@ def render_game_screen(page: ft.Page, state: dict):
     page_w, page_h = _page_size(page)
     is_mobile = page_w < 720
     is_nexus = theme.get("label") == "Neon Nexus"
-    
-    col_w = max(320, int(page_w * zones["play_column"]["w"])) if not is_nexus else max(320, int(page_w * zones["question"]["w"]))
-    
-    timer_w = int(page_w * zones["timer"]["w"]) if is_nexus else col_w
-    question_w = int(page_w * zones["question"]["w"]) if is_nexus else col_w
-    answers_w = int(page_w * zones["answers"]["w"]) if is_nexus else col_w
-    footer_w = int(page_w * zones["footer"]["w"]) if is_nexus else col_w
 
     state.setdefault("hidden_answers", [])
     hidden = set(state.get("hidden_answers", []))
@@ -4613,36 +4404,34 @@ def render_game_screen(page: ft.Page, state: dict):
     def make_answer_box(idx: int, text: str) -> ft.Container:
         letter = ANSWER_LETTERS[idx]
         color = answer_palette[idx % len(answer_palette)]
-        is_nexus = theme.get("label") == "Neon Nexus"
-        
-        letter_control = ft.Container(width=42) if is_nexus else ft.Container(
+        _is_nexus = theme.get("label") == "Neon Nexus"
+
+        letter_ctrl = ft.Container(width=42) if _is_nexus else ft.Container(
             content=ft.Text(letter, size=13, weight="bold", color="white"),
             width=30, height=30,
-            border_radius=15 if not themed else 4,
+            border_radius=15,
             bgcolor=color,
             alignment=ft.Alignment(0, 0),
         )
-        
+
         inner = ft.Row([
-            letter_control,
-            ft.Text(
-                text, size=14 if is_mobile else 15,
-                color=answer_text_color, weight="bold", expand=True,
-                max_lines=2, no_wrap=False,
-            ),
+            letter_ctrl,
+            ft.Text(text, size=14 if is_mobile else 15,
+                    color=answer_text_color, weight="bold", expand=True,
+                    max_lines=2, no_wrap=False),
         ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-        
+
         box = ft.Container(
             content=inner,
             data=idx,
             on_click=handle_answer,
             bgcolor=answer_bg,
-            border_radius=10 if not themed else 6,
+            border_radius=10,
             padding=ft.Padding(10, 10, 10, 10),
-            border=None if is_nexus else ft.border.Border.all(2, theme["border"]),
+            border=None if _is_nexus else ft.border.Border.all(2, theme["border"]),
             expand=True,
             visible=idx not in hidden,
-            height=None if is_nexus else (56 if not is_mobile else 50),
+            height=None if _is_nexus else (56 if not is_mobile else 50),
         )
         answer_buttons.append(box)
         return box
@@ -4659,186 +4448,243 @@ def render_game_screen(page: ft.Page, state: dict):
     question_time_sec = int(state.get("question_time_sec", QUESTION_TIME_SEC)) or QUESTION_TIME_SEC
     time_pressure_enabled = bool(state.get("time_pressure_enabled", True))
     sec = max(0, int(state.get("time_left", question_time_sec))) if time_pressure_enabled else question_time_sec
+
     timer_text = ft.Text(
         "∞" if not time_pressure_enabled else str(sec),
-        size=16,
-        weight="bold",
-        color="#FFFFFF" if is_nexus else (theme_txt(theme, "primary") if not time_pressure_enabled else ("#C62828" if sec <= 10 else theme_txt(theme, "primary"))),
+        size=16, weight="bold",
+        color="#FFFFFF" if is_nexus else (
+            theme_txt(theme, "primary") if not time_pressure_enabled
+            else ("#C62828" if sec <= 10 else theme_txt(theme, "primary"))
+        ),
     )
     timer_bar = ft.ProgressBar(
         value=1.0 if not time_pressure_enabled else sec / question_time_sec,
         expand=True,
         height=8 if is_nexus else 10,
-        color="#00FF66" if is_nexus else (theme["success"] if not time_pressure_enabled else ("#C62828" if sec <= 10 else theme["success"])),
+        color="#00FF66" if is_nexus else (
+            theme["success"] if not time_pressure_enabled
+            else ("#C62828" if sec <= 10 else theme["success"])
+        ),
         bgcolor="#333333" if is_nexus else "#E0E0E0",
     )
     state["_timer_ui"] = {"text": timer_text, "bar": timer_bar}
 
-    timer_panel = _game_panel(
-        ft.Row(
-            [timer_text, ft.Container(content=timer_bar, expand=True)],
-            spacing=12,
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            width=timer_w - 24,
-        ),
-        theme,
-        height=44 if not is_nexus else int(page_h * zones["timer"]["h"]),
-        width=timer_w,
-    )
-
-    question_panel = _game_panel(
-        ft.Column([
-            ft.Container(
-                content=ft.Text(f"FRAGE {q_num}", size=11, weight="bold", color="#001a0a" if not is_nexus else "white"),
-                bgcolor=theme["gold"],
-                border_radius=4,
-                padding=ft.Padding(8, 3, 8, 3),
-            ),
-            ft.Text(
-                question, size=16 if is_mobile else 18, weight="bold",
-                color=question_text_color, text_align=ft.TextAlign.CENTER,
-                max_lines=4, no_wrap=False,
-            ),
-        ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=question_w - 24),
-        theme,
-        height=int(page_h * zones["question"]["h"]) if is_nexus else (120 if not is_mobile else 100),
-        width=question_w,
-    )
-
-    answers_panel = _game_panel(
-        ft.Column([
-            ft.Row([answer_boxes[0], answer_boxes[1]], spacing=10, expand=is_nexus),
-            ft.Row([answer_boxes[2], answer_boxes[3]], spacing=10, expand=is_nexus),
-        ], spacing=10, width=answers_w - 24, expand=is_nexus) if not is_mobile else ft.Column(answer_boxes, spacing=8, width=col_w - 24),
-        theme,
-        width=answers_w,
-        height=int(page_h * zones["answers"]["h"]) if is_nexus else None,
-    )
-
-    status_panel = _game_panel(
-        ft.Row([
-            ft.Text(f"Frage {q_num} von {total_q}", size=13, color=theme_txt(theme, "secondary"), weight="bold"),
-            ft.Text(f"◆ {state.get('money', '0 €')}", size=14, color=theme["gold"] if not is_nexus else "#D946EF", weight="bold"),
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=footer_w - 24),
-        theme,
-        height=42 if not is_nexus else None,
-        width=footer_w,
-    )
-
-    joker_panel = _game_panel(
-        build_game_joker_bar(page, state, theme, ctx),
-        theme,
-        height=76 if not is_nexus else None,
-        width=footer_w,
-    )
-
-    play_column = ft.Column(
-        [timer_panel, question_panel, answers_panel, status_panel],
-        spacing=8,
-        width=col_w,
-    )
-
-    ladder_panel = _neon_solid_panel(
-        build_neon_nexus_money_ladder(state, compact=is_mobile),
-        theme,
-        compact=True,
-    ) if themed else build_money_ladder(state, compact=is_mobile)
-
-    exit_btn = ft.Container(
-        content=ft.Row([
-            ft.Text("🚪", size=14 if is_nexus else 12),
-            ft.Text("Pause", size=13 if is_nexus else 11, weight="bold", color=theme["danger"] if is_nexus else "white"),
-        ], spacing=6, alignment=ft.MainAxisAlignment.CENTER),
-        on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
-        bgcolor="#00000000" if is_nexus else theme["danger"],
-        border_radius=4,
-        padding=ft.Padding(10, 6, 10, 6),
-        alignment=ft.Alignment(0, 0) if is_nexus else None,
-    )
-
+    # ── background ─────────────────────────────────────────────────────────────
     bg_image = theme.get("game_bg") if themed else None
-    overlay_color = "#00000000" if is_nexus else ("#00000099" if not theme.get("is_light") else "#00000055")
+    overlay_color = "#00000000" if is_nexus else (
+        "#00000099" if not theme.get("is_light") else "#00000055"
+    )
     if bg_image:
         bg_layer = _themed_game_background(bg_image, page_w, page_h, overlay_color)
     else:
         bg_layer = ft.Container(
-            width=max(1, int(page_w)),
-            height=max(1, int(page_h)),
+            expand=True,
             gradient=ft.LinearGradient(
                 begin=ft.Alignment(-1, -1),
                 end=ft.Alignment(1, 1),
                 colors=theme["gradient"],
             ),
-            animate=2000 if state.get("theme") == "puls" else None,
         )
-
-    if state.get("theme") == "puls":
-        # Launch pulse animation task
-        async def _pulse_bg():
-            step = 0
-            while True:
-                await asyncio.sleep(2)
-                try:
-                    # check if still on same screen and theme
-                    if state.get("theme") != "puls" or state.get("question_index") != q_num - 1:
-                        break
-                    if step % 2 == 0:
-                        bg_layer.gradient.colors = ["#220022", "#660066", "#AA0055"]
-                    else:
-                        bg_layer.gradient.colors = theme["gradient"]
-                    bg_layer.update()
-                    step += 1
-                except Exception:
-                    break
-        page.run_task(_pulse_bg)
 
     modal = state.get("_modal_overlay")
 
-    hud_layers = [bg_layer]
+    # ══════════════════════════════════════════════════════════════════════════
+    #  NEON NEXUS — absolute zone layout on top of background image
+    # ══════════════════════════════════════════════════════════════════════════
+    if is_nexus:
+        nq_w = int(page_w * zones["question"]["w"])
+        na_w = int(page_w * zones["answers"]["w"])
+        na_h = int(page_h * zones["answers"]["h"])
+        nt_w = int(page_w * zones["timer"]["w"])
+        nf_w = int(page_w * zones["footer"]["w"])
+
+        timer_panel = _game_panel(
+            ft.Row([timer_text, ft.Container(content=timer_bar, expand=True)],
+                   spacing=12, alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                   width=nt_w - 24),
+            theme, height=int(page_h * zones["timer"]["h"]), width=nt_w,
+        )
+        question_panel = _game_panel(
+            ft.Column([
+                ft.Container(
+                    content=ft.Text(f"FRAGE {q_num}", size=11, weight="bold", color="white"),
+                    bgcolor=theme["gold"], border_radius=4,
+                    padding=ft.Padding(8, 3, 8, 3),
+                ),
+                ft.Text(question, size=18, weight="bold", color=question_text_color,
+                        text_align=ft.TextAlign.CENTER, max_lines=4, no_wrap=False),
+            ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=nq_w - 24),
+            theme, height=int(page_h * zones["question"]["h"]), width=nq_w,
+        )
+        answers_panel = _game_panel(
+            ft.Column([
+                ft.Row([answer_boxes[0], answer_boxes[1]], spacing=10, expand=True),
+                ft.Row([answer_boxes[2], answer_boxes[3]], spacing=10, expand=True),
+            ], spacing=10, width=na_w - 24, expand=True),
+            theme, width=na_w, height=na_h,
+        )
+        nexus_exit_btn = ft.Container(
+            content=ft.Row([
+                ft.Text("🚪", size=14),
+                ft.Text("Pause", size=13, weight="bold", color=theme["danger"]),
+            ], spacing=6, alignment=ft.MainAxisAlignment.CENTER),
+            on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
+            bgcolor="#00000000", border_radius=4,
+            padding=ft.Padding(10, 6, 10, 6), alignment=ft.Alignment(0, 0),
+        )
+        footer_content = ft.Column([
+            _game_panel(
+                ft.Row([
+                    ft.Text(f"Frage {q_num} von {total_q}", size=13,
+                            color=theme_txt(theme, "secondary"), weight="bold"),
+                    ft.Text(f"◆ {state.get('money', '0 €')}", size=14,
+                            color="#D946EF", weight="bold"),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=nf_w - 24),
+                theme,
+            ),
+            _game_panel(build_game_joker_bar(page, state, theme, ctx), theme),
+        ], spacing=8)
+        ladder_panel = _neon_solid_panel(
+            build_neon_nexus_money_ladder(state, compact=is_mobile), theme, compact=True)
+
+        pw, ph = max(1, int(page_w)), max(1, int(page_h))
+        hud = [bg_layer,
+               _neon_zone_box(zones["exit"], page_w, page_h, nexus_exit_btn),
+               _neon_zone_box(zones["timer"], page_w, page_h, timer_panel),
+               _neon_zone_box(zones["question"], page_w, page_h, question_panel),
+               _neon_zone_box(zones["answers"], page_w, page_h, answers_panel),
+               _neon_zone_box(zones["footer"], page_w, page_h, footer_content),
+               _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel)]
+        if modal:
+            hud.append(_neon_zone_box(zones["overlay"], page_w, page_h, modal))
+
+        page.controls.clear()
+        page.add(ft.Container(
+            expand=True, width=pw, height=ph, bgcolor="#000000",
+            content=ft.Stack(hud, expand=True, width=pw, height=ph),
+        ))
+        _set_themed_game_resize(page, state)
+        _start_question_timer(page, state)
+        page.update()
+        return
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  CLASSIC — clean flow layout (Column/Row), no absolute positioning
+    # ══════════════════════════════════════════════════════════════════════════
+    ladder_panel = build_money_ladder(state, compact=is_mobile)
+
+    # Pause / exit button
+    exit_btn = ft.Container(
+        content=ft.Row([
+            ft.Text("🚪", size=12),
+            ft.Text("Pause", size=12, weight="bold", color="white"),
+        ], spacing=5, tight=True),
+        on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
+        bgcolor=theme["danger"],
+        border_radius=6,
+        padding=ft.Padding(12, 7, 12, 7),
+    )
+
+    # Top bar: [Pause btn] + [timer bar + countdown]
+    top_bar = ft.Row([
+        exit_btn,
+        ft.Container(
+            content=ft.Row([
+                ft.Container(content=timer_bar, expand=True),
+                ft.Container(content=timer_text, width=36, alignment=ft.Alignment(1, 0)),
+            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            expand=True,
+            bgcolor=theme.get("question_bg", "#FFFFFF"),
+            border_radius=6,
+            padding=ft.Padding(10, 7, 10, 7),
+            border=ft.border.Border.all(2, theme["border"]),
+        ),
+    ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    # Question panel
+    question_panel = ft.Container(
+        content=ft.Column([
+            ft.Container(
+                content=ft.Text(f"FRAGE {q_num}", size=11, weight="bold", color="#001a0a"),
+                bgcolor=theme["gold"], border_radius=4,
+                padding=ft.Padding(8, 3, 8, 3), alignment=ft.Alignment(0, 0),
+            ),
+            ft.Text(question, size=16 if is_mobile else 18, weight="bold",
+                    color=question_text_color, text_align=ft.TextAlign.CENTER,
+                    max_lines=4, no_wrap=False),
+        ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        bgcolor=theme.get("question_bg", "#FFFFFF"),
+        border_radius=10,
+        padding=ft.Padding(16, 12, 16, 12),
+        border=ft.border.Border.all(2, theme["border"]),
+    )
+
+    # Answer grid (2x2 desktop, stacked on mobile)
     if is_mobile:
-        col_items = [exit_btn, play_column, joker_panel, ladder_panel]
-        hud_layers.append(ft.Container(expand=True, padding=12, content=ft.Column(col_items, spacing=10, scroll=ft.ScrollMode.AUTO)))
+        answers_grid = ft.Column(answer_boxes, spacing=8)
     else:
-        if is_nexus:
-            footer_content = ft.Column(
-                [status_panel, joker_panel],
-                spacing=8,
-                alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            )
-            hud_layers.extend([
-                _neon_zone_box(zones["exit"], page_w, page_h, exit_btn),
-                _neon_zone_box(zones["timer"], page_w, page_h, timer_panel),
-                _neon_zone_box(zones["question"], page_w, page_h, question_panel),
-                _neon_zone_box(zones["answers"], page_w, page_h, answers_panel),
-                _neon_zone_box(zones["footer"], page_w, page_h, footer_content),
-                _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel),
-            ])
-        else:
-            hud_layers.extend([
-                _neon_zone_box(zones["exit"], page_w, page_h, exit_btn),
-                _neon_zone_box(zones["play_column"], page_w, page_h, play_column),
-                _neon_zone_box(zones["jokers"], page_w, page_h, joker_panel),
-                _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel if themed else ft.Container(content=ladder_panel, padding=4)),
-            ])
-    if modal:
-        hud_layers.append(
-            _neon_zone_box(zones["overlay"], page_w, page_h, modal)
+        answers_grid = ft.Column([
+            ft.Row([answer_boxes[0], answer_boxes[1]], spacing=10),
+            ft.Row([answer_boxes[2], answer_boxes[3]], spacing=10),
+        ], spacing=10)
+
+    # Status bar (question number + money)
+    status_bar = ft.Container(
+        content=ft.Row([
+            ft.Text(f"Frage {q_num} von {total_q}", size=13,
+                    color=theme_txt(theme, "secondary"), weight="bold"),
+            ft.Text(f"◆ {state.get('money', '0 €')}", size=14,
+                    color=theme["gold"], weight="bold"),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        bgcolor=theme.get("question_bg", "#FFFFFF"),
+        border_radius=8,
+        padding=ft.Padding(14, 8, 14, 8),
+        border=ft.border.Border.all(2, theme["border"]),
+    )
+
+    # Joker bar — always its own row, never overlaps timer or question
+    joker_bar = ft.Container(
+        content=build_game_joker_bar(page, state, theme, ctx),
+        bgcolor=theme.get("question_bg", "#FFFFFF"),
+        border_radius=8,
+        padding=ft.Padding(10, 10, 10, 10),
+        border=ft.border.Border.all(2, theme["border"]),
+    )
+
+    # Left column: stacked vertically with natural flow
+    left_col = ft.Column(
+        [top_bar, question_panel, answers_grid, status_bar, joker_bar],
+        spacing=10,
+        expand=True,
+    )
+
+    if is_mobile:
+        main_content = ft.Container(
+            content=ft.Column(
+                [top_bar, question_panel, answers_grid, status_bar, joker_bar, ladder_panel],
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            padding=ft.Padding(12, 12, 12, 12),
+            expand=True,
+        )
+    else:
+        main_content = ft.Container(
+            content=ft.Row(
+                [left_col, ft.Container(content=ladder_panel, width=200)],
+                spacing=16,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+            ),
+            padding=ft.Padding(16, 16, 16, 16),
+            expand=True,
         )
 
-    pw, ph = max(1, int(page_w)), max(1, int(page_h))
+    layers: list = [bg_layer, main_content]
+    if modal:
+        layers.append(ft.Container(content=modal, expand=True))
+
     page.controls.clear()
-    page.add(
-        ft.Container(
-            expand=True,
-            width=pw,
-            height=ph,
-            bgcolor="#000000",
-            content=ft.Stack(hud_layers, expand=True, width=pw, height=ph),
-        )
-    )
-    if themed:
-        _set_themed_game_resize(page, state)
+    page.add(ft.Container(expand=True, content=ft.Stack(layers, expand=True)))
     _start_question_timer(page, state)
     page.update()
 
