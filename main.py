@@ -7605,9 +7605,10 @@ def main(page: ft.Page):
     async def init_task():
         await restore_remembered_login(page, app_state)
         check_url_parameters()
-        page.go(page.route or "/")
+        on_route_change(None)
 
     page.run_task(init_task)
+    on_route_change(None)
     page.update()
 
 
