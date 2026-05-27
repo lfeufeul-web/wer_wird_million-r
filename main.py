@@ -357,16 +357,16 @@ DEFAULT_USER_SETTINGS = {"theme": "classic", "play_audio": True}
 
 SHOP_CATALOG = {
     "themes": [
-        {"id": "hacker", "name": "Hacker Matrix", "price": 500, "type": "theme"},
-        {"id": "royal", "name": "Royal Gold", "price": 1500, "type": "theme"},
-        {"id": "cyberpunk", "name": "Cyberpunk 2077", "price": 5000, "type": "theme"},
+        {"id": "hacker", "name": "Hacker Matrix", "price": 5000, "type": "theme"},
+        {"id": "royal", "name": "Royal Gold", "price": 25000, "type": "theme"},
+        {"id": "cyberpunk", "name": "Cyberpunk 2077", "price": 100000, "type": "theme"},
     ],
     "titles": [
         {"id": "Neuling", "name": "Neuling", "price": 0, "type": "title"},
-        {"id": "Quiz-Lehrling", "name": "Quiz-Lehrling", "price": 200, "type": "title"},
-        {"id": "Alleswisser", "name": "Alleswisser", "price": 1000, "type": "title"},
-        {"id": "Millionär-Club", "name": "Millionär-Club", "price": 10000, "type": "title"},
-        {"id": "Quiz-Gott", "name": "Quiz-Gott", "price": 50000, "type": "title"},
+        {"id": "Quiz-Lehrling", "name": "Quiz-Lehrling", "price": 2500, "type": "title"},
+        {"id": "Alleswisser", "name": "Alleswisser", "price": 15000, "type": "title"},
+        {"id": "Millionär-Club", "name": "Millionär-Club", "price": 150000, "type": "title"},
+        {"id": "Quiz-Gott", "name": "Quiz-Gott", "price": 1000000, "type": "title"},
     ]
 }
 
@@ -661,20 +661,7 @@ def ensure_firebase_user(uid: str, email: str) -> dict:
 
 
 def get_page_storage(page: ft.Page):
-    # Try new API first (Flet 0.80+), then fallback to old API
-    try:
-        sp = getattr(page, "shared_preferences", None)
-        if sp is not None:
-            return sp
-    except Exception:
-        pass
-    try:
-        from flet import SharedPreferences
-        sp = SharedPreferences()
-        return sp
-    except Exception:
-        pass
-    return getattr(page, "client_storage", None)
+    return getattr(page, "client_storage", None) or getattr(page, "shared_preferences", None)
 
 
 async def call_storage_method(method, *args):
@@ -1075,7 +1062,7 @@ def update_game_stats(correct: int, answered: int, money: str, money_level_idx: 
 
 def save_current_game(state: dict):
     email = state.get("current_user_email")
-    if not email or state.get("game_finished"):
+    if not email or state.get("game_finished") or state.get("is_daily_challenge"):
         return
 
     db = load_db()
@@ -7278,7 +7265,28 @@ def show_shop_screen(page: ft.Page, state: dict):
     user = db["users"][email]
     theme = get_theme(state)
     
-    def on_buy_theme(e, item):
+    async def flash_insufficient_funds(btn):
+        original_text = btn.text
+        original_bgcolor = btn.bgcolor
+        original_color = btn.color
+        
+        btn.text = "Nicht genügend Geld"
+        btn.bgcolor = "red"
+        btn.color = "white"
+        btn.update()
+        
+        import asyncio
+        await asyncio.sleep(1.5)
+        
+        btn.text = original_text
+        btn.bgcolor = original_bgcolor
+        btn.color = original_color
+        try:
+            btn.update()
+        except Exception:
+            pass
+
+    async def on_buy_theme(e, item):
         price = item["price"]
         if user["stats"].get("wallet_balance", 0) >= price:
             user["stats"]["wallet_balance"] -= price
@@ -7286,11 +7294,9 @@ def show_shop_screen(page: ft.Page, state: dict):
             save_db(db)
             build_shop()
         else:
-            page.snack_bar = ft.SnackBar(content=ft.Text("Nicht genug Geld!"))
-            page.snack_bar.open = True
-            page.update()
+            await flash_insufficient_funds(e.control)
 
-    def on_buy_title(e, item):
+    async def on_buy_title(e, item):
         price = item["price"]
         if user["stats"].get("wallet_balance", 0) >= price:
             user["stats"]["wallet_balance"] -= price
@@ -7298,9 +7304,7 @@ def show_shop_screen(page: ft.Page, state: dict):
             save_db(db)
             build_shop()
         else:
-            page.snack_bar = ft.SnackBar(content=ft.Text("Nicht genug Geld!"))
-            page.snack_bar.open = True
-            page.update()
+            await flash_insufficient_funds(e.control)
 
     def on_equip_theme(e, theme_id):
         user["settings"]["theme"] = theme_id
@@ -7329,7 +7333,7 @@ def show_shop_screen(page: ft.Page, state: dict):
             elif is_unlocked:
                 btn = ft.ElevatedButton("Ausrüsten", on_click=lambda e, tid=t["id"]: on_equip_theme(e, tid))
             else:
-                btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: on_buy_theme(e, itm))
+                btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: page.run_task(on_buy_theme, e, itm))
             
             theme_cards.append(ft.Container(
                 content=ft.Row([ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")), btn], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -7345,7 +7349,7 @@ def show_shop_screen(page: ft.Page, state: dict):
             elif is_unlocked:
                 btn = ft.ElevatedButton("Ausrüsten", on_click=lambda e, tid=t["id"]: on_equip_title(e, tid))
             else:
-                btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: on_buy_title(e, itm))
+                btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: page.run_task(on_buy_title, e, itm))
             
             title_cards.append(ft.Container(
                 content=ft.Row([ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")), btn], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -7365,7 +7369,7 @@ def show_shop_screen(page: ft.Page, state: dict):
                     padding=20,
                     content=ft.Column([
                         ft.Row([
-                            ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                            ft.IconButton(icon="arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
                             ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
                         ]),
                         ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
@@ -7431,7 +7435,7 @@ def show_achievements_screen(page: ft.Page, state: dict):
                 padding=20,
                 content=ft.Column([
                     ft.Row([
-                        ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                        ft.IconButton(icon="arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
                         ft.Text("Erfolge", size=24, weight="bold", color="white"),
                     ]),
                     ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
@@ -7456,14 +7460,51 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
     has_played_today = stats.get("last_daily_played") == today_str
 
     def start_daily(e):
-        # Generate seeded game
+        # 1. Mark as played today immediately in local DB and save
+        db_local = load_db()
+        user_local = db_local["users"][email]
+        user_local.setdefault("stats", {})["last_daily_played"] = today_str
+        save_db(db_local)
+
+        # 2. Try to sync to FireStore if active
+        client = get_firestore_client()
+        if client:
+            try:
+                client.collection("users").document(user_local["uid"]).set({
+                    "stats": {
+                        "last_daily_played": today_str
+                    }
+                }, merge=True)
+            except Exception as ex:
+                print(f"Failed to sync daily play to FireStore: {ex}")
+
+        # 3. Configure daily state directly
+        state.update({
+            "money": "0 €",
+            "questions_answered": 0,
+            "correct": 0,
+            "jokers_used": 0,
+            "question_index": 0,
+            "game_finished": False,
+            "current_user_email": email,
+            "current_user_uid": user_local.get("uid"),
+            "is_daily_challenge": True,
+            "daily_date": today_str,
+            "player_age": "old",
+            "time_pressure_enabled": True,
+            "question_time_sec": 30,
+            "time_left": 30,
+            "selected_jokers": [],
+            "jokers_used_ids": [],
+        })
+
+        # 4. Generate seeded questions
         random.seed(today_str)
-        # Assuming we just start a normal game for now but mark it as daily
-        state["is_daily_challenge"] = True
-        state["daily_date"] = today_str
-        start_new_game(page, state)
-        # Restore random seed
-        random.seed()
+        state["questions"] = create_game_questions("old")
+        random.seed() # Reset seed
+
+        # 5. Launch the game immediately!
+        show_next_question(page, state)
 
     btn = ft.ElevatedButton(
         "Bereits gespielt!" if has_played_today else "Daily Challenge starten",
@@ -7488,7 +7529,7 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
                 padding=20,
                 content=ft.Column([
                     ft.Row([
-                        ft.IconButton("arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
+                        ft.IconButton(icon="arrow_back", icon_color="white", on_click=lambda e: open_main_menu(e.page, state)),
                         ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
                     ]),
                     ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
