@@ -4726,7 +4726,7 @@ def render_game_screen(page: ft.Page, state: dict):
                 end=ft.Alignment(1, 1),
                 colors=theme["gradient"],
             ),
-            animate=ft.animation.Animation(2000, ft.AnimationCurve.EASE_IN_OUT) if state.get("theme") == "puls" else None,
+            animate=2000 if state.get("theme") == "puls" else None,
         )
 
     if state.get("theme") == "puls":
