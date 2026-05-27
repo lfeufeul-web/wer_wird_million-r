@@ -716,19 +716,30 @@ async def clear_remembered_login(page: ft.Page):
 
 async def restore_remembered_login(page: ft.Page, state: dict):
     import asyncio
-    await asyncio.sleep(0.5) # Wait for client storage to sync over WebSocket
-    refresh_token = await storage_get(page, AUTH_REFRESH_TOKEN_KEY)
+    # Give the WebSocket/client_storage time to sync after page load.
+    # We try twice with increasing delays for slow connections.
+    refresh_token = None
+    for wait in (0.8, 1.2):
+        await asyncio.sleep(wait)
+        refresh_token = await storage_get(page, AUTH_REFRESH_TOKEN_KEY)
+        if refresh_token:
+            break
+
     email = await storage_get(page, AUTH_EMAIL_KEY)
     uid = await storage_get(page, AUTH_UID_KEY)
+
+    print(f"[auto-login] token={'yes' if refresh_token else 'no'}, email={email}, uid={uid}")
+
     if not refresh_token or not email or not uid:
+        print("[auto-login] No stored credentials – showing guest menu.")
         open_main_menu(page, state)
         return
 
     try:
         refreshed = firebase_refresh_auth(refresh_token)
-        uid = refreshed.get("user_id", uid)
-        refresh_token = refreshed.get("refresh_token", refresh_token)
-        user = ensure_firebase_user(uid, email)
+        new_uid = refreshed.get("user_id") or refreshed.get("localId") or uid
+        new_token = refreshed.get("refresh_token") or refresh_token
+        user = ensure_firebase_user(new_uid, email)
 
         db = load_db()
         db["users"][email] = user
@@ -736,12 +747,14 @@ async def restore_remembered_login(page: ft.Page, state: dict):
         save_db(db)
 
         state["current_user_email"] = email
-        state["current_user_uid"] = uid
-        await storage_set(page, AUTH_UID_KEY, uid)
-        await storage_set(page, AUTH_REFRESH_TOKEN_KEY, refresh_token)
+        state["current_user_uid"] = new_uid
+        # Persist updated tokens back to storage.
+        await storage_set(page, AUTH_UID_KEY, new_uid)
+        await storage_set(page, AUTH_REFRESH_TOKEN_KEY, new_token)
+        print(f"[auto-login] Success – logged in as {email}")
         open_main_menu(page, state)
     except Exception as e:
-        print(f"Auto-login failed: {e}")
+        print(f"[auto-login] Token refresh failed: {e} – showing guest menu.")
         open_main_menu(page, state)
 
 
@@ -5465,7 +5478,7 @@ def show_login_view(page: ft.Page, state: dict):
 
     status_text = ft.Text("", color="red", size=14, text_align="center")
 
-    def finish_login(auth_data: dict):
+    async def finish_login(auth_data: dict):
         uid = auth_data["localId"]
         email = auth_data["email"]
         user = ensure_firebase_user(uid, email)
@@ -5477,8 +5490,11 @@ def show_login_view(page: ft.Page, state: dict):
 
         state["current_user_email"] = email
         state["current_user_uid"] = uid
-        page.run_task(save_remembered_login, page, auth_data, bool(remember_checkbox.value))
-        
+
+        # IMPORTANT: await the storage save so tokens are on disk BEFORE we navigate.
+        await save_remembered_login(page, auth_data, bool(remember_checkbox.value))
+        print(f"[login] Credentials saved for {email}, remember={bool(remember_checkbox.value)}")
+
         # Check if there is a pending friend request from scanning a QR code
         pending_friend = state.pop("pending_friend_add", None)
         if pending_friend:
@@ -5502,7 +5518,7 @@ def show_login_view(page: ft.Page, state: dict):
             return None, None
         return email, password
 
-    def run_auth(action: str):
+    async def run_auth(action: str):
         email, password = validate_inputs()
         if not email or not password:
             return
@@ -5512,17 +5528,18 @@ def show_login_view(page: ft.Page, state: dict):
         page.update()
 
         try:
-            finish_login(firebase_auth_request(action, email, password))
+            auth_data = firebase_auth_request(action, email, password)
+            await finish_login(auth_data)
         except Exception as ex:
             status_text.value = str(ex)
             status_text.color = "red"
             page.update()
 
     def on_login(e):
-        run_auth("signInWithPassword")
+        page.run_task(run_auth, "signInWithPassword")
 
     def on_register(e):
-        run_auth("signUp")
+        page.run_task(run_auth, "signUp")
 
     page.controls.clear()
     page.add(
