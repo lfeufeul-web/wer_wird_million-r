@@ -213,12 +213,23 @@ def save_db(db: dict):
 
 
 THEME_GAME_ZONES = {
-    "play_column": {"l": 0.032, "t": 0.062, "w": 0.648, "h": 0.49},
-    "jokers": {"l": 0.032, "t": 0.555, "w": 0.648, "h": 0.075},
-    "ladder": {"l": 0.695, "t": 0.055, "w": 0.205, "h": 0.72},
-    "exit": {"l": 0.0198, "t": 0.028, "w": 0.1146, "h": 0.055},
+    "play_column": {"l": 0.032, "t": 0.09, "w": 0.648, "h": 0.65},
+    "jokers": {"l": 0.032, "t": 0.75, "w": 0.648, "h": 0.10},
+    "ladder": {"l": 0.695, "t": 0.09, "w": 0.205, "h": 0.76},
+    "exit": {"l": 0.032, "t": 0.025, "w": 0.1146, "h": 0.050},
     "overlay": {"l": 0, "t": 0, "w": 1, "h": 1},
 }
+
+NEON_NEXUS_ZONES = {
+    "exit": {"l": 0.0198, "t": 0.0204, "w": 0.1146, "h": 0.0500},
+    "timer": {"l": 0.18, "t": 0.0204, "w": 0.43, "h": 0.0500},
+    "question": {"l": 0.0448, "t": 0.0704, "w": 0.5698, "h": 0.2102},
+    "answers": {"l": 0.0448, "t": 0.3102, "w": 0.5698, "h": 0.3778},
+    "footer": {"l": 0.0448, "t": 0.7102, "w": 0.5698, "h": 0.1667},
+    "ladder": {"l": 0.6651, "t": 0.0704, "w": 0.2797, "h": 0.8593},
+    "overlay": {"l": 0, "t": 0, "w": 1, "h": 1},
+}
+
 
 THEMES = {
     "classic": {
@@ -449,24 +460,24 @@ THEMES = {
         "label": "Neon Nexus",
         "game_layout": "themed",
         "game_bg": "neon_nexus_bg_clean.png",
-        "layout_zones": THEME_GAME_ZONES,
-        "is_light": False,
-        "text_primary": "#F5FFF5",
-        "text_secondary": "#C8FFC8",
-        "text_muted": "#9dffb8",
+        "layout_zones": NEON_NEXUS_ZONES,
+        "is_light": True,
+        "text_primary": "#0F172A",
+        "text_secondary": "#334155",
+        "text_muted": "#64748B",
         "gradient": ["#000000", "#021208", "#042810"],
-        "panel": "#0c1814",
-        "border": "#00FF66",
-        "accent": "#064d2a",
-        "accent_2": "#00C853",
-        "success": "#00FF66",
-        "danger": "#FF1744",
-        "gold": "#76FF03",
-        "question_bg": "#0c1814",
-        "question_text": "#F5FFF5",
-        "answer_bg": "#08120e",
-        "answer_text": "#F0FFF0",
-        "answer_colors": ["#00E676", "#00C853", "#76FF03", "#1DE9B6"],
+        "panel": "#00000000",
+        "border": "#00000000",
+        "accent": "#00000000",
+        "accent_2": "#D946EF",
+        "success": "#16A34A",
+        "danger": "#DC2626",
+        "gold": "#D946EF",
+        "question_bg": "#00000000",
+        "question_text": "#1E293B",
+        "answer_bg": "#00000000",
+        "answer_text": "#1E293B",
+        "answer_colors": ["#0ea5e9", "#d946ef", "#10b981", "#f59e0b"],
     },
 }
 DEFAULT_USER_SETTINGS = {"theme": "classic"}
@@ -2315,20 +2326,36 @@ def build_joker_tile(
     on_click=None,
     show_name: bool = True,
 ) -> ft.Container:
-    border_w = 3 if selected and not used else 1
-    border_color = theme["gold"] if selected and not used else theme["border"]
-    bgcolor = theme["accent"] if selected and not used else (theme.get("question_bg", "#FFFFFF") if not used else "#55555588")
-    if used:
-        border_color = "#444444"
-        on_click = None  # disable click entirely
+    is_nexus = theme.get("label") == "Neon Nexus"
+    
+    if is_nexus:
+        border_w = 3 if selected and not used else 2
+        border_color = "#D946EF" if selected and not used else "#0EA5E9"
+        bgcolor = "#1E293B" if not used else "#47556944"
+        if used:
+            border_color = "#94A3B844"
+            on_click = None
+    else:
+        border_w = 3 if selected and not used else 1
+        border_color = theme["gold"] if selected and not used else theme["border"]
+        bgcolor = theme["accent"] if selected and not used else (theme.get("question_bg", "#FFFFFF") if not used else "#55555588")
+        if used:
+            border_color = "#444444"
+            on_click = None  # disable click entirely
         
     label = joker.get("short", joker.get("name", "?"))
     font_size = 8 if size <= 50 else (9 if size <= 58 else 10)
+    
+    if is_nexus:
+        text_color = "#FFFFFF" if not used else "#94A3B8"
+    else:
+        text_color = theme["question_text"] if not used else "#777777"
+        
     content = ft.Text(
         label,
         size=font_size,
         weight="bold" if selected else "normal",
-        color=theme["question_text"] if not used else "#777777",
+        color=text_color,
         text_align=ft.TextAlign.CENTER,
         max_lines=2,
         no_wrap=False,
@@ -2422,7 +2449,7 @@ def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | No
                 theme,
                 selected=True,
                 used=jid in used_ids,
-                size=48,
+                size=60,
                 on_click=lambda e, j=jid: on_joker_tap(j),
                 show_name=True,
             )
@@ -2430,8 +2457,8 @@ def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | No
     while len(chips) < JOKER_SELECT_COUNT:
         chips.append(
             ft.Container(
-                width=48,
-                height=48,
+                width=60,
+                height=60,
                 border_radius=12,
                 bgcolor=theme.get("question_bg", "#FFFFFF"),
                 border=ft.border.Border.all(1, theme["border"]),
@@ -3368,18 +3395,27 @@ def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Cont
     n = len(levels)
     i_current = n - 1 - correct
     rows = []
+    is_nexus = theme.get("label") == "Neon Nexus"
+    
     for i, level in enumerate(reversed(levels)):
         orig_idx = n - 1 - i
         is_current = orig_idx == correct
         is_reached = orig_idx < correct
-        dot_color = theme["gold"] if is_current else (theme["accent_2"] if is_reached else "#143d28")
-        text_color = "#FFFFFF" if is_current else ("#B8FFD0" if is_reached else "#7AE8A8")
         
+        if is_nexus:
+            dot_color = "#D946EF" if is_current else ("#0EA5E9" if is_reached else "#CBD5E1")
+            text_color = "#D946EF" if is_current else ("#0F172A" if is_reached else "#94A3B8")
+            bg_bar_color = "#D946EF33" if is_current else None
+        else:
+            dot_color = theme["gold"] if is_current else (theme["accent_2"] if is_reached else "#143d28")
+            text_color = "#FFFFFF" if is_current else ("#B8FFD0" if is_reached else "#7AE8A8")
+            bg_bar_color = "#0a140e" if is_current else None
+            
         row_content = ft.Row([
             ft.Container(
                 width=7, height=7, border_radius=4,
                 bgcolor=dot_color,
-                border=ft.border.Border.all(1, theme["border"]) if is_current else None,
+                border=ft.border.Border.all(1, theme["border"]) if is_current and not is_nexus else None,
             ),
             ft.Text(
                 level,
@@ -3395,9 +3431,9 @@ def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Cont
             cell_content = ft.Stack([
                 ft.Container(
                     left=4, right=4, top=(row_h - 8) / 2, height=8,
-                    bgcolor=theme["gold"],
+                    bgcolor="#D946EF" if is_nexus else theme["gold"],
                     border_radius=4,
-                    shadow=ft.BoxShadow(blur_radius=18, color="#B000FF66", spread_radius=1),
+                    shadow=ft.BoxShadow(blur_radius=18, color="#B000FF66", spread_radius=1) if not is_nexus else None,
                 ),
                 ft.Container(content=row_content, alignment=ft.Alignment(0, 0), height=row_h)
             ])
@@ -3408,7 +3444,7 @@ def build_neon_nexus_money_ladder(state: dict, compact: bool = False) -> ft.Cont
             ft.Container(
                 content=cell_content,
                 height=row_h,
-                bgcolor="#0a140e" if is_current else None,
+                bgcolor=bg_bar_color,
                 border_radius=4,
             )
         )
@@ -4326,13 +4362,14 @@ def _neon_panel_border(theme: dict, width: int = 2) -> ft.Border:
 
 def _neon_solid_panel(content: ft.Control, theme: dict, expand: bool = True, compact: bool = False) -> ft.Container:
     """Opaque panel so text stays readable on any background."""
+    is_nexus = theme.get("label") == "Neon Nexus"
     pad = 6 if compact else 10
     return ft.Container(
         content=content,
-        bgcolor=theme.get("panel", "#0c1814"),
+        bgcolor="#00000000" if is_nexus else theme.get("panel", "#0c1814"),
         border_radius=6,
         padding=ft.Padding(pad, pad - 2, pad, pad - 2),
-        border=_neon_panel_border(theme),
+        border=None if is_nexus else _neon_panel_border(theme),
         expand=expand,
         alignment=ft.Alignment(0, 0),
     )
@@ -4379,13 +4416,14 @@ def _game_panel(
     width: int | None = None,
 ) -> ft.Container:
     """White/game panel with consistent width styling."""
+    is_nexus = theme.get("label") == "Neon Nexus"
     return ft.Container(
         content=content,
         width=width,
-        bgcolor=theme.get("question_bg", "#FFFFFF"),
+        bgcolor="#00000000" if is_nexus else theme.get("question_bg", "#FFFFFF"),
         border_radius=10,
         padding=ft.Padding(12, 10, 12, 10),
-        border=ft.border.Border.all(2, theme["border"]),
+        border=None if is_nexus else ft.border.Border.all(2, theme["border"]),
         height=height,
     )
 
@@ -4489,7 +4527,14 @@ def render_game_screen(page: ft.Page, state: dict):
     total_q = len(state["questions"])
     page_w, page_h = _page_size(page)
     is_mobile = page_w < 720
-    col_w = max(320, int(page_w * zones["play_column"]["w"]))
+    is_nexus = theme.get("label") == "Neon Nexus"
+    
+    col_w = max(320, int(page_w * zones["play_column"]["w"])) if not is_nexus else max(320, int(page_w * zones["question"]["w"]))
+    
+    timer_w = int(page_w * zones["timer"]["w"]) if is_nexus else col_w
+    question_w = int(page_w * zones["question"]["w"]) if is_nexus else col_w
+    answers_w = int(page_w * zones["answers"]["w"]) if is_nexus else col_w
+    footer_w = int(page_w * zones["footer"]["w"]) if is_nexus else col_w
 
     state.setdefault("hidden_answers", [])
     hidden = set(state.get("hidden_answers", []))
@@ -4568,20 +4613,25 @@ def render_game_screen(page: ft.Page, state: dict):
     def make_answer_box(idx: int, text: str) -> ft.Container:
         letter = ANSWER_LETTERS[idx]
         color = answer_palette[idx % len(answer_palette)]
+        is_nexus = theme.get("label") == "Neon Nexus"
+        
+        letter_control = ft.Container(width=42) if is_nexus else ft.Container(
+            content=ft.Text(letter, size=13, weight="bold", color="white"),
+            width=30, height=30,
+            border_radius=15 if not themed else 4,
+            bgcolor=color,
+            alignment=ft.Alignment(0, 0),
+        )
+        
         inner = ft.Row([
-            ft.Container(
-                content=ft.Text(letter, size=13, weight="bold", color="white"),
-                width=30, height=30,
-                border_radius=15 if not themed else 4,
-                bgcolor=color,
-                alignment=ft.Alignment(0, 0),
-            ),
+            letter_control,
             ft.Text(
                 text, size=14 if is_mobile else 15,
                 color=answer_text_color, weight="bold", expand=True,
                 max_lines=2, no_wrap=False,
             ),
         ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        
         box = ft.Container(
             content=inner,
             data=idx,
@@ -4589,10 +4639,10 @@ def render_game_screen(page: ft.Page, state: dict):
             bgcolor=answer_bg,
             border_radius=10 if not themed else 6,
             padding=ft.Padding(10, 10, 10, 10),
-            border=ft.border.Border.all(2, theme["border"]),
+            border=None if is_nexus else ft.border.Border.all(2, theme["border"]),
             expand=True,
             visible=idx not in hidden,
-            height=56 if not is_mobile else 50,
+            height=None if is_nexus else (56 if not is_mobile else 50),
         )
         answer_buttons.append(box)
         return box
@@ -4613,14 +4663,14 @@ def render_game_screen(page: ft.Page, state: dict):
         "∞" if not time_pressure_enabled else str(sec),
         size=16,
         weight="bold",
-        color=theme_txt(theme, "primary") if not time_pressure_enabled else ("#C62828" if sec <= 10 else theme_txt(theme, "primary")),
+        color="#FFFFFF" if is_nexus else (theme_txt(theme, "primary") if not time_pressure_enabled else ("#C62828" if sec <= 10 else theme_txt(theme, "primary"))),
     )
     timer_bar = ft.ProgressBar(
         value=1.0 if not time_pressure_enabled else sec / question_time_sec,
         expand=True,
-        height=10,
-        color=theme["success"] if not time_pressure_enabled else ("#C62828" if sec <= 10 else theme["success"]),
-        bgcolor="#E0E0E0",
+        height=8 if is_nexus else 10,
+        color="#00FF66" if is_nexus else (theme["success"] if not time_pressure_enabled else ("#C62828" if sec <= 10 else theme["success"])),
+        bgcolor="#333333" if is_nexus else "#E0E0E0",
     )
     state["_timer_ui"] = {"text": timer_text, "bar": timer_bar}
 
@@ -4629,17 +4679,17 @@ def render_game_screen(page: ft.Page, state: dict):
             [timer_text, ft.Container(content=timer_bar, expand=True)],
             spacing=12,
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            width=col_w - 24,
+            width=timer_w - 24,
         ),
         theme,
-        height=44,
-        width=col_w,
+        height=44 if not is_nexus else int(page_h * zones["timer"]["h"]),
+        width=timer_w,
     )
 
     question_panel = _game_panel(
         ft.Column([
             ft.Container(
-                content=ft.Text(f"FRAGE {q_num}", size=11, weight="bold", color="#001a0a"),
+                content=ft.Text(f"FRAGE {q_num}", size=11, weight="bold", color="#001a0a" if not is_nexus else "white"),
                 bgcolor=theme["gold"],
                 border_radius=4,
                 padding=ft.Padding(8, 3, 8, 3),
@@ -4649,36 +4699,37 @@ def render_game_screen(page: ft.Page, state: dict):
                 color=question_text_color, text_align=ft.TextAlign.CENTER,
                 max_lines=4, no_wrap=False,
             ),
-        ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=col_w - 24),
+        ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=question_w - 24),
         theme,
-        height=120 if not is_mobile else 100,
-        width=col_w,
+        height=int(page_h * zones["question"]["h"]) if is_nexus else (120 if not is_mobile else 100),
+        width=question_w,
     )
 
     answers_panel = _game_panel(
         ft.Column([
-            ft.Row([answer_boxes[0], answer_boxes[1]], spacing=10),
-            ft.Row([answer_boxes[2], answer_boxes[3]], spacing=10),
-        ], spacing=10, width=col_w - 24) if not is_mobile else ft.Column(answer_boxes, spacing=8, width=col_w - 24),
+            ft.Row([answer_boxes[0], answer_boxes[1]], spacing=10, expand=is_nexus),
+            ft.Row([answer_boxes[2], answer_boxes[3]], spacing=10, expand=is_nexus),
+        ], spacing=10, width=answers_w - 24, expand=is_nexus) if not is_mobile else ft.Column(answer_boxes, spacing=8, width=col_w - 24),
         theme,
-        width=col_w,
+        width=answers_w,
+        height=int(page_h * zones["answers"]["h"]) if is_nexus else None,
     )
 
     status_panel = _game_panel(
         ft.Row([
             ft.Text(f"Frage {q_num} von {total_q}", size=13, color=theme_txt(theme, "secondary"), weight="bold"),
-            ft.Text(f"◆ {state.get('money', '0 €')}", size=14, color=theme["gold"], weight="bold"),
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=col_w - 24),
+            ft.Text(f"◆ {state.get('money', '0 €')}", size=14, color=theme["gold"] if not is_nexus else "#D946EF", weight="bold"),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=footer_w - 24),
         theme,
-        height=42,
-        width=col_w,
+        height=42 if not is_nexus else None,
+        width=footer_w,
     )
 
     joker_panel = _game_panel(
         build_game_joker_bar(page, state, theme, ctx),
         theme,
-        height=58,
-        width=col_w,
+        height=76 if not is_nexus else None,
+        width=footer_w,
     )
 
     play_column = ft.Column(
@@ -4695,17 +4746,18 @@ def render_game_screen(page: ft.Page, state: dict):
 
     exit_btn = ft.Container(
         content=ft.Row([
-            ft.Text("🚪", size=12),
-            ft.Text("Pause", size=11, weight="bold", color="white"),
-        ], spacing=4),
+            ft.Text("🚪", size=14 if is_nexus else 12),
+            ft.Text("Pause", size=13 if is_nexus else 11, weight="bold", color=theme["danger"] if is_nexus else "white"),
+        ], spacing=6, alignment=ft.MainAxisAlignment.CENTER),
         on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
-        bgcolor=theme["danger"],
+        bgcolor="#00000000" if is_nexus else theme["danger"],
         border_radius=4,
         padding=ft.Padding(10, 6, 10, 6),
+        alignment=ft.Alignment(0, 0) if is_nexus else None,
     )
 
     bg_image = theme.get("game_bg") if themed else None
-    overlay_color = "#00000099" if not theme.get("is_light") else "#00000055"
+    overlay_color = "#00000000" if is_nexus else ("#00000099" if not theme.get("is_light") else "#00000055")
     if bg_image:
         bg_layer = _themed_game_background(bg_image, page_w, page_h, overlay_color)
     else:
@@ -4747,12 +4799,28 @@ def render_game_screen(page: ft.Page, state: dict):
         col_items = [exit_btn, play_column, joker_panel, ladder_panel]
         hud_layers.append(ft.Container(expand=True, padding=12, content=ft.Column(col_items, spacing=10, scroll=ft.ScrollMode.AUTO)))
     else:
-        hud_layers.extend([
-            _neon_zone_box(zones["exit"], page_w, page_h, exit_btn),
-            _neon_zone_box(zones["play_column"], page_w, page_h, play_column),
-            _neon_zone_box(zones["jokers"], page_w, page_h, joker_panel),
-            _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel if themed else ft.Container(content=ladder_panel, padding=4)),
-        ])
+        if is_nexus:
+            footer_content = ft.Column(
+                [status_panel, joker_panel],
+                spacing=8,
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+            hud_layers.extend([
+                _neon_zone_box(zones["exit"], page_w, page_h, exit_btn),
+                _neon_zone_box(zones["timer"], page_w, page_h, timer_panel),
+                _neon_zone_box(zones["question"], page_w, page_h, question_panel),
+                _neon_zone_box(zones["answers"], page_w, page_h, answers_panel),
+                _neon_zone_box(zones["footer"], page_w, page_h, footer_content),
+                _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel),
+            ])
+        else:
+            hud_layers.extend([
+                _neon_zone_box(zones["exit"], page_w, page_h, exit_btn),
+                _neon_zone_box(zones["play_column"], page_w, page_h, play_column),
+                _neon_zone_box(zones["jokers"], page_w, page_h, joker_panel),
+                _neon_zone_box(zones["ladder"], page_w, page_h, ladder_panel if themed else ft.Container(content=ladder_panel, padding=4)),
+            ])
     if modal:
         hud_layers.append(
             _neon_zone_box(zones["overlay"], page_w, page_h, modal)
