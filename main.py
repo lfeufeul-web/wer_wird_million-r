@@ -716,32 +716,35 @@ async def clear_remembered_login(page: ft.Page):
 
 async def restore_remembered_login(page: ft.Page, state: dict):
     import asyncio
-    await asyncio.sleep(0.8) # Wait for client storage to sync over WebSocket
-    refresh_token = await storage_get(page, AUTH_REFRESH_TOKEN_KEY)
+    await asyncio.sleep(0.5) # Wait for client storage to sync over WebSocket
     email = await storage_get(page, AUTH_EMAIL_KEY)
     uid = await storage_get(page, AUTH_UID_KEY)
-    if not refresh_token or not email or not uid:
+    refresh_token = await storage_get(page, AUTH_REFRESH_TOKEN_KEY)
+    
+    if not email or not uid:
         return
 
-    try:
-        refreshed = firebase_refresh_auth(refresh_token)
-        uid = refreshed.get("user_id", uid)
-        refresh_token = refreshed.get("refresh_token", refresh_token)
-        user = ensure_firebase_user(uid, email)
-
-        db = load_db()
-        db["users"][email] = user
-        update_last_active(db, email)
-        save_db(db)
-
+    # Log in locally immediately to keep user logged in on refresh!
+    db = load_db()
+    if email in db.get("users", {}):
+        user = db["users"][email]
         state["current_user_email"] = email
         state["current_user_uid"] = uid
-        await storage_set(page, AUTH_UID_KEY, uid)
-        await storage_set(page, AUTH_REFRESH_TOKEN_KEY, refresh_token)
         open_main_menu(page, state)
-    except Exception as e:
-        print(f"Auto-login failed: {e}")
-        await clear_remembered_login(page)
+        
+        # Perform token refresh in background to keep Firebase session fresh,
+        # but don't block or kick user out if it fails temporarily
+        if refresh_token:
+            try:
+                # Run the blocking request in a separate thread so it doesn't block the UI
+                loop = asyncio.get_running_loop()
+                refreshed = await loop.run_in_executor(None, firebase_refresh_auth, refresh_token)
+                new_uid = refreshed.get("user_id", uid)
+                new_token = refreshed.get("refresh_token", refresh_token)
+                await storage_set(page, AUTH_UID_KEY, new_uid)
+                await storage_set(page, AUTH_REFRESH_TOKEN_KEY, new_token)
+            except Exception as e:
+                print(f"Background token refresh failed (user kept logged in): {e}")
 
 
 def ensure_user_settings(db: dict, email: str):
@@ -3586,15 +3589,15 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         # Mega-Update buttons
         menu_buttons.append(
             _menu_button("📅  Daily Challenge",
-                         lambda e: show_daily_challenge_hub(e.page, state), "#E67E22")
+                         lambda e: e.page.go("/daily"), "#E67E22")
         )
         menu_buttons.append(
             _menu_button("🛒  Shop",
-                         lambda e: show_shop_screen(e.page, state), "#3498DB")
+                         lambda e: e.page.go("/shop"), "#3498DB")
         )
         menu_buttons.append(
             _menu_button("🏆  Erfolge",
-                         lambda e: show_achievements_screen(e.page, state), "#F1C40F")
+                         lambda e: e.page.go("/achievements"), "#F1C40F")
         )
 
     menu_items = [
@@ -7371,7 +7374,7 @@ def show_shop_screen(page: ft.Page, state: dict):
                     padding=20,
                     content=ft.Column([
                         ft.Row([
-                            ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
+                            ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
                             ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
                         ]),
                         ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
@@ -7437,7 +7440,7 @@ def show_achievements_screen(page: ft.Page, state: dict):
                 padding=20,
                 content=ft.Column([
                     ft.Row([
-                        ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
+                        ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
                         ft.Text("Erfolge", size=24, weight="bold", color="white"),
                     ]),
                     ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
@@ -7531,7 +7534,7 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
                 padding=20,
                 content=ft.Column([
                     ft.Row([
-                        ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
+                        ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
                         ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
                     ]),
                     ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
@@ -7586,13 +7589,23 @@ def main(page: ft.Page):
 
     def on_route_change(e):
         check_url_parameters()
+        route = page.route or "/"
+        path = route.split("?")[0]
+        if path == "/shop":
+            show_shop_screen(page, app_state)
+        elif path == "/achievements":
+            show_achievements_screen(page, app_state)
+        elif path == "/daily":
+            show_daily_challenge_hub(page, app_state)
+        else:
+            open_main_menu(page, app_state)
 
     page.on_route_change = on_route_change
-    page.add(build_welcome_view(page, app_state))
 
     async def init_task():
         await restore_remembered_login(page, app_state)
         check_url_parameters()
+        page.go(page.route or "/")
 
     page.run_task(init_task)
     page.update()
