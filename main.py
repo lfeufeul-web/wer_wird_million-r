@@ -3583,7 +3583,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         
         # Icon Circle
         icon_ctrl = ft.Container(
-            content=ft.Icon(
+            content=ft.Text(
                 "🔒" if locked else icon_name,
                 color=accent_color,
                 size=24 if is_tall else 20
