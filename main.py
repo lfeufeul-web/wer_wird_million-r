@@ -6160,7 +6160,12 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
 
     def close_dlg():
         if dlg_ref[0] is not None:
-            _close_overlay(page, dlg_ref[0])
+            dlg = dlg_ref[0]
+            dlg.open = False
+            page.dialog = None
+            if dlg in page.overlay:
+                page.overlay.remove(dlg)
+            page.update()
 
     def on_stats(e):
         close_dlg()
