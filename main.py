@@ -3695,13 +3695,13 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     # Profile actions at top right
     header_actions = ft.Row([
         ft.IconButton(
-            icon="👤",
+            icon=ft.Icon("👤"),
             icon_color="white",
             tooltip="Profil bearbeiten",
             on_click=lambda e: show_edit_profile_view(e.page, state)
         ) if logged_in else ft.Container(),
         ft.IconButton(
-            icon="🚪",
+            icon=ft.Icon("🚪"),
             icon_color="#FF6B6B",
             tooltip="Abmelden",
             on_click=on_logout
