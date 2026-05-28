@@ -6176,20 +6176,9 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
 
     def close_dlg():
         if dlg_ref[0] is not None:
-            dlg = dlg_ref[0]
-            # Try page.close() first (for newer Flet versions)
-            if hasattr(page, "close"):
-                try:
-                    page.close(dlg)
-                    page.update()
-                    return
-                except Exception:
-                    pass
-            # Fallback to manual close
-            dlg.open = False
-            page.dialog = None
-            if dlg in page.overlay:
-                page.overlay.remove(dlg)
+            overlay = dlg_ref[0]
+            if overlay in page.overlay:
+                page.overlay.remove(overlay)
             page.update()
 
     def on_stats(e):
@@ -6229,52 +6218,67 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
             width=280,
         )
 
-    dlg = ft.AlertDialog(
-        modal=False,
-        title=ft.Row([
-            ft.Container(
-                width=44, height=44,
-                border_radius=22,
-                bgcolor=friend_theme["accent"],
-                content=ft.Text(
-                    avatar_letter,
-                    size=22, weight="bold", color="white",
-                    text_align=ft.TextAlign.CENTER,
+    # Create a simple overlay container instead of AlertDialog
+    overlay = ft.Container(
+        content=ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Container(
+                        width=44, height=44,
+                        border_radius=22,
+                        bgcolor=friend_theme["accent"],
+                        content=ft.Text(
+                            avatar_letter,
+                            size=22, weight="bold", color="white",
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        alignment=ft.Alignment(0, 0),
+                    ),
+                    ft.Column([
+                        ft.Text(friend_name, size=18, weight="bold", color="white"),
+                        ft.Text(f"⏰ {last_active_str}", size=12, color="#AAAAAA"),
+                        ft.Text(f"🎨 {friend_theme.get('label', friend_theme_name)}", size=12, color=friend_theme["gold"]),
+                    ], spacing=2, expand=True),
+                ], spacing=10),
+                ft.Divider(color=theme["border"], height=1),
+                ft.Text("Was möchtest du tun?", size=13, color="#CCCCCC"),
+                ft.Text(duel_hint, size=12, color=theme["gold"], visible=bool(duel_hint)),
+                menu_button("📊 Statistik ansehen", theme["accent"], on_stats),
+                menu_button(
+                    "⚔️ Deine Runde spielen" if can_play_opponent else (
+                        "⚔️ Duell fortsetzen" if can_resume else "⚔️ Herausfordern"
+                    ),
+                    theme["gold"],
+                    on_challenge,
+                    disabled=bool(active_duel and not can_resume and not can_play_opponent),
                 ),
-                alignment=ft.Alignment(0, 0),
-            ),
-            ft.Column([
-                ft.Text(friend_name, size=18, weight="bold", color="white"),
-                ft.Text(f"⏰ {last_active_str}", size=12, color="#AAAAAA"),
-                ft.Text(f"🎨 {friend_theme.get('label', friend_theme_name)}", size=12, color=friend_theme["gold"]),
-            ], spacing=2, expand=True),
-        ], spacing=10),
-        content=ft.Column([
-            ft.Text("Was möchtest du tun?", size=13, color="#CCCCCC"),
-            ft.Text(duel_hint, size=12, color=theme["gold"], visible=bool(duel_hint)),
-            menu_button("📊 Statistik ansehen", theme["accent"], on_stats),
-            menu_button(
-                "⚔️ Deine Runde spielen" if can_play_opponent else (
-                    "⚔️ Duell fortsetzen" if can_resume else "⚔️ Herausfordern"
+                menu_button("❌ Freund entfernen", theme["danger"], on_remove),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Text(
+                        "Schließen",
+                        size=14,
+                        color="#CCCCCC",
+                        weight=ft.FontWeight.BOLD,
+                    ),
+                    on_click=lambda e: close_dlg(),
+                    ink=True,
+                    padding=ft.Padding(16, 8, 16, 8),
+                    alignment=ft.Alignment(1, 0),
                 ),
-                theme["gold"],
-                on_challenge,
-                disabled=bool(active_duel and not can_resume and not can_play_opponent),
-            ),
-            menu_button("❌ Freund entfernen", theme["danger"], on_remove),
-        ], spacing=10, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-        actions=[
-            ft.TextButton(
-                "Schließen",
-                on_click=lambda e: close_dlg(),
-                style=ft.ButtonStyle(color="#CCCCCC"),
-            ),
-        ],
-        bgcolor=theme["panel"],
-        actions_alignment=ft.MainAxisAlignment.END,
+            ], spacing=10, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=20,
+            bgcolor=theme["panel"],
+            border_radius=16,
+            width=320,
+        ),
+        bgcolor=ft.colors.with_opacity(0.7, ft.colors.BLACK),
+        alignment=ft.Alignment(0, 0),
+        padding=20,
     )
-    dlg_ref[0] = dlg
-    open_page_dialog(page, dlg)
+    dlg_ref[0] = overlay
+    page.overlay.append(overlay)
+    page.update()
 
 
 def accept_duel_challenge(page: ft.Page, state: dict, duel: dict):
