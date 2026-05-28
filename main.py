@@ -3550,6 +3550,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         logged_in = True
     else:
         greeting = "Hallo, Gast! 👋"
+        username = "Gast"
         logged_in = False
     saved_game = get_saved_game_for_state(state) if logged_in else None
 
@@ -3562,114 +3563,375 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     def resume_game(e):
         resume_saved_game(e.page, state)
         return
-        """
-        db_current = load_db()
-        email_current = state.get("current_user_email")
-        if email_current and email_current in db_current["users"]:
-            saved = db_current["users"][email_current].get("saved_game")
-            if saved:
-                state.update({
-                    "money": saved.get("money", "0 €"),
-                    "questions_answered": saved.get("questions_answered", 0),
-                    "correct": saved.get("correct", 0),
-                    "jokers_used": saved.get("jokers_used", 0),
-                    "question_index": saved.get("question_index", 0),
-                    "questions": saved.get("questions", []),
-                })
-                show_next_question(e.page, state)
-        """
 
-    menu_buttons = []
-    if logged_in and saved_game:
-        menu_buttons.append(
-            _menu_button("▶️  Spiel fortsetzen", resume_game, "#2ECC71")
+    def create_hover_card(
+        title: str,
+        desc: str,
+        icon_name,
+        color_hex: str,
+        bg_hex: str,
+        glow_hex: str,
+        on_click,
+        locked: bool = False,
+        width: float = 280,
+        height: float = 95,
+        is_tall: bool = False,
+        extra_content = None
+    ):
+        accent_color = color_hex
+        border_color = f"#2A{glow_hex[1:]}" # subtle transparent border
+        
+        # Icon Circle
+        icon_ctrl = ft.Container(
+            content=ft.Icon(
+                ft.icons.LOCK if locked else icon_name,
+                color=accent_color,
+                size=24 if is_tall else 20
+            ),
+            width=48 if is_tall else 42,
+            height=48 if is_tall else 42,
+            shape=ft.BoxShape.CIRCLE,
+            bgcolor=f"#18{glow_hex[1:]}", # very transparent bg
+            border=ft.border.all(1, accent_color),
+            alignment=ft.alignment.center
         )
-    menu_buttons.append(
-        _menu_button("🎮  Spiel starten",
-                     lambda e: start_new_game(e.page, state), "#F4A460")
+        
+        if is_tall:
+            card_content = ft.Column([
+                icon_ctrl,
+                ft.Spacer(),
+                ft.Row([
+                    ft.Column([
+                        ft.Text(title, size=22, weight="bold", color="white"),
+                        ft.Text(desc, size=13, color="#8B9A90")
+                    ], spacing=2, tight=True),
+                    ft.Spacer(),
+                    ft.Icon(ft.icons.ARROW_FORWARD, color="white", size=22)
+                ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, expand=True)
+            
+            if extra_content:
+                card_content.controls.insert(2, extra_content)
+        else:
+            card_content = ft.Row([
+                icon_ctrl,
+                ft.Container(width=10),
+                ft.Column([
+                    ft.Text(title, size=16, weight="bold", color="white"),
+                    ft.Text(desc, size=11, color="#8F949D" if not locked else "#E06B6B")
+                ], spacing=2, tight=True, expand=True),
+                ft.Icon(ft.icons.LOCK_OUTLINE if locked else ft.icons.ARROW_FORWARD, color="#4A505A" if locked else "white", size=18)
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
+            
+        # The main card Container
+        card = ft.Container(
+            content=card_content,
+            bgcolor=bg_hex,
+            width=width,
+            height=height,
+            border_radius=18 if is_tall else 16,
+            padding=ft.Padding(24, 20, 24, 20) if is_tall else ft.Padding(18, 14, 18, 14),
+            border=ft.border.all(1.2, border_color),
+            shadow=ft.BoxShadow(
+                blur_radius=15,
+                color=f"#15{glow_hex[1:]}", # soft glow
+                spread_radius=-8
+            ),
+            on_click=on_click,
+            scale=1.0,
+            animate_scale=ft.Animation(200, ft.AnimationCurve.DECELERATE),
+        )
+        
+        # Micro-animations on hover
+        def on_hover(e):
+            if e.data == "true":
+                e.control.scale = 1.03
+                e.control.border = ft.border.all(1.2, accent_color)
+                e.control.shadow = ft.BoxShadow(
+                    blur_radius=25,
+                    color=f"#25{glow_hex[1:]}",
+                    spread_radius=-4
+                )
+                e.control.update()
+            else:
+                e.control.scale = 1.0
+                e.control.border = ft.border.all(1.2, border_color)
+                e.control.shadow = ft.BoxShadow(
+                    blur_radius=15,
+                    color=f"#15{glow_hex[1:]}",
+                    spread_radius=-8
+                )
+                e.control.update()
+                
+        card.on_hover = on_hover
+        return card
+
+    # Ambient glows
+    glow_left = ft.Container(
+        width=500,
+        height=500,
+        bgcolor=None,
+        gradient=ft.RadialGradient(
+            colors=["#0A1D13", "#00000000"],
+            center=ft.Alignment(-0.5, -0.5),
+            radius=1.2
+        ),
+        opacity=0.4
     )
-    menu_buttons.append(
-        _menu_button("Einstellungen",
-                     lambda e: show_settings_view(e.page, state), "#9B59B6")
+    glow_right = ft.Container(
+        width=500,
+        height=500,
+        bgcolor=None,
+        gradient=ft.RadialGradient(
+            colors=["#1D0D26", "#00000000"],
+            center=ft.Alignment(0.5, 0.5),
+            radius=1.2
+        ),
+        opacity=0.3
     )
-    if not logged_in:
-        menu_buttons.append(
-            _menu_button("Anmelden",
-                         lambda e: show_login_view(e.page, state), "#2ECC71")
+
+    # Dot grid
+    def create_dot_grid():
+        dots = []
+        for _ in range(4):
+            dots.append(
+                ft.Row([
+                    ft.Container(width=4, height=4, bgcolor="#10B981", border_radius=2, opacity=0.15)
+                    for _ in range(4)
+                ], spacing=6)
+            )
+        return ft.Column(dots, spacing=6)
+
+    # Profile actions at top right
+    header_actions = ft.Row([
+        ft.IconButton(
+            icon=ft.icons.ACCOUNT_CIRCLE,
+            icon_color="white",
+            tooltip="Profil bearbeiten",
+            on_click=lambda e: show_edit_profile_view(e.page, state)
+        ) if logged_in else ft.Container(),
+        ft.IconButton(
+            icon=ft.icons.LOGOUT,
+            icon_color="#FF6B6B",
+            tooltip="Abmelden",
+            on_click=on_logout
+        ) if logged_in else ft.Container()
+    ], alignment=ft.MainAxisAlignment.END)
+
+    # Top Central Banner Card
+    top_card = ft.Container(
+        content=ft.Column([
+            # Circle with Question Mark
+            ft.Container(
+                content=ft.Text("?", size=32, weight="bold", color="white"),
+                width=64,
+                height=64,
+                shape=ft.BoxShape.CIRCLE,
+                bgcolor="#08100C",
+                border=ft.border.all(2, "#10B981"),
+                alignment=ft.alignment.center,
+                shadow=ft.BoxShadow(
+                    blur_radius=15,
+                    color="#10B981",
+                    spread_radius=-4
+                )
+            ),
+            ft.Container(height=8),
+            # Title
+            ft.Text("WER WIRD", size=24, weight="bold", color="white", tracking=1.5),
+            ft.Text("MILLIONÄR?", size=38, weight="w900", color="#10B981", tracking=2.0),
+            ft.Container(height=4),
+            # Subtitle
+            ft.Text("Teste dein Wissen. Werde Millionär.", size=13, color="#8B9A90")
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
+        width=600,
+        padding=ft.Padding(32, 28, 32, 28),
+        border_radius=24,
+        bgcolor="#070A08",
+        border=ft.border.all(1.5, "#0E2919"),
+        shadow=ft.BoxShadow(
+            blur_radius=40,
+            color="#081E12",
+            spread_radius=-10
+        ),
+        alignment=ft.alignment.center
+    )
+
+    # Greeting badge in center
+    greeting_badge = ft.Container(
+        content=ft.Row([
+            ft.Text("👋", size=15),
+            ft.Text("Hallo, ", color="white", size=13, weight="w500"),
+            ft.Text(username, color="#10B981", size=13, weight="bold")
+        ], alignment=ft.MainAxisAlignment.CENTER, spacing=4, tight=True),
+        bgcolor="#060C09",
+        border=ft.border.all(1, "#142D1E"),
+        border_radius=30,
+        padding=ft.Padding(18, 8, 18, 8),
+        shadow=ft.BoxShadow(
+            blur_radius=10,
+            color="#000000",
+            spread_radius=-2
+        )
+    )
+
+    # Standard cards setup
+    card_start = create_hover_card(
+        title="Spiel starten",
+        desc="Dein Wissen. Dein Spiel.",
+        icon_name=ft.icons.SPORTS_ESPORTS,
+        color_hex="#10B981",
+        bg_hex="#0A150F",
+        glow_hex="#10B981",
+        on_click=(lambda e: show_game_start_menu(e.page, state, saved_game)) if saved_game else (lambda e: start_new_game(e.page, state)),
+        width=265,
+        height=205,
+        is_tall=True
+    )
+
+    card_settings = create_hover_card(
+        title="Einstellungen",
+        desc="Anpassen & konfigurieren",
+        icon_name=ft.icons.SETTINGS,
+        color_hex="#A78BFA",
+        bg_hex="#130D22",
+        glow_hex="#8B5CF6",
+        on_click=lambda e: show_settings_view(e.page, state),
+        width=265,
+        height=95
+    )
+    
+    if logged_in:
+        card_shop = create_hover_card(
+            title="Shop",
+            desc="Power-Ups & Extras",
+            icon_name=ft.icons.SHOPPING_CART,
+            color_hex="#60A5FA",
+            bg_hex="#0D1527",
+            glow_hex="#3B82F6",
+            on_click=lambda e: e.page.go("/shop"),
+            width=265,
+            height=95
         )
     else:
-        # Mega-Update buttons
-        menu_buttons.append(
-            _menu_button("📅  Daily Challenge",
-                         lambda e: e.page.go("/daily"), "#E67E22")
+        card_shop = create_hover_card(
+            title="Anmelden",
+            desc="Profil verbinden",
+            icon_name=ft.icons.LOGIN,
+            color_hex="#60A5FA",
+            bg_hex="#0D1527",
+            glow_hex="#3B82F6",
+            on_click=lambda e: show_login_view(e.page, state),
+            width=265,
+            height=95
         )
-        menu_buttons.append(
-            _menu_button("🛒  Shop",
-                         lambda e: e.page.go("/shop"), "#3498DB")
-        )
-        menu_buttons.append(
-            _menu_button("🏆  Erfolge",
-                         lambda e: e.page.go("/achievements"), "#F1C40F")
-        )
+        
+    card_daily = create_hover_card(
+        title="Daily Challenge",
+        desc="Jeden Tag neu" if logged_in else "Anmelden zum Spielen",
+        icon_name=ft.icons.CALENDAR_MONTH,
+        color_hex="#FDBA74",
+        bg_hex="#1E110A",
+        glow_hex="#F97316",
+        on_click=lambda e: e.page.go("/daily") if logged_in else show_login_view(e.page, state),
+        locked=not logged_in,
+        width=265,
+        height=95
+    )
+    
+    card_achievements = create_hover_card(
+        title="Erfolge",
+        desc="Deine Meilensteine" if logged_in else "Anmelden zum Freischalten",
+        icon_name=ft.icons.EMOJI_EVENTS,
+        color_hex="#FDE047",
+        bg_hex="#1A180B",
+        glow_hex="#FBBF24",
+        on_click=lambda e: e.page.go("/achievements") if logged_in else show_login_view(e.page, state),
+        locked=not logged_in,
+        width=265,
+        height=95
+    )
 
-    menu_items = [
-        ft.Container(
-            content=ft.Column([
-                ft.Text("❓", size=60, text_align="center"),
-                ft.Text("WER WIRD", size=28, weight="bold",
-                        color=theme["gold"], text_align="center"),
-                ft.Text("MILLIONÄR?", size=34, weight="black",
-                        color=theme_txt(theme, "primary"), text_align="center"),
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4),
-            padding=30,
-            border_radius=24,
-            bgcolor=theme["panel"],
-            shadow=ft.BoxShadow(blur_radius=40, color="#40000000"),
-            border=ft.border.Border.all(3, theme["gold"]),
-        ),
+    grid_row = ft.Row([
+        card_start,
+        ft.Column([
+            card_settings,
+            card_shop
+        ], spacing=15, tight=True),
+        ft.Column([
+            card_daily,
+            card_achievements
+        ], spacing=15, tight=True)
+    ], alignment=ft.MainAxisAlignment.CENTER, spacing=15, tight=True)
+
+    # Footer Bar
+    footer_bar = ft.Container(
+        content=ft.Row([
+            ft.Icon(ft.icons.EMOJI_EVENTS, color="#10B981", size=18),
+            ft.VerticalDivider(width=1, color="#1F2A22", thickness=1),
+            ft.Text("Wissen ist Macht.", color="white", size=12, weight="w500"),
+            ft.Text("Bist du bereit?", color="#10B981", size=12, weight="bold"),
+            ft.VerticalDivider(width=1, color="#1F2A22", thickness=1),
+            ft.Container(width=40, height=2, bgcolor="#10B981", opacity=0.3)
+        ], alignment=ft.MainAxisAlignment.CENTER, spacing=12, tight=True),
+        border_radius=20,
+        border=ft.border.all(1, "#14261B"),
+        bgcolor="#060C08",
+        padding=ft.Padding(24, 8, 24, 8)
+    )
+
+    main_column = ft.Column([
+        top_card,
+        ft.Container(height=5),
+        greeting_badge,
         ft.Container(height=10),
-        ft.Container(
-            content=ft.Text(greeting, size=18, weight="bold", color=theme_txt(theme, "primary"), text_align="center"),
-            bgcolor=theme["panel"],
-            border_radius=12,
-            padding=ft.Padding(14, 8, 14, 8),
-            border=ft.border.Border.all(1, theme["border"]),
-        ),
+        grid_row,
         ft.Container(height=10),
-        *menu_buttons,
-    ]
-
-    if logged_in:
-        menu_items.extend([
-            ft.Container(height=10),
-            ft.Row([
-                ft.TextButton(
-                    "✏️ Profil bearbeiten",
-                    on_click=lambda e: show_edit_profile_view(e.page, state),
-                    style=ft.ButtonStyle(color="white"),
-                ),
-                ft.TextButton(
-                    "🚪 Abmelden",
-                    on_click=on_logout,
-                    style=ft.ButtonStyle(color="#FF6B6B"),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER, spacing=20)
-        ])
-
+        footer_bar
+    ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
+    
+    stack = ft.Stack([
+        # Ambient glows behind
+        ft.Container(
+            content=glow_left,
+            left=-100,
+            top=-100
+        ),
+        ft.Container(
+            content=glow_right,
+            right=-100,
+            bottom=-100
+        ),
+        # Dot grids in corners
+        ft.Container(
+            content=create_dot_grid(),
+            left=40,
+            top=40
+        ),
+        ft.Container(
+            content=create_dot_grid(),
+            right=40,
+            bottom=40
+        ),
+        # Header action buttons
+        ft.Container(
+            content=header_actions,
+            top=20,
+            right=20
+        ),
+        # Centered main content
+        ft.Container(
+            content=main_column,
+            alignment=ft.alignment.center,
+            expand=True
+        )
+    ], expand=True)
+    
     return ft.Container(
         expand=True,
-        gradient=ft.LinearGradient(
-            begin=ft.Alignment(-1, -1),
-            end=ft.Alignment(1, 1),
-            colors=theme["gradient"],
-        ),
-        alignment=ft.Alignment(0, 0),
-        content=ft.Column(
-            menu_items,
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=14,
-        ),
+        bgcolor="#030504",
+        content=stack,
+        alignment=ft.alignment.center
     )
 
 
