@@ -6121,7 +6121,7 @@ def _close_overlay(page: ft.Page, overlay):
 def close_all_dialogs(page: ft.Page):
     """Close all open dialogs on the page."""
     # Close dialog if set
-    if page.dialog:
+    if hasattr(page, "dialog") and page.dialog:
         close_page_dialog(page, page.dialog)
     
     # Close all AlertDialog overlays
