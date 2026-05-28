@@ -3599,13 +3599,13 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         if is_tall:
             card_content = ft.Column([
                 icon_ctrl,
-                ft.Spacer(),
+                ft.Container(expand=True),
                 ft.Row([
                     ft.Column([
                         ft.Text(title, size=22, weight="bold", color="white"),
                         ft.Text(desc, size=13, color="#8B9A90")
                     ], spacing=2, tight=True),
-                    ft.Spacer(),
+                    ft.Container(expand=True),
                     ft.Icon(ft.icons.ARROW_FORWARD, color="white", size=22)
                 ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, expand=True)
