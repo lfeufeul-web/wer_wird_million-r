@@ -275,7 +275,6 @@ THEMES = {
         "game_layout": "themed",
         "game_bg": "neon_nexus_bg_clean.png",
         "layout_zones": NEON_NEXUS_ZONES,
-        "video_bg": "hintergrund.gif",
         "is_light": True,
         "text_primary": "#0F172A",
         "text_secondary": "#334155",
@@ -3539,133 +3538,6 @@ def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
 
 
 # ---------- Welcome Screen ----------
-
-def _start_gif_animation(page: ft.Page, state: dict, gif_path: str, layer_stack_ref: list):
-    """Animiert ein GIF frame-by-frame über die Flet-Overlay-Schicht."""
-    
-    def get_gif_frames(gif_path: str) -> list:
-        """Lädt GIF-Frames via Pillow."""
-        try:
-            from PIL import Image
-        except ImportError:
-            return []
-
-        frames = []
-        local_path = gif_path
-
-        # Falls es eine URL ist, erst herunterladen
-        if gif_path.startswith("http"):
-            try:
-                import tempfile
-                tmp = tempfile.NamedTemporaryFile(suffix=".gif", delete=False)
-                urllib.request.urlretrieve(gif_path, tmp.name)
-                local_path = tmp.name
-            except Exception:
-                return []
-        elif not os.path.exists(gif_path):
-            # Versuche assets-Ordner
-            candidates = [
-                os.path.join("assets", gif_path),
-                os.path.join("assets", "video", gif_path),
-                os.path.join(os.getcwd(), "assets", gif_path),
-            ]
-            for c in candidates:
-                if os.path.exists(c):
-                    local_path = c
-                    break
-
-        if not os.path.exists(local_path):
-            return []
-
-        try:
-            img = Image.open(local_path)
-            durations = []
-            try:
-                durations = [f.info.get("duration", 100) for f in range(img.n_frames)]
-            except Exception:
-                durations = [100] * img.n_frames
-
-            for i in range(img.n_frames):
-                img.seek(i)
-                frame = img.copy().convert("RGBA")
-                buf = io.BytesIO()
-                frame.save(buf, format="PNG")
-                buf.seek(0)
-                frames.append(base64.b64encode(buf.getvalue()).decode())
-        except Exception:
-            pass
-        return frames
-
-    async def animate():
-        frames = get_gif_frames(gif_path)
-        if not frames:
-            print(f"[GIF] Keine Frames gefunden für: {gif_path}")
-            return
-
-        # Container erstellen (statisch, erste Frame)
-        container = ft.Container(
-            left=0, top=0, right=0, bottom=0,
-            content=ft.Image(
-                src=f"data:image/png;base64,{frames[0]}",
-                fit=ft.ImageFit.COVER,
-                expand=True,
-            ),
-            width=None, height=None,
-        )
-        page.overlay.append(container)
-        page.update()
-
-        idx = [0]  # mutable index
-        running = [True]
-
-        def next_frame():
-            if not running[0]:
-                return
-            idx[0] = (idx[0] + 1) % len(frames)
-            try:
-                container.content = ft.Image(
-                    src=f"data:image/png;base64,{frames[idx[0]]}",
-                    fit=ft.ImageFit.COVER,
-                    expand=True,
-                )
-                container.update()
-            except Exception:
-                pass
-
-        # Frame-Timer mit asyncio
-        async def run_animation():
-            try:
-                from PIL import Image as PILImage
-                img = PILImage.open(local_path)
-                base_duration = 100
-                try:
-                    frame_durations = []
-                    for f in range(img.n_frames):
-                        img.seek(f)
-                        frame_durations.append(f.info.get("duration", base_duration))
-                except Exception:
-                    frame_durations = [base_duration]
-            except Exception:
-                frame_durations = [100]
-
-            while running[0]:
-                await asyncio.sleep(frame_durations[idx[0]] / 1000.0)
-                next_frame()
-
-        asyncio.ensure_future(run_animation())
-        layer_stack_ref.append({"container": container, "running": running})
-
-    page.run_task(animate)
-
-
-def _GifBackgroundLayer(gif_path: str) -> ft.Container:
-    """Platzhalter-Layer für das animierte GIF (wird zur Laufzeit gefüllt)."""
-    return ft.Container(
-        left=0, top=0, right=0, bottom=0,
-        content=ft.Container(),  # wird ersetzt
-    )
-
-
 def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     """Styled welcome / main menu screen."""
     db = load_db()
@@ -3994,19 +3866,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         footer_bar
     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
     
-    # GIF Animation setup
-    gif_layer_ref = [None]  # Speichert GIF-Animation-Referenz
-    gif_path = theme.get("video_bg", "")
-    
-    if gif_path:
-        # Ersetze den statischen Image-Block durch die GIF-Animation
-        video_layer = _GifBackgroundLayer(gif_path)
-        gif_layer_ref[0] = video_layer
-    else:
-        video_layer = None
-    
     stack = ft.Stack([
-        video_layer,  # ← jetzt der animierte GIF-Layer statt ft.Image
         # Ambient glows behind
         ft.Container(
             content=glow_left,
@@ -4042,10 +3902,6 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             expand=True
         )
     ], expand=True)
-    
-    # GIF-Animation starten
-    if gif_path:
-        _start_gif_animation(page, state, gif_path, gif_layer_ref)
     
     return ft.Container(
         expand=True,
