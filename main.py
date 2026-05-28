@@ -2496,7 +2496,11 @@ def show_joker_confirm_screen(page: ft.Page, state: dict, picked_ids: list[str],
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("Joker bestätigen", size=28, weight="bold", color="white", text_align="center"),
@@ -2624,7 +2628,11 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("Wähle deinen Joker", size=28, weight="bold", color="white", text_align="center"),
@@ -3686,23 +3694,17 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
 
     # Profile actions at top right
     header_actions = ft.Row([
-        ft.TextButton(
-            "👤",
+        ft.IconButton(
+            icon="👤",
+            icon_color="white",
             tooltip="Profil bearbeiten",
-            on_click=lambda e: show_edit_profile_view(e.page, state),
-            style=ft.ButtonStyle(
-                bgcolor=ft.colors.TRANSPARENT,
-                padding=ft.padding.all(8)
-            )
+            on_click=lambda e: show_edit_profile_view(e.page, state)
         ) if logged_in else ft.Container(),
-        ft.TextButton(
-            "🚪",
+        ft.IconButton(
+            icon="🚪",
+            icon_color="#FF6B6B",
             tooltip="Abmelden",
-            on_click=on_logout,
-            style=ft.ButtonStyle(
-                bgcolor=ft.colors.TRANSPARENT,
-                padding=ft.padding.all(8)
-            )
+            on_click=on_logout
         ) if logged_in else ft.Container()
     ], alignment=ft.MainAxisAlignment.END)
 
@@ -4009,7 +4011,11 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("Spiel starten", size=30, weight="bold", color="white", text_align="center"),
@@ -4103,7 +4109,11 @@ def show_custom_quiz_hub(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("Eigene Spiele", size=28, weight="bold", color="white", text_align="center"),
@@ -4302,7 +4312,11 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("Quiz bearbeiten", size=26, weight="bold", color="white", text_align="center"),
@@ -4458,7 +4472,11 @@ def show_custom_question_editor(page: ft.Page, state: dict, question_index: int 
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text(
@@ -4548,7 +4566,11 @@ def show_age_selection(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("Wähle deine Altersgruppe", size=26, weight="bold",
@@ -4919,7 +4941,11 @@ def render_game_screen(page: ft.Page, state: dict):
     else:
         bg_layer = ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
         )
 
     modal = state.get("_modal_overlay")
@@ -5199,7 +5225,11 @@ def show_exit_confirmation(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor="#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=["#2C1654", "#6B2FA0", "#C2185B"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Container(
@@ -5252,7 +5282,11 @@ def _show_correct_screen(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor="#1A3A1A",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=["#1A3A1A", "#2ECC71", "#27AE60"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("✅", size=80),
@@ -5324,7 +5358,11 @@ def _show_wrong_screen(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor="#3A0A0A",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=["#3A0A0A", "#E74C3C", "#C0392B"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("❌", size=80),
@@ -5425,7 +5463,11 @@ def _show_win_screen(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor="#1A1000",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=["#1A1000", "#B8860B", "#FFD700"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("🎉", size=80),
@@ -5619,7 +5661,11 @@ def show_legacy_email_code_login_view(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor="#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=["#2C1654", "#6B2FA0", "#C2185B"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("🔑 Anmelden", size=30, weight="bold", color="white"),
@@ -5752,7 +5798,11 @@ def show_login_view(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("Anmelden", size=30, weight="bold", color="white"),
@@ -5893,7 +5943,11 @@ def show_settings_view(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column(
                 menu_items,
@@ -5941,7 +5995,11 @@ def show_design_view(page: ft.Page, state: dict):
                     ft.Container(
                         height=48,
                         border_radius=12,
-                        bgcolor=value["gradient"][0] if value["gradient"] else "#2C1654",
+                        gradient=ft.LinearGradient(
+                            begin=ft.Alignment(-1, -1),
+                            end=ft.Alignment(1, 1),
+                            colors=value["gradient"],
+                        ),
                     ),
                     ft.Text(value["label"], size=15, weight="bold", color="white" if value["panel"] != "#FFFFFF" else "#102030"),
                     ft.Text("Aktiv" if selected else "Auswählen", size=12, color=value["gold"] if selected else "#CCCCCC"),
@@ -5964,7 +6022,11 @@ def show_design_view(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("Design", size=30, weight="bold", color=theme_txt(theme, "primary")),
@@ -6487,7 +6549,7 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
         page.add(
             ft.Container(
                 expand=True,
-                bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+                gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=theme["gradient"]),
                 alignment=ft.Alignment(0, 0),
                 content=ft.Column([
                     ft.Text("⚔️ Duell beendet!", size=30, weight="bold", color="white"),
@@ -6511,7 +6573,7 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=theme["gradient"]),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Row([
@@ -6954,7 +7016,11 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, -0.05),
             content=ft.Column([
                 ft.Text("Freunde", size=28, weight="bold", color=theme_txt(theme, "primary")),
@@ -7007,7 +7073,11 @@ def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("Freundesstatistik", size=30, weight="bold", color="white"),
@@ -7092,7 +7162,11 @@ def show_edit_profile_view(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("✏️ Profil bearbeiten", size=30, weight="bold", color="white"),
@@ -7242,7 +7316,11 @@ def show_stats_legacy(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("📊 Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
@@ -7445,7 +7523,11 @@ def show_stats(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Text("Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
@@ -7649,7 +7731,11 @@ def show_achievements_screen(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             content=ft.Container(
                 padding=20,
                 content=ft.Column([
@@ -7739,7 +7825,11 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            bgcolor=theme["gradient"][0] if theme["gradient"] else "#2C1654",
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
             content=ft.Container(
                 padding=20,
                 content=ft.Column([
@@ -7774,7 +7864,7 @@ def main(page: ft.Page):
 
     page.title = "Wer wird Millionär?"
     page.theme_mode = ft.ThemeMode.DARK
-    page.bgcolor = "#000000"
+    page.bgcolor = "#2C1654"
     page.padding = 0
     page.window.width = 1100
     page.window.height = 680
