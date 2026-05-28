@@ -3593,7 +3593,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             shape=ft.BoxShape.CIRCLE,
             bgcolor=f"#18{glow_hex[1:]}", # very transparent bg
             border=ft.border.Border.all(1, accent_color),
-            alignment=ft.alignment.center
+            alignment=ft.Alignment(0, 0)
         )
         
         if is_tall:
@@ -3729,7 +3729,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                 shape=ft.BoxShape.CIRCLE,
                 bgcolor="#08100C",
                 border=ft.border.Border.all(2, "#10B981"),
-                alignment=ft.alignment.center,
+                alignment=ft.Alignment(0, 0),
                 shadow=ft.BoxShadow(
                     blur_radius=15,
                     color="#10B981",
@@ -3754,7 +3754,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             color="#081E12",
             spread_radius=-10
         ),
-        alignment=ft.alignment.center
+        alignment=ft.Alignment(0, 0)
     )
 
     # Greeting badge in center
@@ -3922,7 +3922,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         # Centered main content
         ft.Container(
             content=main_column,
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
             expand=True
         )
     ], expand=True)
@@ -3931,7 +3931,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         expand=True,
         bgcolor="#030504",
         content=stack,
-        alignment=ft.alignment.center
+        alignment=ft.Alignment(0, 0)
     )
 
 
