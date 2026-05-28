@@ -7774,7 +7774,7 @@ def main(page: ft.Page):
 
     page.title = "Wer wird Millionär?"
     page.theme_mode = ft.ThemeMode.DARK
-    page.bgcolor = "#2C1654"
+    page.bgcolor = "#000000"
     page.padding = 0
     page.window.width = 1100
     page.window.height = 680
