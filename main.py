@@ -3779,7 +3779,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     card_start = create_hover_card(
         title="Spiel starten",
         desc="Dein Wissen. Dein Spiel.",
-        icon_name=ft.icons.PLAY_ARROW,
+        icon_name=ft.icons.ARROW_FORWARD,
         color_hex="#10B981",
         bg_hex="#0A150F",
         glow_hex="#10B981",
