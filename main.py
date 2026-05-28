@@ -3686,15 +3686,23 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
 
     # Profile actions at top right
     header_actions = ft.Row([
-        ft.IconButton(
-            content=ft.Text("👤", size=20),
+        ft.TextButton(
+            "👤",
             tooltip="Profil bearbeiten",
-            on_click=lambda e: show_edit_profile_view(e.page, state)
+            on_click=lambda e: show_edit_profile_view(e.page, state),
+            style=ft.ButtonStyle(
+                bgcolor=ft.colors.TRANSPARENT,
+                padding=ft.padding.all(8)
+            )
         ) if logged_in else ft.Container(),
-        ft.IconButton(
-            content=ft.Text("🚪", size=20),
+        ft.TextButton(
+            "🚪",
             tooltip="Abmelden",
-            on_click=on_logout
+            on_click=on_logout,
+            style=ft.ButtonStyle(
+                bgcolor=ft.colors.TRANSPARENT,
+                padding=ft.padding.all(8)
+            )
         ) if logged_in else ft.Container()
     ], alignment=ft.MainAxisAlignment.END)
 
