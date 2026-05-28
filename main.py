@@ -6118,6 +6118,22 @@ def _close_overlay(page: ft.Page, overlay):
     page.update()
 
 
+def close_all_dialogs(page: ft.Page):
+    """Close all open dialogs on the page."""
+    # Close dialog if set
+    if page.dialog:
+        close_page_dialog(page, page.dialog)
+    
+    # Close all AlertDialog overlays
+    overlays_to_remove = []
+    for overlay in page.overlay:
+        if isinstance(overlay, ft.AlertDialog):
+            overlays_to_remove.append(overlay)
+    
+    for overlay in overlays_to_remove:
+        close_page_dialog(page, overlay)
+
+
 def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
     """Opens an action menu for a friend (stats, challenge, remove)."""
     theme = get_theme(state)
@@ -6589,6 +6605,7 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
 
 
 def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
+    close_all_dialogs(page)
     theme = get_theme(state)
     db, email, user = current_user_entry(state)
     if not email or not user:
@@ -7030,6 +7047,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
 
 
 def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
+    close_all_dialogs(page)
     theme = get_theme(state)
     db = load_db()
     friend = db.get("users", {}).get(friend_email)
