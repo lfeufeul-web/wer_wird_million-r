@@ -6193,15 +6193,16 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
         show_friends_view(page, state, status_message=f"{friend_name} wurde entfernt.")
 
     def menu_button(label: str, color: str, handler, disabled: bool = False):
-        return ft.Container(
+        return ft.ElevatedButton(
             content=ft.Text(label, size=14, weight="bold", color="white" if not disabled else "#888888"),
             on_click=None if disabled else handler,
-            ink=not disabled,
             bgcolor=color if not disabled else "#444444",
-            border_radius=12,
-            padding=ft.Padding(16, 12, 16, 12),
-            alignment=ft.Alignment(0, 0),
+            style=ft.ButtonStyle(
+                bgcolor=color if not disabled else "#444444",
+            ),
+            disabled=disabled,
             width=280,
+            height=44,
         )
 
     dlg = ft.AlertDialog(
