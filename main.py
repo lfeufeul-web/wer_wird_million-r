@@ -6177,8 +6177,15 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
     def close_dlg():
         if dlg_ref[0] is not None:
             dlg = dlg_ref[0]
+            if hasattr(page, "close"):
+                try:
+                    page.close(dlg)
+                    page.update()
+                    return
+                except Exception:
+                    pass
             dlg.open = False
-            if hasattr(page, "dialog"):
+            if hasattr(page, "dialog") and page.dialog == dlg:
                 page.dialog = None
             if dlg in page.overlay:
                 page.overlay.remove(dlg)
