@@ -3592,7 +3592,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             height=48 if is_tall else 42,
             shape=ft.BoxShape.CIRCLE,
             bgcolor=f"#18{glow_hex[1:]}", # very transparent bg
-            border=ft.border.all(1, accent_color),
+            border=ft.border.Border.all(1, accent_color),
             alignment=ft.alignment.center
         )
         
@@ -3631,7 +3631,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             height=height,
             border_radius=18 if is_tall else 16,
             padding=ft.Padding(24, 20, 24, 20) if is_tall else ft.Padding(18, 14, 18, 14),
-            border=ft.border.all(1.2, border_color),
+            border=ft.border.Border.all(1.2, border_color),
             shadow=ft.BoxShadow(
                 blur_radius=15,
                 color=f"#15{glow_hex[1:]}", # soft glow
@@ -3646,7 +3646,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         def on_hover(e):
             if e.data == "true":
                 e.control.scale = 1.03
-                e.control.border = ft.border.all(1.2, accent_color)
+                e.control.border = ft.border.Border.all(1.2, accent_color)
                 e.control.shadow = ft.BoxShadow(
                     blur_radius=25,
                     color=f"#25{glow_hex[1:]}",
@@ -3655,7 +3655,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                 e.control.update()
             else:
                 e.control.scale = 1.0
-                e.control.border = ft.border.all(1.2, border_color)
+                e.control.border = ft.border.Border.all(1.2, border_color)
                 e.control.shadow = ft.BoxShadow(
                     blur_radius=15,
                     color=f"#15{glow_hex[1:]}",
@@ -3728,7 +3728,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                 height=64,
                 shape=ft.BoxShape.CIRCLE,
                 bgcolor="#08100C",
-                border=ft.border.all(2, "#10B981"),
+                border=ft.border.Border.all(2, "#10B981"),
                 alignment=ft.alignment.center,
                 shadow=ft.BoxShadow(
                     blur_radius=15,
@@ -3748,7 +3748,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         padding=ft.Padding(32, 28, 32, 28),
         border_radius=24,
         bgcolor="#070A08",
-        border=ft.border.all(1.5, "#0E2919"),
+        border=ft.border.Border.all(1.5, "#0E2919"),
         shadow=ft.BoxShadow(
             blur_radius=40,
             color="#081E12",
@@ -3765,7 +3765,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             ft.Text(username, color="#10B981", size=13, weight="bold")
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=4, tight=True),
         bgcolor="#060C09",
-        border=ft.border.all(1, "#142D1E"),
+        border=ft.border.Border.all(1, "#142D1E"),
         border_radius=30,
         padding=ft.Padding(18, 8, 18, 8),
         shadow=ft.BoxShadow(
@@ -3875,7 +3875,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             ft.Container(width=40, height=2, bgcolor="#10B981", opacity=0.3)
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=12, tight=True),
         border_radius=20,
-        border=ft.border.all(1, "#14261B"),
+        border=ft.border.Border.all(1, "#14261B"),
         bgcolor="#060C08",
         padding=ft.Padding(24, 8, 24, 8)
     )
