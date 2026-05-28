@@ -3871,7 +3871,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         # Video/GIF background for Neon Nexus theme
         ft.Container(
             content=ft.Image(
-                src=theme.get("video_bg", ""),
+                src=f"/{theme.get('video_bg', '')}",
                 fit=ft.ImageFit.COVER,
                 expand=True,
             ) if theme.get("video_bg") else None,
