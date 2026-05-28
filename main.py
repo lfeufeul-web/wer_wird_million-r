@@ -6272,7 +6272,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
             border_radius=16,
             width=320,
         ),
-        bgcolor=ft.colors.with_opacity(0.7, ft.colors.BLACK),
+        bgcolor="#000000B3",
         alignment=ft.Alignment(0, 0),
         padding=20,
     )
