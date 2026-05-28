@@ -3868,12 +3868,13 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
     
     stack = ft.Stack([
-        # Video/GIF background for Neon Nexus theme
+        # Video/GIF background for Neon Nexus theme - try to load as static image first
         ft.Container(
             content=ft.Image(
                 src=f"/{theme.get('video_bg', '')}",
                 fit=ft.ImageFit.COVER,
                 expand=True,
+                error_content=ft.Text("GIF not found", color="red"),
             ) if theme.get("video_bg") else None,
             left=0,
             top=0,
