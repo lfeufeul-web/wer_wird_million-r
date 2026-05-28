@@ -3666,28 +3666,18 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         card.on_hover = on_hover
         return card
 
-    # Ambient glows
+    # Ambient glows (simplified without gradients)
     glow_left = ft.Container(
         width=500,
         height=500,
-        bgcolor=None,
-        gradient=ft.RadialGradient(
-            colors=["#0A1D13", "#00000000"],
-            center=ft.Alignment(-0.5, -0.5),
-            radius=1.2
-        ),
-        opacity=0.4
+        bgcolor="#0A1D13",
+        opacity=0.2
     )
     glow_right = ft.Container(
         width=500,
         height=500,
-        bgcolor=None,
-        gradient=ft.RadialGradient(
-            colors=["#1D0D26", "#00000000"],
-            center=ft.Alignment(0.5, 0.5),
-            radius=1.2
-        ),
-        opacity=0.3
+        bgcolor="#1D0D26",
+        opacity=0.15
     )
 
     # Dot grid
