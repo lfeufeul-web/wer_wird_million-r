@@ -3738,8 +3738,8 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             ),
             ft.Container(height=8),
             # Title
-            ft.Text("WER WIRD", size=24, weight="bold", color="white", tracking=1.5),
-            ft.Text("MILLIONÄR?", size=38, weight="w900", color="#10B981", tracking=2.0),
+            ft.Text("WER WIRD", size=24, weight="bold", color="white"),
+            ft.Text("MILLIONÄR?", size=38, weight="w900", color="#10B981"),
             ft.Container(height=4),
             # Subtitle
             ft.Text("Teste dein Wissen. Werde Millionär.", size=13, color="#8B9A90")
