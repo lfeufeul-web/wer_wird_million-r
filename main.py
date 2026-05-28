@@ -1942,7 +1942,7 @@ def _DraggableModal(panel: ft.Control) -> ft.Stack:
     # We will wrap only the handle with the GestureDetector to move it!
     # Flet's drag works by tracking the drag on the handle.
     
-    drag_container = ft.Container(content=box, left=0, top=0)
+    drag_container = ft.Container(content=box)
 
     def on_pan_update(e):
         try:
@@ -1950,10 +1950,10 @@ def _DraggableModal(panel: ft.Control) -> ft.Stack:
             if page is None: return
             pw = float(getattr(page, "width", None) or 1100)
             ph = float(getattr(page, "height", None) or 720)
-            
+
             if pos["left"] < 0:
-                pos["left"] = drag_container.left
-                pos["top"] = drag_container.top
+                pos["left"] = (pw - PANEL_W) / 2
+                pos["top"] = (ph - 340) / 2
 
             pos["left"] += e.delta_x
             pos["top"] += e.delta_y
@@ -1977,8 +1977,7 @@ def _DraggableModal(panel: ft.Control) -> ft.Stack:
     # We need to center the modal initially. We can do this in the build or via alignment.
     # Since we're using Stack with absolute positioning, we'll let it be centered initially via Stack properties? No, Stack left/top are absolute.
     # Let's initialize pos and center it initially via window size (assuming typical 1100x720 if not available)
-    drag_container.left = (1100 - PANEL_W) / 2
-    drag_container.top = (720 - 340) / 2
+    # Removed left/top positioning to fix overlay error
 
     backdrop = ft.Container(expand=True, bgcolor="#00000088")
     return ft.Stack([backdrop, gesture], expand=True)
@@ -3692,21 +3691,8 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             )
         return ft.Column(dots, spacing=6)
 
-    # Profile actions at top right
-    header_actions = ft.Row([
-        ft.IconButton(
-            icon=ft.Icon("👤"),
-            icon_color="white",
-            tooltip="Profil bearbeiten",
-            on_click=lambda e: show_edit_profile_view(e.page, state)
-        ) if logged_in else ft.Container(),
-        ft.IconButton(
-            icon=ft.Icon("🚪"),
-            icon_color="#FF6B6B",
-            tooltip="Abmelden",
-            on_click=on_logout
-        ) if logged_in else ft.Container()
-    ], alignment=ft.MainAxisAlignment.END)
+    # Profile actions at top right (removed to fix gray background issue)
+    header_actions = ft.Row([])
 
     # Top Central Banner Card
     top_card = ft.Container(
