@@ -6177,6 +6177,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
     def close_dlg():
         if dlg_ref[0] is not None:
             dlg = dlg_ref[0]
+            # Try page.close() first (for newer Flet versions)
             if hasattr(page, "close"):
                 try:
                     page.close(dlg)
@@ -6184,21 +6185,19 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
                     return
                 except Exception:
                     pass
+            # Fallback to manual close
             dlg.open = False
-            if hasattr(page, "dialog") and page.dialog == dlg:
-                page.dialog = None
+            page.dialog = None
             if dlg in page.overlay:
                 page.overlay.remove(dlg)
             page.update()
 
     def on_stats(e):
         close_dlg()
-        page.update()
         show_friend_stats_view(page, state, friend_email)
 
     def on_challenge(e):
         close_dlg()
-        page.update()
         if active_duel:
             if can_resume:
                 start_duel_play(page, state, active_duel, role="challenger")
@@ -6215,7 +6214,6 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
 
     def on_remove(e):
         close_dlg()
-        page.update()
         remove_friend(state, friend_email)
         show_friends_view(page, state, status_message=f"{friend_name} wurde entfernt.")
 
@@ -6232,7 +6230,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
         )
 
     dlg = ft.AlertDialog(
-        modal=True,
+        modal=False,
         title=ft.Row([
             ft.Container(
                 width=44, height=44,
