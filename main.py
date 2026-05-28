@@ -275,6 +275,7 @@ THEMES = {
         "game_layout": "themed",
         "game_bg": "neon_nexus_bg_clean.png",
         "layout_zones": NEON_NEXUS_ZONES,
+        "video_bg": "hintergrund.mp4",
         "is_light": True,
         "text_primary": "#0F172A",
         "text_secondary": "#334155",
@@ -3867,6 +3868,20 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
     
     stack = ft.Stack([
+        # Video background for Neon Nexus theme
+        ft.Container(
+            content=ft.Video(
+                src=theme.get("video_bg", ""),
+                autoplay=True,
+                loop=True,
+                fill=ft.ImageFill.COVER,
+                expand=True,
+            ) if theme.get("video_bg") else None,
+            left=0,
+            top=0,
+            right=0,
+            bottom=0,
+        ) if theme.get("video_bg") else None,
         # Ambient glows behind
         ft.Container(
             content=glow_left,
