@@ -6193,10 +6193,12 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
 
     def on_stats(e):
         close_dlg()
+        page.update()
         show_friend_stats_view(page, state, friend_email)
 
     def on_challenge(e):
         close_dlg()
+        page.update()
         if active_duel:
             if can_resume:
                 start_duel_play(page, state, active_duel, role="challenger")
@@ -6213,6 +6215,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
 
     def on_remove(e):
         close_dlg()
+        page.update()
         remove_friend(state, friend_email)
         show_friends_view(page, state, status_message=f"{friend_name} wurde entfernt.")
 
