@@ -3584,7 +3584,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         # Icon Circle
         icon_ctrl = ft.Container(
             content=ft.Icon(
-                ft.icons.LOCK if locked else icon_name,
+                "🔒" if locked else icon_name,
                 color=accent_color,
                 size=24 if is_tall else 20
             ),
@@ -3695,13 +3695,13 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     # Profile actions at top right
     header_actions = ft.Row([
         ft.IconButton(
-            icon=ft.icons.ACCOUNT_CIRCLE,
+            icon="👤",
             icon_color="white",
             tooltip="Profil bearbeiten",
             on_click=lambda e: show_edit_profile_view(e.page, state)
         ) if logged_in else ft.Container(),
         ft.IconButton(
-            icon=ft.icons.LOGOUT,
+            icon="🚪",
             icon_color="#FF6B6B",
             tooltip="Abmelden",
             on_click=on_logout
@@ -3782,7 +3782,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     card_settings = create_hover_card(
         title="Einstellungen",
         desc="Anpassen & konfigurieren",
-        icon_name=ft.icons.SETTINGS,
+        icon_name="⚙️",
         color_hex="#A78BFA",
         bg_hex="#130D22",
         glow_hex="#8B5CF6",
@@ -3795,7 +3795,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         card_shop = create_hover_card(
             title="Shop",
             desc="Power-Ups & Extras",
-            icon_name=ft.icons.SHOPPING_CART,
+            icon_name="🛒",
             color_hex="#60A5FA",
             bg_hex="#0D1527",
             glow_hex="#3B82F6",
@@ -3807,7 +3807,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         card_shop = create_hover_card(
             title="Anmelden",
             desc="Profil verbinden",
-            icon_name=ft.icons.LOGIN,
+            icon_name="🔑",
             color_hex="#60A5FA",
             bg_hex="#0D1527",
             glow_hex="#3B82F6",
@@ -3819,7 +3819,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     card_daily = create_hover_card(
         title="Daily Challenge",
         desc="Jeden Tag neu" if logged_in else "Anmelden zum Spielen",
-        icon_name=ft.icons.CALENDAR_MONTH,
+        icon_name="📅",
         color_hex="#FDBA74",
         bg_hex="#1E110A",
         glow_hex="#F97316",
@@ -3832,7 +3832,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     card_achievements = create_hover_card(
         title="Erfolge",
         desc="Deine Meilensteine" if logged_in else "Anmelden zum Freischalten",
-        icon_name=ft.icons.EMOJI_EVENTS,
+        icon_name="🏆",
         color_hex="#FDE047",
         bg_hex="#1A180B",
         glow_hex="#FBBF24",
@@ -3857,7 +3857,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     # Footer Bar
     footer_bar = ft.Container(
         content=ft.Row([
-            ft.Icon(ft.icons.EMOJI_EVENTS, color="#10B981", size=18),
+            ft.Text("🏆", color="#10B981", size=18),
             ft.VerticalDivider(width=1, color="#1F2A22", thickness=1),
             ft.Text("Wissen ist Macht.", color="white", size=12, weight="w500"),
             ft.Text("Bist du bereit?", color="#10B981", size=12, weight="bold"),
