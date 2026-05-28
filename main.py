@@ -6229,7 +6229,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
         )
 
     dlg = ft.AlertDialog(
-        modal=True,
+        modal=False,
         title=ft.Row([
             ft.Container(
                 width=44, height=44,
@@ -6617,6 +6617,12 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
 
 
 def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
+    # Clear all overlays to ensure any open dialogs are closed
+    page.overlay.clear()
+    if hasattr(page, "dialog"):
+        page.dialog = None
+    page.update()
+    
     theme = get_theme(state)
     db, email, user = current_user_entry(state)
     if not email or not user:
@@ -7058,6 +7064,12 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
 
 
 def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
+    # Clear all overlays to ensure any open dialogs are closed
+    page.overlay.clear()
+    if hasattr(page, "dialog"):
+        page.dialog = None
+    page.update()
+    
     theme = get_theme(state)
     db = load_db()
     friend = db.get("users", {}).get(friend_email)
