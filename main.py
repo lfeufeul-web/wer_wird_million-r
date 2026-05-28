@@ -6620,8 +6620,14 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
 
 
 def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
-    # Clear all overlays to ensure any open dialogs are closed
-    page.overlay.clear()
+    # Close all AlertDialog overlays to ensure any open dialogs are closed
+    overlays_to_remove = []
+    for overlay in page.overlay:
+        if isinstance(overlay, ft.AlertDialog):
+            overlays_to_remove.append(overlay)
+    for overlay in overlays_to_remove:
+        if overlay in page.overlay:
+            page.overlay.remove(overlay)
     if hasattr(page, "dialog"):
         page.dialog = None
     page.update()
@@ -7067,8 +7073,14 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
 
 
 def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
-    # Clear all overlays to ensure any open dialogs are closed
-    page.overlay.clear()
+    # Close all AlertDialog overlays to ensure any open dialogs are closed
+    overlays_to_remove = []
+    for overlay in page.overlay:
+        if isinstance(overlay, ft.AlertDialog):
+            overlays_to_remove.append(overlay)
+    for overlay in overlays_to_remove:
+        if overlay in page.overlay:
+            page.overlay.remove(overlay)
     if hasattr(page, "dialog"):
         page.dialog = None
     page.update()
