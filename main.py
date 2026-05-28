@@ -3590,7 +3590,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             width=48 if is_tall else 42,
             height=48 if is_tall else 42,
             shape=ft.BoxShape.CIRCLE,
-            bgcolor=f"#18{glow_hex[1:]}", # very transparent bg
+            bgcolor=None,
             border=ft.border.Border.all(1, accent_color),
             alignment=ft.Alignment(0, 0)
         )
