@@ -3606,7 +3606,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                         ft.Text(desc, size=13, color="#8B9A90")
                     ], spacing=2, tight=True),
                     ft.Container(expand=True),
-                    ft.Icon(ft.icons.ARROW_FORWARD, color="white", size=22)
+                    ft.Text("▶", color="white", size=22)
                 ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, expand=True)
             
@@ -3620,7 +3620,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                     ft.Text(title, size=16, weight="bold", color="white"),
                     ft.Text(desc, size=11, color="#8F949D" if not locked else "#E06B6B")
                 ], spacing=2, tight=True, expand=True),
-                ft.Icon(ft.icons.LOCK_OUTLINE if locked else ft.icons.ARROW_FORWARD, color="#4A505A" if locked else "white", size=18)
+                ft.Text("▶" if not locked else "🔒", color="#4A505A" if locked else "white", size=18)
             ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
             
         # The main card Container
@@ -3769,7 +3769,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     card_start = create_hover_card(
         title="Spiel starten",
         desc="Dein Wissen. Dein Spiel.",
-        icon_name=ft.icons.ARROW_FORWARD,
+        icon_name="▶",
         color_hex="#10B981",
         bg_hex="#0A150F",
         glow_hex="#10B981",
