@@ -6232,7 +6232,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
         )
 
     dlg = ft.AlertDialog(
-        modal=False,
+        modal=True,
         title=ft.Row([
             ft.Container(
                 width=44, height=44,
