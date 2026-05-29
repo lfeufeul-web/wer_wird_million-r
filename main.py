@@ -415,6 +415,7 @@ THEME_BG_ROOT = "backgrounds"
 NEON_THEME_BG_DIR = "neon_nexus"
 ROYALE_GOLD_THEME_BG_DIR = "royale_gold"
 OCEAN_THEME_BG_DIR = "ocean"
+HACKER_MATRIX_THEME_BG_DIR = "hacker_matrix"
 THEME_BG_CONFIG = {
     "neon_nexus": {
         "folder": NEON_THEME_BG_DIR,
@@ -433,6 +434,12 @@ THEME_BG_CONFIG = {
         "menu": "hintergrund_ocean",
         "joker": "hintergrund_ocean_2",
         "game": "hintergrund_ocean_3",
+    },
+    "hacker": {
+        "folder": HACKER_MATRIX_THEME_BG_DIR,
+        "menu": "hintergrund_hacker_matrix",
+        "joker": "hintergrund_hacker_matrix_2",
+        "game": "hintergrund_hacker_matrix_3",
     },
 }
 
@@ -2661,6 +2668,11 @@ def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | No
 
         page.run_task(run_joker)
 
+    page_w = page.width or (page.window.width if getattr(page, "window", None) else 1100) or 1100
+    is_small_mobile = page_w < 430
+    chip_size = 48 if is_small_mobile else 60
+    chip_spacing = 6 if is_small_mobile else 8
+
     chips = []
     for jid in selected:
         joker = get_joker(jid)
@@ -2672,7 +2684,7 @@ def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | No
                 theme,
                 selected=True,
                 used=jid in used_ids,
-                size=60,
+                size=chip_size,
                 on_click=lambda e, j=jid: on_joker_tap(j),
                 show_name=True,
             )
@@ -2680,15 +2692,15 @@ def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | No
     while len(chips) < JOKER_SELECT_COUNT:
         chips.append(
             ft.Container(
-                width=60,
-                height=60,
+                width=chip_size,
+                height=chip_size,
                 border_radius=12,
                 bgcolor=theme.get("question_bg", "#FFFFFF"),
                 border=ft.border.Border.all(1, theme["border"]),
             )
         )
 
-    return ft.Row(chips, spacing=8, alignment=ft.MainAxisAlignment.CENTER)
+    return ft.Row(chips, spacing=chip_spacing, alignment=ft.MainAxisAlignment.CENTER, wrap=is_small_mobile, run_spacing=chip_spacing)
 
 
 def _apply_joker_selection_and_start(state: dict, picked_ids: list[str], on_start):
@@ -2899,12 +2911,14 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
     )
 
     selected_row = ft.Row([], alignment=ft.MainAxisAlignment.CENTER, spacing=10, wrap=True)
+    selected_panel_width = min(520, int((58 * JOKER_SELECT_COUNT) + 58 + (10 * (JOKER_SELECT_COUNT + 1)) + 32))
     selected_panel = ft.Container(
         content=ft.Row([selected_row, check_btn], alignment=ft.MainAxisAlignment.CENTER, spacing=14),
         bgcolor=panel_bg,
         border_radius=14,
         padding=16,
         border=ft.border.Border.all(2, theme["border"]),
+        width=selected_panel_width,
     )
     start_without_joker = ft.Container(
         content=ft.ElevatedButton("Start ohne Joker", on_click=on_check, style=ft.ButtonStyle(bgcolor=theme["success"], color="white")),
@@ -3841,6 +3855,10 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         username = "Gast"
         logged_in = False
     saved_game = get_saved_game_for_state(state) if logged_in else None
+    menu_card_bg = theme.get("panel", "#0A150F")
+    menu_card_border = theme.get("border", "#10B981")
+    menu_card_glow = theme.get("accent_2", menu_card_border)
+    menu_card_icon = theme.get("accent", "#10B981")
 
     def on_logout(e):
         state["current_user_email"] = None
@@ -4047,9 +4065,9 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         title="Spiel starten",
         desc="Dein Wissen. Dein Spiel.",
         icon_name="▶",
-        color_hex="#10B981",
-        bg_hex="#0A150F",
-        glow_hex="#10B981",
+        color_hex=menu_card_icon,
+        bg_hex=menu_card_bg,
+        glow_hex=menu_card_glow,
         on_click=(lambda e: show_game_start_menu(e.page, state, saved_game)) if saved_game else (lambda e: start_new_game(e.page, state)),
         width=265,
         height=205,
@@ -4060,9 +4078,9 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         title="Einstellungen",
         desc="Anpassen & konfigurieren",
         icon_name="⚙️",
-        color_hex="#A78BFA",
-        bg_hex="#130D22",
-        glow_hex="#8B5CF6",
+        color_hex=menu_card_icon,
+        bg_hex=menu_card_bg,
+        glow_hex=menu_card_glow,
         on_click=lambda e: show_settings_view(e.page, state),
         width=265,
         height=95
@@ -4073,9 +4091,9 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             title="Shop",
             desc="Power-Ups & Extras",
             icon_name="🛒",
-            color_hex="#60A5FA",
-            bg_hex="#0D1527",
-            glow_hex="#3B82F6",
+            color_hex=menu_card_icon,
+            bg_hex=menu_card_bg,
+            glow_hex=menu_card_glow,
             on_click=lambda e: e.page.go("/shop"),
             width=265,
             height=95
@@ -4085,9 +4103,9 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             title="Anmelden",
             desc="Profil verbinden",
             icon_name="🔑",
-            color_hex="#60A5FA",
-            bg_hex="#0D1527",
-            glow_hex="#3B82F6",
+            color_hex=menu_card_icon,
+            bg_hex=menu_card_bg,
+            glow_hex=menu_card_glow,
             on_click=lambda e: show_login_view(e.page, state),
             width=265,
             height=95
@@ -4097,9 +4115,9 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         title="Daily Challenge",
         desc="Jeden Tag neu" if logged_in else "Anmelden zum Spielen",
         icon_name="📅",
-        color_hex="#FDBA74",
-        bg_hex="#1E110A",
-        glow_hex="#F97316",
+        color_hex=menu_card_icon,
+        bg_hex=menu_card_bg,
+        glow_hex=menu_card_glow,
         on_click=lambda e: e.page.go("/daily") if logged_in else show_login_view(e.page, state),
         locked=not logged_in,
         width=265,
@@ -4110,9 +4128,9 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         title="Erfolge",
         desc="Deine Meilensteine" if logged_in else "Anmelden zum Freischalten",
         icon_name="🏆",
-        color_hex="#FDE047",
-        bg_hex="#1A180B",
-        glow_hex="#FBBF24",
+        color_hex=menu_card_icon,
+        bg_hex=menu_card_bg,
+        glow_hex=menu_card_glow,
         on_click=lambda e: e.page.go("/achievements") if logged_in else show_login_view(e.page, state),
         locked=not logged_in,
         width=265,
@@ -5074,6 +5092,8 @@ def render_game_screen(page: ft.Page, state: dict):
     page_w, page_h = _page_size(page)
     is_mobile = page_w < 720
     is_nexus = theme.get("label") == "Neon Nexus"
+    if is_mobile and is_nexus:
+        is_nexus = False
     theme_key = _theme_key_from_theme(theme)
     themed_bg_preview = _resolve_theme_background(theme_key, "game", allow_video=bool(FletVideo and VideoMedia and PlaylistMode)) if theme_key else None
     has_themed_video_bg = themed and _is_video_background(themed_bg_preview if themed_bg_preview else theme.get("game_bg"))
@@ -5396,14 +5416,11 @@ def render_game_screen(page: ft.Page, state: dict):
         border=classic_panel_border,
     )
 
-    # Answer grid (2x2 desktop, stacked on mobile)
-    if is_mobile:
-        answers_grid = ft.Column(answer_boxes, spacing=8)
-    else:
-        answers_grid = ft.Column([
-            ft.Row([answer_boxes[0], answer_boxes[1]], spacing=10),
-            ft.Row([answer_boxes[2], answer_boxes[3]], spacing=10),
-        ], spacing=10)
+    # Answer grid (2x2 on all sizes for better mobile readability)
+    answers_grid = ft.Column([
+        ft.Row([answer_boxes[0], answer_boxes[1]], spacing=8 if is_mobile else 10),
+        ft.Row([answer_boxes[2], answer_boxes[3]], spacing=8 if is_mobile else 10),
+    ], spacing=8 if is_mobile else 10)
 
     # Status bar (question number + money)
     status_bar = ft.Container(
@@ -6286,33 +6303,37 @@ def show_design_view(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=20,
+                        content=ft.Column([
+                            ft.Text("Design", size=30, weight="bold", color=theme_txt(theme, "primary")),
+                            ft.Container(height=6),
+                            ft.Container(
+                                content=ft.Column([
+                                    *rows,
+                                    status_text,
+                                ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                bgcolor=theme["panel"],
+                                border_radius=16,
+                                padding=20,
+                                border=ft.border.Border.all(2, theme["border"]),
+                                width=390,
+                            ),
+                            ft.TextButton(
+                                "Zurück",
+                                on_click=lambda e: show_settings_view(e.page, state),
+                                style=ft.ButtonStyle(color="white"),
+                            ),
+                        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14, scroll=ft.ScrollMode.AUTO),
+                    ),
+                ],
+                expand=True,
             ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("Design", size=30, weight="bold", color=theme_txt(theme, "primary")),
-                ft.Container(height=6),
-                ft.Container(
-                    content=ft.Column([
-                        *rows,
-                        status_text,
-                    ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=theme["panel"],
-                    border_radius=16,
-                    padding=20,
-                    border=ft.border.Border.all(2, theme["border"]),
-                    width=390,
-                ),
-                ft.TextButton(
-                    "Zurück",
-                    on_click=lambda e: show_settings_view(e.page, state),
-                    style=ft.ButtonStyle(color="white"),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14, scroll=ft.ScrollMode.AUTO),
-            padding=20,
         )
     )
     page.update()
@@ -7849,29 +7870,27 @@ def show_stats(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        padding=ft.Padding(12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20),
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
+                            ft.Container(height=10),
+                            stats_cards,
+                            ft.Container(height=20),
+                            _theme_action_button("Zurück", theme, lambda e: open_main_menu(e.page, state), width=200),
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=14,
+                           scroll=ft.ScrollMode.AUTO),
+                    ),
+                ],
+                expand=True,
             ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
-                ft.Container(height=10),
-                stats_cards,
-                ft.Container(height=20),
-                ft.Container(
-                    content=ft.Text("Zurück", size=16, weight="bold", color="white"),
-                    on_click=lambda e: open_main_menu(e.page, state),
-                    bgcolor=theme["accent"],
-                    border_radius=50,
-                    padding=ft.Padding(30, 12, 30, 12),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=14,
-               scroll=ft.ScrollMode.AUTO),
-            padding=ft.Padding(12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20),
         )
     )
     page.update()

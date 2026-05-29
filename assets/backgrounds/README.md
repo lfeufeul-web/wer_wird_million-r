@@ -13,6 +13,10 @@ Folder structure:
   - hintergrund_ocean.(mp4|webm|mov|m4v|gif|png|jpg|jpeg)
   - hintergrund_ocean_2.(mp4|webm|mov|m4v|gif|png|jpg|jpeg)
   - hintergrund_ocean_3.(mp4|webm|mov|m4v|gif|png|jpg|jpeg)
+- hacker_matrix/
+  - hintergrund_hacker_matrix.(mp4|webm|mov|m4v|gif|png|jpg|jpeg)
+  - hintergrund_hacker_matrix_2.(mp4|webm|mov|m4v|gif|png|jpg|jpeg)
+  - hintergrund_hacker_matrix_3.(mp4|webm|mov|m4v|gif|png|jpg|jpeg)
 
 Notes:
 - The app auto-detects the first matching extension in the order above.
