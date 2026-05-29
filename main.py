@@ -322,6 +322,8 @@ THEMES = {
     },
     "royal": {
         "label": "Royal Gold",
+        "game_layout": "themed",
+        "game_bg": "backgrounds/royale_gold/hintergrund_royale_gold_3.mp4",
         "is_light": False,
         "text_primary": "#FFFFFF",
         "text_secondary": "#F3E5AB",
@@ -388,6 +390,21 @@ except Exception:
 BG_MUSIC_FILE = "bg_music.mp3"
 THEME_BG_ROOT = "backgrounds"
 NEON_THEME_BG_DIR = "neon_nexus"
+ROYALE_GOLD_THEME_BG_DIR = "royale_gold"
+THEME_BG_CONFIG = {
+    "neon_nexus": {
+        "folder": NEON_THEME_BG_DIR,
+        "menu": "hintergrund_neon_nexus",
+        "game": "hintergrund_bild_neon_nexus",
+        "joker": "hintergrund_joker_neon_nexus",
+    },
+    "royal": {
+        "folder": ROYALE_GOLD_THEME_BG_DIR,
+        "menu": "hintergrund_royale_gold",
+        "joker": "hintergrund_royale_gold_2",
+        "game": "hintergrund_royale_gold_3",
+    },
+}
 
 def play_tts(page: ft.Page, text: str):
     """Generates an MP3 via gTTS and plays it on the page."""
@@ -984,20 +1001,47 @@ def _is_video_background(src: str | None) -> bool:
     return bool(src) and str(src).lower().endswith(".mp4")
 
 
-def _is_neon_nexus_theme(theme: dict | None) -> bool:
-    return bool(theme) and theme.get("label") == "Neon Nexus"
+def _theme_key_from_theme(theme: dict | None) -> str | None:
+    if not theme:
+        return None
+    label = theme.get("label")
+    for key, entry in THEMES.items():
+        if entry.get("label") == label:
+            return key
+    return None
 
 
-def _resolve_neon_background(stem: str, allow_video: bool = True) -> str | None:
+def _is_themed_video_theme(theme: dict | None) -> bool:
+    return (_theme_key_from_theme(theme) or "") in THEME_BG_CONFIG
+
+
+def _resolve_theme_background(theme_key: str, role: str, allow_video: bool = True) -> str | None:
+    cfg = THEME_BG_CONFIG.get(theme_key)
+    if not cfg:
+        return None
+    stem = cfg.get(role)
+    if not stem:
+        return None
+    folder = cfg.get("folder")
+    if not folder:
+        return None
+
     video_exts = [".mp4", ".webm", ".mov", ".m4v"]
     image_exts = [".gif", ".png", ".jpg", ".jpeg"]
     exts = (video_exts + image_exts) if allow_video else image_exts
-    base_rel = f"{THEME_BG_ROOT}/{NEON_THEME_BG_DIR}/{stem}"
-    base_abs = os.path.join("assets", THEME_BG_ROOT, NEON_THEME_BG_DIR, stem)
+
+    folder_abs = os.path.join("assets", THEME_BG_ROOT, folder)
+    folder_rel = f"{THEME_BG_ROOT}/{folder}"
+    if not os.path.isdir(folder_abs):
+        return None
+
+    target_stem = stem.lower()
+    files_by_lower = {name.lower(): name for name in os.listdir(folder_abs)}
     for ext in exts:
-        abs_path = f"{base_abs}{ext}"
-        if os.path.exists(abs_path):
-            return f"{base_rel}{ext}"
+        candidate = f"{target_stem}{ext}"
+        real_name = files_by_lower.get(candidate)
+        if real_name:
+            return f"{folder_rel}/{real_name}"
     return None
 
 
@@ -1031,17 +1075,39 @@ def _build_looping_background_from_src(page: ft.Page, src: str | None) -> ft.Con
 
 
 def _build_looping_menu_background(page: ft.Page, theme: dict) -> ft.Control | None:
-    if not _is_neon_nexus_theme(theme):
+    theme_key = _theme_key_from_theme(theme)
+    if not theme_key:
         return None
-    src = _resolve_neon_background("hintergrund_neon_nexus", allow_video=bool(FletVideo and VideoMedia and PlaylistMode))
+    src = _resolve_theme_background(theme_key, "menu", allow_video=bool(FletVideo and VideoMedia and PlaylistMode))
     return _build_looping_background_from_src(page, src)
 
 
 def _build_looping_joker_background(page: ft.Page, theme: dict) -> ft.Control | None:
-    if not _is_neon_nexus_theme(theme):
+    theme_key = _theme_key_from_theme(theme)
+    if not theme_key:
         return None
-    src = _resolve_neon_background("hintergrund_joker_neon_nexus", allow_video=bool(FletVideo and VideoMedia and PlaylistMode))
+    src = _resolve_theme_background(theme_key, "joker", allow_video=bool(FletVideo and VideoMedia and PlaylistMode))
     return _build_looping_background_from_src(page, src)
+
+
+def _themed_screen_background(page: ft.Page, theme: dict, overlay_color: str = "#00000088") -> ft.Control:
+    bg = _build_looping_menu_background(page, theme)
+    if bg:
+        return ft.Stack(
+            [
+                bg,
+                ft.Container(expand=True, bgcolor=overlay_color),
+            ],
+            expand=True,
+        )
+    return ft.Container(
+        expand=True,
+        gradient=ft.LinearGradient(
+            begin=ft.Alignment(-1, -1),
+            end=ft.Alignment(1, 1),
+            colors=theme["gradient"],
+        ),
+    )
 
 
 def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay_color: str) -> ft.Stack:
@@ -2571,8 +2637,10 @@ def _apply_joker_selection_and_start(state: dict, picked_ids: list[str], on_star
 def show_joker_confirm_screen(page: ft.Page, state: dict, picked_ids: list[str], on_start):
     """Full-screen confirm (works on web where AlertDialog often fails)."""
     theme = get_theme(state)
-    joker_bg_src = _resolve_neon_background("hintergrund_joker_neon_nexus") if _is_neon_nexus_theme(theme) else None
-    has_video_bg = _is_video_background(joker_bg_src)
+    theme_key = _theme_key_from_theme(theme)
+    video_available = bool(FletVideo and VideoMedia and PlaylistMode)
+    joker_bg_src = _resolve_theme_background(theme_key, "joker", allow_video=video_available) if theme_key else None
+    has_video_bg = video_available and _is_video_background(joker_bg_src)
     panel_bg = "#060d09f0" if has_video_bg else theme["panel"]
     secondary_text = "#D7DEE9" if has_video_bg else theme_txt(theme, "secondary")
 
@@ -2643,8 +2711,10 @@ def show_joker_confirm_screen(page: ft.Page, state: dict, picked_ids: list[str],
 def show_joker_selection(page: ft.Page, state: dict, on_start):
     """Pick 4 jokers from catalog, confirm, then start the game."""
     theme = get_theme(state)
-    joker_bg_src = _resolve_neon_background("hintergrund_joker_neon_nexus") if _is_neon_nexus_theme(theme) else None
-    has_video_bg = _is_video_background(joker_bg_src)
+    theme_key = _theme_key_from_theme(theme)
+    video_available = bool(FletVideo and VideoMedia and PlaylistMode)
+    joker_bg_src = _resolve_theme_background(theme_key, "joker", allow_video=video_available) if theme_key else None
+    has_video_bg = video_available and _is_video_background(joker_bg_src)
     panel_bg = "#060d09f0" if has_video_bg else theme["panel"]
     secondary_text = "#D7DEE9" if has_video_bg else theme_txt(theme, "secondary")
     pick = list(state.get("joker_pick_buffer", []))
@@ -2724,8 +2794,8 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
         options=[ft.dropdown.Option(str(v)) for v in QUESTION_TIME_OPTIONS],
         value=str(int(state.get("question_time_sec", QUESTION_TIME_SEC))),
         width=120,
-        on_change=on_question_time_change,
     )
+    time_dropdown.on_select = on_question_time_change
     timer_off_text = ft.Text(
         "Timer aus – kein Countdown",
         size=13,
@@ -5091,9 +5161,11 @@ def render_game_screen(page: ft.Page, state: dict):
     state["_timer_ui"] = {"text": timer_text, "bar": timer_bar}
 
     # ── background ─────────────────────────────────────────────────────────────
-    bg_image = _resolve_neon_background("hintergrund_bild_neon_nexus") if is_nexus else (theme.get("game_bg") if themed else None)
+    theme_key = _theme_key_from_theme(theme)
+    themed_bg = _resolve_theme_background(theme_key, "game", allow_video=bool(FletVideo and VideoMedia and PlaylistMode)) if theme_key else None
+    bg_image = themed_bg if themed_bg else (theme.get("game_bg") if themed else None)
     has_video_bg = _is_video_background(bg_image)
-    if is_nexus and has_video_bg:
+    if themed and has_video_bg:
         overlay_color = "#000000b8"
         question_text_color = "#F8FAFC"
         answer_text_color = "#F8FAFC"
@@ -7890,26 +7962,28 @@ def show_shop_screen(page: ft.Page, state: dict):
         page.add(
             ft.Container(
                 expand=True,
-                gradient=ft.LinearGradient(
-                    begin=ft.Alignment(-1, -1),
-                    end=ft.Alignment(1, 1),
-                    colors=theme["gradient"],
-                ),
-                content=ft.Container(
-                    padding=20,
-                    content=ft.Column([
-                        ft.Row([
-                            ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
-                            ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
-                        ]),
-                        ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
-                        ft.Divider(color=theme["border"]),
-                        ft.Text("🎨 Designs", size=20, weight="bold", color="white"),
-                        ft.Column(theme_cards, scroll=ft.ScrollMode.AUTO, height=200),
-                        ft.Divider(color=theme["border"]),
-                        ft.Text("🏷️ Titel", size=20, weight="bold", color="white"),
-                        ft.Column(title_cards, scroll=ft.ScrollMode.AUTO, height=200),
-                    ])
+                content=ft.Stack(
+                    [
+                        _themed_screen_background(page, theme, "#0000008f"),
+                        ft.Container(
+                            expand=True,
+                            padding=20,
+                            content=ft.Column([
+                                ft.Row([
+                                    ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
+                                    ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
+                                ]),
+                                ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
+                                ft.Divider(color=theme["border"]),
+                                ft.Text("🎨 Designs", size=20, weight="bold", color="white"),
+                                ft.Column(theme_cards, scroll=ft.ScrollMode.AUTO, height=200),
+                                ft.Divider(color=theme["border"]),
+                                ft.Text("🏷️ Titel", size=20, weight="bold", color="white"),
+                                ft.Column(title_cards, scroll=ft.ScrollMode.AUTO, height=200),
+                            ])
+                        ),
+                    ],
+                    expand=True,
                 )
             )
         )
@@ -7956,20 +8030,22 @@ def show_achievements_screen(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
-            ),
-            content=ft.Container(
-                padding=20,
-                content=ft.Column([
-                    ft.Row([
-                        ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
-                        ft.Text("Erfolge", size=24, weight="bold", color="white"),
-                    ]),
-                    ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
-                ])
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        padding=20,
+                        content=ft.Column([
+                            ft.Row([
+                                ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
+                                ft.Text("Erfolge", size=24, weight="bold", color="white"),
+                            ]),
+                            ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
+                        ])
+                    ),
+                ],
+                expand=True,
             )
         )
     )
@@ -8050,27 +8126,29 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
-            ),
-            content=ft.Container(
-                padding=20,
-                content=ft.Column([
-                    ft.Row([
-                        ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
-                        ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
-                    ]),
-                    ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
-                    ft.Container(height=20),
-                    btn,
-                    ft.Container(height=20),
-                    ft.Text("Deine Daily Stats:", size=18, weight="bold", color=theme["gold"]),
-                    ft.Text(f"🔥 Aktueller Streak: {stats.get('daily_current_streak', 0)} Tage", color="white"),
-                    ft.Text(f"👑 Bester Streak: {stats.get('daily_best_streak', 0)} Tage", color="white"),
-                    ft.Text(f"💰 Bestes Ergebnis: {stats.get('daily_best_result', '0 €')}", color="white"),
-                ])
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        padding=20,
+                        content=ft.Column([
+                            ft.Row([
+                                ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
+                                ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
+                            ]),
+                            ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
+                            ft.Container(height=20),
+                            btn,
+                            ft.Container(height=20),
+                            ft.Text("Deine Daily Stats:", size=18, weight="bold", color=theme["gold"]),
+                            ft.Text(f"🔥 Aktueller Streak: {stats.get('daily_current_streak', 0)} Tage", color="white"),
+                            ft.Text(f"👑 Bester Streak: {stats.get('daily_best_streak', 0)} Tage", color="white"),
+                            ft.Text(f"💰 Bestes Ergebnis: {stats.get('daily_best_result', '0 €')}", color="white"),
+                        ])
+                    ),
+                ],
+                expand=True,
             )
         )
     )
