@@ -342,6 +342,28 @@ THEMES = {
         "answer_text": "#FFD700",
         "answer_colors": ["#8B0000", "#4A0E17", "#8B0000", "#4A0E17"],
     },
+    "ocean": {
+        "label": "Ocean",
+        "game_layout": "themed",
+        "game_bg": "backgrounds/ocean/hintergrund_ocean_3.mp4",
+        "is_light": False,
+        "text_primary": "#E6F6FF",
+        "text_secondary": "#B4E4FF",
+        "text_muted": "#8CBFD9",
+        "gradient": ["#041A2D", "#053657", "#02101C"],
+        "panel": "#03233abf",
+        "border": "#36B5FF",
+        "accent": "#36B5FF",
+        "accent_2": "#2EE6D6",
+        "success": "#22C55E",
+        "danger": "#EF4444",
+        "gold": "#7DD3FC",
+        "question_bg": "#03233ad9",
+        "question_text": "#EAF9FF",
+        "answer_bg": "#03233ad9",
+        "answer_text": "#EAF9FF",
+        "answer_colors": ["#0EA5E9", "#38BDF8", "#06B6D4", "#22D3EE"],
+    },
     "cyberpunk": {
         "label": "Cyberpunk 2077",
         "is_light": False,
@@ -369,6 +391,7 @@ SHOP_CATALOG = {
     "themes": [
         {"id": "hacker", "name": "Hacker Matrix", "price": 5000, "type": "theme"},
         {"id": "royal", "name": "Royal Gold", "price": 25000, "type": "theme"},
+        {"id": "ocean", "name": "Ocean", "price": 35000, "type": "theme"},
         {"id": "cyberpunk", "name": "Cyberpunk 2077", "price": 100000, "type": "theme"},
     ],
     "titles": [
@@ -391,6 +414,7 @@ BG_MUSIC_FILE = "bg_music.mp3"
 THEME_BG_ROOT = "backgrounds"
 NEON_THEME_BG_DIR = "neon_nexus"
 ROYALE_GOLD_THEME_BG_DIR = "royale_gold"
+OCEAN_THEME_BG_DIR = "ocean"
 THEME_BG_CONFIG = {
     "neon_nexus": {
         "folder": NEON_THEME_BG_DIR,
@@ -403,6 +427,12 @@ THEME_BG_CONFIG = {
         "menu": "hintergrund_royale_gold",
         "joker": "hintergrund_royale_gold_2",
         "game": "hintergrund_royale_gold_3",
+    },
+    "ocean": {
+        "folder": OCEAN_THEME_BG_DIR,
+        "menu": "hintergrund_ocean",
+        "joker": "hintergrund_ocean_2",
+        "game": "hintergrund_ocean_3",
     },
 }
 
@@ -1108,6 +1138,44 @@ def _themed_screen_background(page: ft.Page, theme: dict, overlay_color: str = "
             colors=theme["gradient"],
         ),
     )
+
+
+def _theme_action_button(
+    label: str,
+    theme: dict,
+    on_click,
+    *,
+    width: int = 240,
+    bg: str | None = None,
+) -> ft.Container:
+    color_bg = bg or theme.get("accent", "#2563EB")
+    border_color = theme.get("gold", "#F59E0B")
+    btn = ft.Container(
+        content=ft.Text(label, size=16, weight="bold", color="white"),
+        on_click=on_click,
+        bgcolor=color_bg,
+        border_radius=30,
+        padding=ft.Padding(30, 12, 30, 12),
+        alignment=ft.Alignment(0, 0),
+        width=width,
+        border=ft.border.Border.all(1.8, border_color),
+        shadow=ft.BoxShadow(blur_radius=14, color=f"#55{border_color[1:]}", spread_radius=0),
+    )
+
+    def on_hover(e):
+        hovering = e.data == "true"
+        e.control.border = ft.border.Border.all(2.5 if hovering else 1.8, theme.get("accent_2", border_color) if hovering else border_color)
+        e.control.shadow = ft.BoxShadow(
+            blur_radius=22 if hovering else 14,
+            color=f"#77{(theme.get('accent_2', border_color))[1:]}" if hovering else f"#55{border_color[1:]}",
+            spread_radius=1 if hovering else 0,
+        )
+        e.control.scale = 1.02 if hovering else 1.0
+        e.control.update()
+
+    btn.on_hover = on_hover
+    btn.animate_scale = ft.Animation(180, ft.AnimationCurve.EASE_OUT)
+    return btn
 
 
 def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay_color: str) -> ft.Stack:
@@ -3866,11 +3934,11 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         def on_hover(e):
             if e.data == "true":
                 e.control.scale = 1.03
-                e.control.border = ft.border.Border.all(1.2, accent_color)
+                e.control.border = ft.border.Border.all(2.2, theme.get("accent_2", accent_color))
                 e.control.shadow = ft.BoxShadow(
-                    blur_radius=25,
-                    color=f"#25{glow_hex[1:]}",
-                    spread_radius=-4
+                    blur_radius=30,
+                    color=f"#50{(theme.get('accent_2', glow_hex))[1:]}",
+                    spread_radius=-2
                 )
                 e.control.update()
             else:
@@ -5006,6 +5074,9 @@ def render_game_screen(page: ft.Page, state: dict):
     page_w, page_h = _page_size(page)
     is_mobile = page_w < 720
     is_nexus = theme.get("label") == "Neon Nexus"
+    theme_key = _theme_key_from_theme(theme)
+    themed_bg_preview = _resolve_theme_background(theme_key, "game", allow_video=bool(FletVideo and VideoMedia and PlaylistMode)) if theme_key else None
+    has_themed_video_bg = themed and _is_video_background(themed_bg_preview if themed_bg_preview else theme.get("game_bg"))
 
     state.setdefault("hidden_answers", [])
     hidden = set(state.get("hidden_answers", []))
@@ -5043,7 +5114,7 @@ def render_game_screen(page: ft.Page, state: dict):
     def reset_answer_styles():
         for btn in answer_buttons:
             btn.bgcolor = answer_bg
-            btn.border = ft.border.Border.all(2, theme["border"])
+            btn.border = None if has_themed_video_bg else ft.border.Border.all(2, theme["border"])
 
     def handle_answer(e):
         if answers_disabled[0]:
@@ -5058,7 +5129,7 @@ def render_game_screen(page: ft.Page, state: dict):
                     btn.bgcolor = "#C8E6C9" if is_correct else "#FFCDD2"
                 else:
                     btn.bgcolor = answer_bg
-                    btn.border = ft.border.Border.all(2, theme["border"])
+                    btn.border = None if has_themed_video_bg else ft.border.Border.all(2, theme["border"])
             page.update()
 
             async def clear_test_feedback():
@@ -5108,7 +5179,7 @@ def render_game_screen(page: ft.Page, state: dict):
             bgcolor=answer_bg,
             border_radius=10,
             padding=ft.Padding(10, 10, 10, 10),
-            border=None if _is_nexus else ft.border.Border.all(2, theme["border"]),
+            border=None if (_is_nexus or has_themed_video_bg) else ft.border.Border.all(2, theme["border"]),
             expand=True,
             visible=idx not in hidden,
             height=None if _is_nexus else (56 if not is_mobile else 50),
@@ -5117,10 +5188,10 @@ def render_game_screen(page: ft.Page, state: dict):
             if answers_disabled[0]:
                 return
             if e.data == "true":
-                e.control.border = ft.border.Border.all(3, "#F0ABFC" if _is_nexus else theme["gold"])
+                e.control.border = ft.border.Border.all(3, theme.get("accent_2", theme["gold"]))
                 e.control.shadow = ft.BoxShadow(blur_radius=18, color="#55D946EF", spread_radius=1)
             else:
-                e.control.border = None if _is_nexus else ft.border.Border.all(2, theme["border"])
+                e.control.border = None if (_is_nexus or has_themed_video_bg) else ft.border.Border.all(2, theme["border"])
                 e.control.shadow = None
             e.control.update()
         box.on_hover = on_hover
@@ -5161,16 +5232,15 @@ def render_game_screen(page: ft.Page, state: dict):
     state["_timer_ui"] = {"text": timer_text, "bar": timer_bar}
 
     # ── background ─────────────────────────────────────────────────────────────
-    theme_key = _theme_key_from_theme(theme)
-    themed_bg = _resolve_theme_background(theme_key, "game", allow_video=bool(FletVideo and VideoMedia and PlaylistMode)) if theme_key else None
+    themed_bg = themed_bg_preview
     bg_image = themed_bg if themed_bg else (theme.get("game_bg") if themed else None)
     has_video_bg = _is_video_background(bg_image)
     if themed and has_video_bg:
-        overlay_color = "#000000b8"
+        overlay_color = "#000000c4"
         question_text_color = "#F8FAFC"
         answer_text_color = "#F8FAFC"
-        answer_bg = "#060d09f2"
-        question_bg_color = "#060d09f2"
+        answer_bg = "#060d09f7"
+        question_bg_color = "#060d09f7"
     else:
         overlay_color = "#00000000" if is_nexus else (
             "#00000099" if not theme.get("is_light") else "#00000055"
@@ -5277,6 +5347,7 @@ def render_game_screen(page: ft.Page, state: dict):
     # ══════════════════════════════════════════════════════════════════════════
     #  CLASSIC — clean flow layout (Column/Row), no absolute positioning
     # ══════════════════════════════════════════════════════════════════════════
+    classic_panel_border = None if (themed and has_video_bg) else ft.border.Border.all(2, theme["border"])
     ladder_panel = build_money_ladder(state, compact=is_mobile)
 
     # Pause / exit button
@@ -5303,7 +5374,7 @@ def render_game_screen(page: ft.Page, state: dict):
             bgcolor=question_bg_color,
             border_radius=6,
             padding=ft.Padding(10, 7, 10, 7),
-            border=ft.border.Border.all(2, theme["border"]),
+            border=classic_panel_border,
         ),
     ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
@@ -5322,7 +5393,7 @@ def render_game_screen(page: ft.Page, state: dict):
         bgcolor=question_bg_color,
         border_radius=10,
         padding=ft.Padding(16, 12, 16, 12),
-        border=ft.border.Border.all(2, theme["border"]),
+        border=classic_panel_border,
     )
 
     # Answer grid (2x2 desktop, stacked on mobile)
@@ -5345,7 +5416,7 @@ def render_game_screen(page: ft.Page, state: dict):
         bgcolor=question_bg_color,
         border_radius=8,
         padding=ft.Padding(14, 8, 14, 8),
-        border=ft.border.Border.all(2, theme["border"]),
+        border=classic_panel_border,
     )
 
     # Joker bar — always its own row, never overlaps timer or question
@@ -5355,7 +5426,7 @@ def render_game_screen(page: ft.Page, state: dict):
         bgcolor=question_bg_color,
         border_radius=8,
         padding=ft.Padding(10, 10, 10, 10),
-        border=ft.border.Border.all(2, theme["border"]),
+        border=classic_panel_border,
         visible=has_jokers,
     )
 
@@ -6037,55 +6108,43 @@ def show_login_view(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
-            ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("Anmelden", size=30, weight="bold", color="white"),
-                ft.Container(height=10),
-                ft.Container(
-                    content=ft.Column([
-                        email_input,
-                        password_input,
-                        remember_checkbox,
-                        ft.Container(
-                            content=ft.Text("Einloggen", size=16, weight="bold", color="white"),
-                            on_click=on_login,
-                            bgcolor=theme["success"],
-                            border_radius=30,
-                            padding=ft.Padding(30, 12, 30, 12),
-                            alignment=ft.Alignment(0, 0),
-                            width=220,
-                        ),
-                        ft.Container(
-                            content=ft.Text("Registrieren", size=16, weight="bold", color="white"),
-                            on_click=on_register,
-                            bgcolor=theme["accent"],
-                            border_radius=30,
-                            padding=ft.Padding(30, 12, 30, 12),
-                            alignment=ft.Alignment(0, 0),
-                            width=220,
-                        ),
-                        status_text,
-                    ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=theme["panel"],
-                    border_radius=16,
-                    padding=24,
-                    border=ft.border.Border.all(2, theme["border"]),
-                    width=360,
-                ),
-                ft.Container(height=10),
-                ft.TextButton(
-                    "Zurueck",
-                    on_click=lambda e: show_stats(e.page, state),
-                    style=ft.ButtonStyle(color="white"),
-                )
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=14)
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("Anmelden", size=30, weight="bold", color="white"),
+                            ft.Container(height=10),
+                            ft.Container(
+                                content=ft.Column([
+                                    email_input,
+                                    password_input,
+                                    remember_checkbox,
+                                    _theme_action_button("Einloggen", theme, on_login, width=220, bg=theme["success"]),
+                                    _theme_action_button("Registrieren", theme, on_register, width=220, bg=theme["accent"]),
+                                    status_text,
+                                ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                bgcolor=theme["panel"],
+                                border_radius=16,
+                                padding=24,
+                                border=ft.border.Border.all(2, theme["border"]),
+                                width=360,
+                            ),
+                            ft.Container(height=10),
+                            ft.TextButton(
+                                "Zurueck",
+                                on_click=lambda e: show_stats(e.page, state),
+                                style=ft.ButtonStyle(color="white"),
+                            )
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=14),
+                    ),
+                ],
+                expand=True,
+            )
         )
     )
     page.update()
@@ -6102,50 +6161,20 @@ async def _do_logout(page: ft.Page, state: dict):
 
 def show_settings_view(page: ft.Page, state: dict):
     theme = get_theme(state)
+    theme_key = _theme_key_from_theme(theme)
+    title_color = theme["gold"] if theme_key in ("royal",) else theme_txt(theme, "primary")
     email = state.get("current_user_email")
     logged_in = bool(email)
 
     menu_items = [
-        ft.Text("Einstellungen", size=30, weight="bold", color=theme_txt(theme, "primary")),
+        ft.Text("Einstellungen", size=30, weight="bold", color=title_color),
         ft.Container(height=10),
         ft.Container(
             content=ft.Column([
-                ft.Container(
-                    content=ft.Text("Statistiken", size=16, weight="bold", color="white"),
-                    on_click=lambda e: show_stats(e.page, state),
-                    bgcolor=theme["accent"],
-                    border_radius=30,
-                    padding=ft.Padding(30, 12, 30, 12),
-                    alignment=ft.Alignment(0, 0),
-                    width=240,
-                ),
-                ft.Container(
-                    content=ft.Text("Design", size=16, weight="bold", color="white"),
-                    on_click=lambda e: show_design_view(e.page, state),
-                    bgcolor=theme["success"] if logged_in else "#777777",
-                    border_radius=30,
-                    padding=ft.Padding(30, 12, 30, 12),
-                    alignment=ft.Alignment(0, 0),
-                    width=240,
-                ),
-                ft.Container(
-                    content=ft.Text("Freunde", size=16, weight="bold", color="white"),
-                    on_click=lambda e: show_friends_view(e.page, state) if logged_in else show_login_view(e.page, state),
-                    bgcolor=theme["accent"],
-                    border_radius=30,
-                    padding=ft.Padding(30, 12, 30, 12),
-                    alignment=ft.Alignment(0, 0),
-                    width=240,
-                ),
-                ft.Container(
-                    content=ft.Text("Profil bearbeiten", size=16, weight="bold", color="white"),
-                    on_click=lambda e: show_edit_profile_view(e.page, state) if logged_in else show_login_view(e.page, state),
-                    bgcolor=theme["accent_2"],
-                    border_radius=30,
-                    padding=ft.Padding(30, 12, 30, 12),
-                    alignment=ft.Alignment(0, 0),
-                    width=240,
-                ),
+                _theme_action_button("Statistiken", theme, lambda e: show_stats(e.page, state), width=240),
+                _theme_action_button("Design", theme, lambda e: show_design_view(e.page, state), width=240, bg=(theme["success"] if logged_in else "#777777")),
+                _theme_action_button("Freunde", theme, lambda e: show_friends_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240),
+                _theme_action_button("Profil bearbeiten", theme, lambda e: show_edit_profile_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240, bg=theme["accent_2"]),
                 ft.Text(
                     "Melde dich an, um Designs pro Account zu speichern." if not logged_in else f"Konto: {email}",
                     size=12,
@@ -6154,15 +6183,7 @@ def show_settings_view(page: ft.Page, state: dict):
                 ),
             ] + ([
                 ft.Container(height=4),
-                ft.Container(
-                    content=ft.Text("🚪 Abmelden", size=16, weight="bold", color="white"),
-                    on_click=lambda e: page.run_task(_do_logout, page, state),
-                    bgcolor=theme["danger"],
-                    border_radius=30,
-                    padding=ft.Padding(30, 12, 30, 12),
-                    alignment=ft.Alignment(0, 0),
-                    width=240,
-                ),
+                _theme_action_button("🚪 Abmelden", theme, lambda e: page.run_task(_do_logout, page, state), width=240, bg=theme["danger"]),
             ] if logged_in else []),
             spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=theme["panel"],
@@ -6182,17 +6203,21 @@ def show_settings_view(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
-            ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column(
-                menu_items,
-                alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=14,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column(
+                            menu_items,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=14,
+                        ),
+                    ),
+                ],
+                expand=True,
             ),
         )
     )
@@ -7301,26 +7326,30 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, -0.05),
+                        padding=20,
+                        content=ft.Column([
+                            ft.Text("Freunde", size=28, weight="bold", color=theme_txt(theme, "primary")),
+                            ft.Row(tab_buttons, alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+                            content_container,
+                            ft.TextButton(
+                                "← Zurück",
+                                on_click=lambda e: show_settings_view(e.page, state),
+                                style=ft.ButtonStyle(color="white"),
+                            ),
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=14,
+                           scroll=ft.ScrollMode.AUTO),
+                    ),
+                ],
+                expand=True,
             ),
-            alignment=ft.Alignment(0, -0.05),
-            content=ft.Column([
-                ft.Text("Freunde", size=28, weight="bold", color=theme_txt(theme, "primary")),
-                ft.Row(tab_buttons, alignment=ft.MainAxisAlignment.CENTER, spacing=8),
-                content_container,
-                ft.TextButton(
-                    "← Zurück",
-                    on_click=lambda e: show_settings_view(e.page, state),
-                    style=ft.ButtonStyle(color="white"),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=14,
-               scroll=ft.ScrollMode.AUTO),
-            padding=20,
         )
     )
     page.update()
@@ -7370,23 +7399,27 @@ def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("Freundesstatistik", size=30, weight="bold", color="white"),
+                            card,
+                            ft.TextButton(
+                                "Zurück",
+                                on_click=lambda e: show_friends_view(e.page, state),
+                                style=ft.ButtonStyle(color="white"),
+                            ),
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=14),
+                    ),
+                ],
+                expand=True,
             ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("Freundesstatistik", size=30, weight="bold", color="white"),
-                card,
-                ft.TextButton(
-                    "Zurück",
-                    on_click=lambda e: show_friends_view(e.page, state),
-                    style=ft.ButtonStyle(color="white"),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=14),
         )
     )
     page.update()
@@ -7459,53 +7492,49 @@ def show_edit_profile_view(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
-            ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("✏️ Profil bearbeiten", size=30, weight="bold", color="white"),
-                ft.Container(height=10),
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(f"Konto: {email}", size=13, color="#E0D0F0"),
-                        name_input,
-                        theme_dropdown,
-                        ft.Container(
-                            content=ft.Text("Speichern", size=16, weight="bold", color="white"),
-                            on_click=on_save,
-                            bgcolor=theme["success"],
-                            border_radius=30,
-                            padding=ft.Padding(30, 12, 30, 12),
-                            alignment=ft.Alignment(0, 0),
-                            width=150,
-                        ),
-                        status_text,
-                    ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=theme["panel"],
-                    border_radius=16,
-                    padding=24,
-                    border=ft.border.Border.all(2, theme["border"]),
-                    width=360,
-                ),
-                ft.Container(height=10),
-                ft.Row([
-                    ft.TextButton(
-                        "← Zurück",
-                        on_click=lambda e: open_main_menu(e.page, state),
-                        style=ft.ButtonStyle(color="white"),
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("✏️ Profil bearbeiten", size=30, weight="bold", color="white"),
+                            ft.Container(height=10),
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text(f"Konto: {email}", size=13, color="#E0D0F0"),
+                                    name_input,
+                                    theme_dropdown,
+                                    _theme_action_button("Speichern", theme, on_save, width=150, bg=theme["success"]),
+                                    status_text,
+                                ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                bgcolor=theme["panel"],
+                                border_radius=16,
+                                padding=24,
+                                border=ft.border.Border.all(2, theme["border"]),
+                                width=360,
+                            ),
+                            ft.Container(height=10),
+                            ft.Row([
+                                ft.TextButton(
+                                    "← Zurück",
+                                    on_click=lambda e: open_main_menu(e.page, state),
+                                    style=ft.ButtonStyle(color="white"),
+                                ),
+                                ft.TextButton(
+                                    "🚪 Abmelden",
+                                    on_click=lambda e: page.run_task(_do_logout, page, state),
+                                    style=ft.ButtonStyle(color="#FF6B6B"),
+                                ),
+                            ], alignment=ft.MainAxisAlignment.CENTER)
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=14),
                     ),
-                    ft.TextButton(
-                        "🚪 Abmelden",
-                        on_click=lambda e: page.run_task(_do_logout, page, state),
-                        style=ft.ButtonStyle(color="#FF6B6B"),
-                    ),
-                ], alignment=ft.MainAxisAlignment.CENTER)
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=14)
+                ],
+                expand=True,
+            )
         )
     )
     page.update()
