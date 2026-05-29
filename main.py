@@ -302,6 +302,8 @@ THEMES = {
     },
     "hacker": {
         "label": "Hacker Matrix",
+        "game_layout": "themed",
+        "game_bg": "backgrounds/hacker_matrix/hintergrund_hacker_matrix_3.mp4",
         "is_light": False,
         "text_primary": "#00FF41",
         "text_secondary": "#008F11",
@@ -2570,7 +2572,10 @@ def build_joker_tile(
     if is_nexus:
         text_color = "#FFFFFF" if not used else "#94A3B8"
     else:
-        text_color = theme["question_text"] if not used else "#777777"
+        if selected and not used:
+            text_color = "#FFFFFF"
+        else:
+            text_color = theme["question_text"] if not used else "#777777"
         
     content = ft.Text(
         label,
@@ -3859,6 +3864,9 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     menu_card_border = theme.get("border", "#10B981")
     menu_card_glow = theme.get("accent_2", menu_card_border)
     menu_card_icon = theme.get("accent", "#10B981")
+    page_w, _page_h = _page_size(page)
+    is_mobile = page_w < 900
+    tile_w = max(160, int((page_w - 52) / 2)) if is_mobile else 265
 
     def on_logout(e):
         state["current_user_email"] = None
@@ -4013,27 +4021,27 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                 height=64,
                 shape=ft.BoxShape.CIRCLE,
                 bgcolor="#08100C",
-                border=ft.border.Border.all(2, "#10B981"),
+                border=ft.border.Border.all(2, theme.get("accent", "#10B981")),
                 alignment=ft.Alignment(0, 0),
                 shadow=ft.BoxShadow(
                     blur_radius=15,
-                    color="#10B981",
+                    color=theme.get("accent", "#10B981"),
                     spread_radius=-4
                 )
             ),
             ft.Container(height=8),
             # Title
             ft.Text("WER WIRD", size=24, weight="bold", color="white"),
-            ft.Text("MILLIONÄR?", size=38, weight="w900", color="#10B981"),
+            ft.Text("MILLIONÄR?", size=38, weight="w900", color=theme.get("accent", "#10B981")),
             ft.Container(height=4),
             # Subtitle
-            ft.Text("Teste dein Wissen. Werde Millionär.", size=13, color="#8B9A90")
+            ft.Text("Teste dein Wissen. Werde Millionär.", size=13, color=theme_txt(theme, "secondary"))
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
-        width=600,
+        width=min(600, int(page_w - 24)),
         padding=ft.Padding(32, 28, 32, 28),
         border_radius=24,
         bgcolor="#070A08",
-        border=ft.border.Border.all(1.5, "#0E2919"),
+        border=ft.border.Border.all(1.5, theme.get("border", "#0E2919")),
         shadow=ft.BoxShadow(
             blur_radius=40,
             color="#081E12",
@@ -4047,7 +4055,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         content=ft.Row([
             ft.Text("👋", size=15),
             ft.Text("Hallo, ", color="white", size=13, weight="w500"),
-            ft.Text(username, color="#10B981", size=13, weight="bold")
+            ft.Text(username, color=theme.get("accent", "#10B981"), size=13, weight="bold")
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=4, tight=True),
         bgcolor="#060C09",
         border=ft.border.Border.all(1, "#142D1E"),
@@ -4069,7 +4077,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         bg_hex=menu_card_bg,
         glow_hex=menu_card_glow,
         on_click=(lambda e: show_game_start_menu(e.page, state, saved_game)) if saved_game else (lambda e: start_new_game(e.page, state)),
-        width=265,
+        width=tile_w if is_mobile else 265,
         height=205,
         is_tall=True
     )
@@ -4082,7 +4090,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         bg_hex=menu_card_bg,
         glow_hex=menu_card_glow,
         on_click=lambda e: show_settings_view(e.page, state),
-        width=265,
+        width=tile_w,
         height=95
     )
     
@@ -4095,7 +4103,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             bg_hex=menu_card_bg,
             glow_hex=menu_card_glow,
             on_click=lambda e: e.page.go("/shop"),
-            width=265,
+            width=tile_w,
             height=95
         )
     else:
@@ -4107,7 +4115,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             bg_hex=menu_card_bg,
             glow_hex=menu_card_glow,
             on_click=lambda e: show_login_view(e.page, state),
-            width=265,
+            width=tile_w,
             height=95
         )
         
@@ -4120,7 +4128,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         glow_hex=menu_card_glow,
         on_click=lambda e: e.page.go("/daily") if logged_in else show_login_view(e.page, state),
         locked=not logged_in,
-        width=265,
+        width=tile_w,
         height=95
     )
     
@@ -4133,31 +4141,38 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         glow_hex=menu_card_glow,
         on_click=lambda e: e.page.go("/achievements") if logged_in else show_login_view(e.page, state),
         locked=not logged_in,
-        width=265,
+        width=tile_w,
         height=95
     )
 
-    grid_row = ft.Row([
-        card_start,
-        ft.Column([
-            card_settings,
-            card_shop
-        ], spacing=15, tight=True),
-        ft.Column([
-            card_daily,
-            card_achievements
-        ], spacing=15, tight=True)
-    ], alignment=ft.MainAxisAlignment.CENTER, spacing=15, tight=True)
+    if is_mobile:
+        grid_row = ft.Column([
+            card_start,
+            ft.Row([card_settings, card_daily], spacing=12, alignment=ft.MainAxisAlignment.CENTER),
+            ft.Row([card_shop, card_achievements], spacing=12, alignment=ft.MainAxisAlignment.CENTER),
+        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12)
+    else:
+        grid_row = ft.Row([
+            card_start,
+            ft.Column([
+                card_settings,
+                card_shop
+            ], spacing=15, tight=True),
+            ft.Column([
+                card_daily,
+                card_achievements
+            ], spacing=15, tight=True)
+        ], alignment=ft.MainAxisAlignment.CENTER, spacing=15, tight=True)
 
     # Footer Bar
     footer_bar = ft.Container(
         content=ft.Row([
-            ft.Text("🏆", color="#10B981", size=18),
+            ft.Text("🏆", color=theme.get("accent", "#10B981"), size=18),
             ft.VerticalDivider(width=1, color="#1F2A22", thickness=1),
             ft.Text("Wissen ist Macht.", color="white", size=12, weight="w500"),
-            ft.Text("Bist du bereit?", color="#10B981", size=12, weight="bold"),
+            ft.Text("Bist du bereit?", color=theme.get("accent", "#10B981"), size=12, weight="bold"),
             ft.VerticalDivider(width=1, color="#1F2A22", thickness=1),
-            ft.Container(width=40, height=2, bgcolor="#10B981", opacity=0.3)
+            ft.Container(width=40, height=2, bgcolor=theme.get("accent", "#10B981"), opacity=0.3)
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=12, tight=True),
         border_radius=20,
         border=ft.border.Border.all(1, "#14261B"),
@@ -4173,7 +4188,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         grid_row,
         ft.Container(height=10),
         footer_bar
-    ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
+    ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14, scroll=ft.ScrollMode.AUTO)
     
     stack_controls = []
     if background_media:
@@ -5314,13 +5329,16 @@ def render_game_screen(page: ft.Page, state: dict):
             ], spacing=10, width=na_w - 24, expand=True),
             theme, width=na_w, height=na_h,
         )
+        pause_btn_bg = theme.get("panel", "#0f172aee") if has_video_bg else ("#00000000" if is_nexus else theme["danger"])
+        pause_btn_border = ft.border.Border.all(2, theme.get("accent", theme["danger"])) if has_video_bg else None
         nexus_exit_btn = ft.Container(
             content=ft.Row([
-                ft.Text("🚪", size=14),
-                ft.Text("Pause", size=13, weight="bold", color=theme["danger"]),
+                ft.Text("🚪", size=14, color=theme.get("accent", theme["danger"])),
+                ft.Text("Pause", size=13, weight="bold", color=theme.get("accent", theme["danger"])),
             ], spacing=6, alignment=ft.MainAxisAlignment.CENTER),
             on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
-            bgcolor="#00000000", border_radius=4,
+            bgcolor=pause_btn_bg, border_radius=8,
+            border=pause_btn_border,
             padding=ft.Padding(10, 6, 10, 6), alignment=ft.Alignment(0, 0),
         )
         footer_content = ft.Column([
@@ -5371,15 +5389,18 @@ def render_game_screen(page: ft.Page, state: dict):
     ladder_panel = build_money_ladder(state, compact=is_mobile)
 
     # Pause / exit button
+    pause_btn_bg = theme.get("panel", "#0f172aee") if has_video_bg else theme["danger"]
+    pause_btn_border = ft.border.Border.all(2, theme.get("accent", theme["danger"])) if has_video_bg else None
     exit_btn = ft.Container(
         content=ft.Row([
-            ft.Text("🚪", size=12),
-            ft.Text("Pause", size=12, weight="bold", color="white"),
+            ft.Text("🚪", size=12, color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
+            ft.Text("Pause", size=12, weight="bold", color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
         ], spacing=5, tight=True),
         on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
-        bgcolor=theme["danger"],
+        bgcolor=pause_btn_bg,
         border_radius=6,
         padding=ft.Padding(12, 7, 12, 7),
+        border=pause_btn_border,
     )
 
     # Top bar: [Pause btn] + [timer bar + countdown]
@@ -5601,6 +5622,7 @@ def show_exit_confirmation(page: ft.Page, state: dict):
 # ---------- Result Screens ----------
 def _show_correct_screen(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
+    theme = get_theme(state)
 
     def next_q(e):
         show_next_question(e.page, state)
@@ -5609,29 +5631,26 @@ def _show_correct_screen(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=["#1A3A1A", "#2ECC71", "#27AE60"],
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000096"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("✅", size=80),
+                            ft.Text("RICHTIG!", size=48, weight="black", color="white"),
+                            ft.Text(f"Du gewinnst: {state.get('money', '?')}",
+                                    size=22, color=theme["gold"], weight="bold"),
+                            ft.Container(height=20),
+                            _theme_action_button("➡  Nächste Frage", theme, next_q, width=280, bg=theme.get("success", "#27AE60")),
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=12),
+                    ),
+                ],
+                expand=True,
             ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("✅", size=80),
-                ft.Text("RICHTIG!", size=48, weight="black", color="white"),
-                ft.Text(f"Du gewinnst: {state.get('money', '?')}",
-                        size=22, color="#FFD700", weight="bold"),
-                ft.Container(height=20),
-                ft.Container(
-                    content=ft.Text("➡  Nächste Frage", size=18, weight="bold", color="white"),
-                    on_click=next_q,
-                    bgcolor="#27AE60",
-                    border_radius=50,
-                    padding=ft.Padding(40, 14, 40, 14),
-                    border=ft.border.Border.all(3, "white"),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=12),
         )
     )
     page.update()
@@ -5639,6 +5658,7 @@ def _show_correct_screen(page: ft.Page, state: dict):
 
 def _show_wrong_screen(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
+    theme = get_theme(state)
     reset_game_timer(state)
     state["game_finished"] = True
     clear_saved_game(state)
@@ -5685,29 +5705,26 @@ def _show_wrong_screen(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=["#3A0A0A", "#E74C3C", "#C0392B"],
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000096"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("❌", size=80),
+                            ft.Text("FALSCH!", size=48, weight="black", color="white"),
+                            ft.Text(f"Dein Gewinn: {state.get('money', '0 €')}",
+                                    size=22, color=theme["gold"], weight="bold"),
+                            ft.Container(height=20),
+                            _theme_action_button("🏠  Zurück zum Menü", theme, lambda e: open_main_menu(e.page, state), width=320, bg=theme.get("danger", "#C0392B")),
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=12),
+                    ),
+                ],
+                expand=True,
             ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("❌", size=80),
-                ft.Text("FALSCH!", size=48, weight="black", color="white"),
-                ft.Text(f"Dein Gewinn: {state.get('money', '0 €')}",
-                        size=22, color="#FFD700", weight="bold"),
-                ft.Container(height=20),
-                ft.Container(
-                    content=ft.Text("🏠  Zurück zum Menü", size=18, weight="bold", color="white"),
-                    on_click=lambda e: open_main_menu(e.page, state),
-                    bgcolor="#C0392B",
-                    border_radius=50,
-                    padding=ft.Padding(40, 14, 40, 14),
-                    border=ft.border.Border.all(3, "white"),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=12),
         )
     )
     page.update()
@@ -6189,9 +6206,9 @@ def show_settings_view(page: ft.Page, state: dict):
         ft.Container(
             content=ft.Column([
                 _theme_action_button("Statistiken", theme, lambda e: show_stats(e.page, state), width=240),
-                _theme_action_button("Design", theme, lambda e: show_design_view(e.page, state), width=240, bg=(theme["success"] if logged_in else "#777777")),
+                _theme_action_button("Design", theme, lambda e: show_design_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240, bg=theme["accent"]),
                 _theme_action_button("Freunde", theme, lambda e: show_friends_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240),
-                _theme_action_button("Profil bearbeiten", theme, lambda e: show_edit_profile_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240, bg=theme["accent_2"]),
+                _theme_action_button("Profil bearbeiten", theme, lambda e: show_edit_profile_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240, bg=theme["accent"]),
                 ft.Text(
                     "Melde dich an, um Designs pro Account zu speichern." if not logged_in else f"Konto: {email}",
                     size=12,
@@ -6200,7 +6217,7 @@ def show_settings_view(page: ft.Page, state: dict):
                 ),
             ] + ([
                 ft.Container(height=4),
-                _theme_action_button("🚪 Abmelden", theme, lambda e: page.run_task(_do_logout, page, state), width=240, bg=theme["danger"]),
+                _theme_action_button("🚪 Abmelden", theme, lambda e: page.run_task(_do_logout, page, state), width=240, bg=theme["accent"]),
             ] if logged_in else []),
             spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=theme["panel"],
@@ -8179,21 +8196,29 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
                     _themed_screen_background(page, theme, "#0000008f"),
                     ft.Container(
                         expand=True,
+                        alignment=ft.Alignment(0, 0),
                         padding=20,
-                        content=ft.Column([
-                            ft.Row([
-                                ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
-                                ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
-                            ]),
-                            ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
-                            ft.Container(height=20),
-                            btn,
-                            ft.Container(height=20),
-                            ft.Text("Deine Daily Stats:", size=18, weight="bold", color=theme["gold"]),
-                            ft.Text(f"🔥 Aktueller Streak: {stats.get('daily_current_streak', 0)} Tage", color="white"),
-                            ft.Text(f"👑 Bester Streak: {stats.get('daily_best_streak', 0)} Tage", color="white"),
-                            ft.Text(f"💰 Bestes Ergebnis: {stats.get('daily_best_result', '0 €')}", color="white"),
-                        ])
+                        content=ft.Container(
+                            width=min(760, int((_page_size(page)[0]) - 28)),
+                            border_radius=16,
+                            bgcolor=theme.get("panel", "#111827c0"),
+                            border=ft.border.Border.all(2, theme.get("border", "#334155")),
+                            padding=20,
+                            content=ft.Column([
+                                ft.Row([
+                                    ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
+                                    ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
+                                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                                ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                                ft.Container(height=12),
+                                ft.Row([btn], alignment=ft.MainAxisAlignment.CENTER),
+                                ft.Container(height=16),
+                                ft.Text("Deine Daily Stats", size=18, weight="bold", color=theme["gold"], text_align=ft.TextAlign.CENTER),
+                                ft.Text(f"🔥 Aktueller Streak: {stats.get('daily_current_streak', 0)} Tage", color="white"),
+                                ft.Text(f"👑 Bester Streak: {stats.get('daily_best_streak', 0)} Tage", color="white"),
+                                ft.Text(f"💰 Bestes Ergebnis: {stats.get('daily_best_result', '0 €')}", color="white"),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+                        ),
                     ),
                 ],
                 expand=True,
