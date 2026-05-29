@@ -388,6 +388,8 @@ except Exception:
 BG_MUSIC_FILE = "bg_music.mp3"
 MENU_BG_VIDEO = "hintergrund.mp4"
 MENU_BG_FALLBACK_IMAGE = "hintergrund.gif"
+JOKER_BG_VIDEO = "hintergrund_bild_joker.mp4"
+JOKER_BG_FALLBACK_IMAGE = "hintergrund_bild_joker.png"
 
 def play_tts(page: ft.Page, text: str):
     """Generates an MP3 via gTTS and plays it on the page."""
@@ -1010,6 +1012,33 @@ def _build_looping_menu_background(page: ft.Page) -> ft.Control:
 
 def _is_video_background(src: str | None) -> bool:
     return bool(src) and str(src).lower().endswith(".mp4")
+
+
+def _build_looping_joker_background(page: ft.Page) -> ft.Control:
+    page_w, page_h = _page_size(page)
+    width, height = max(1, int(page_w)), max(1, int(page_h))
+
+    if FletVideo and VideoMedia and PlaylistMode:
+        return FletVideo(
+            expand=True,
+            width=width,
+            height=height,
+            playlist=[VideoMedia(JOKER_BG_VIDEO)],
+            playlist_mode=PlaylistMode.LOOP,
+            autoplay=True,
+            muted=True,
+            fill_color="#000000",
+            fit=ft.BoxFit.COVER,
+            show_controls=False,
+            aspect_ratio=None,
+        )
+
+    return ft.Image(
+        src=JOKER_BG_FALLBACK_IMAGE,
+        fit=ft.BoxFit.COVER,
+        width=width,
+        height=height,
+    )
 
 
 def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay_color: str) -> ft.Stack:
@@ -2530,6 +2559,9 @@ def _apply_joker_selection_and_start(state: dict, picked_ids: list[str], on_star
 def show_joker_confirm_screen(page: ft.Page, state: dict, picked_ids: list[str], on_start):
     """Full-screen confirm (works on web where AlertDialog often fails)."""
     theme = get_theme(state)
+    has_video_bg = bool(FletVideo and VideoMedia and PlaylistMode)
+    panel_bg = "#060d09f0" if has_video_bg else theme["panel"]
+    secondary_text = "#D7DEE9" if has_video_bg else theme_txt(theme, "secondary")
 
     def yes(e):
         _apply_joker_selection_and_start(state, picked_ids, on_start)
@@ -2552,38 +2584,44 @@ def show_joker_confirm_screen(page: ft.Page, state: dict, picked_ids: list[str],
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
+            content=ft.Stack(
+                [
+                    _build_looping_joker_background(page),
+                    ft.Container(expand=True, bgcolor="#000000b3"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("Joker bestätigen", size=28, weight="bold", color="white", text_align="center"),
+                            ft.Text(
+                                "Möchtest du diese Joker auswählen?",
+                                size=16,
+                                text_align="center",
+                                color=secondary_text,
+                            ),
+                            ft.Container(height=12),
+                            ft.Container(
+                                content=chips,
+                                bgcolor=panel_bg,
+                                border_radius=16,
+                                padding=20,
+                                border=ft.border.Border.all(2, theme["border"]),
+                            ),
+                            ft.Container(height=16),
+                            ft.Row([
+                                _game_menu_button("Nein", no, theme["danger"]),
+                                _game_menu_button("Ja", yes, theme["success"]),
+                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=16),
+                        ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=14,
+                        ),
+                    ),
+                ],
+                expand=True,
             ),
             alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("Joker bestätigen", size=28, weight="bold", color="white", text_align="center"),
-                ft.Text(
-                    "Möchtest du diese Joker auswählen?",
-                    size=16,
-                    text_align="center",
-                    color=theme_txt(theme, "secondary"),
-                ),
-                ft.Container(height=12),
-                ft.Container(
-                    content=chips,
-                    bgcolor=theme["panel"],
-                    border_radius=16,
-                    padding=20,
-                    border=ft.border.Border.all(2, theme["border"]),
-                ),
-                ft.Container(height=16),
-                ft.Row([
-                    _game_menu_button("Nein", no, theme["danger"]),
-                    _game_menu_button("Ja", yes, theme["success"]),
-                ], alignment=ft.MainAxisAlignment.CENTER, spacing=16),
-            ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=14,
-            ),
         )
     )
     page.update()
@@ -2592,6 +2630,9 @@ def show_joker_confirm_screen(page: ft.Page, state: dict, picked_ids: list[str],
 def show_joker_selection(page: ft.Page, state: dict, on_start):
     """Pick 4 jokers from catalog, confirm, then start the game."""
     theme = get_theme(state)
+    has_video_bg = bool(FletVideo and VideoMedia and PlaylistMode)
+    panel_bg = "#060d09f0" if has_video_bg else theme["panel"]
+    secondary_text = "#D7DEE9" if has_video_bg else theme_txt(theme, "secondary")
     pick = list(state.get("joker_pick_buffer", []))
     state.setdefault("time_pressure_enabled", True)
     state.setdefault("question_time_sec", QUESTION_TIME_SEC)
@@ -2684,113 +2725,119 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
+            content=ft.Stack(
+                [
+                    _build_looping_joker_background(page),
+                    ft.Container(expand=True, bgcolor="#000000b3"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("Wähle deinen Joker", size=28, weight="bold", color="white", text_align="center"),
+                            ft.Text(
+                                f"Tippe {JOKER_SELECT_COUNT} Joker an (oben oder unten) · erneut tippen zum Abwählen",
+                                size=14,
+                                color=secondary_text,
+                                text_align="center",
+                            ),
+                            ft.Container(height=8),
+                            ft.Container(
+                                content=ft.Column(
+                                    [
+                                        ft.Row(
+                                            [
+                                                ft.Checkbox(
+                                                    label="Timer aktivieren",
+                                                    value=bool(state.get("time_pressure_enabled", True)),
+                                                    on_change=on_time_pressure_change,
+                                                    fill_color=theme["accent"],
+                                                    check_color="white",
+                                                    label_style=ft.TextStyle(color=secondary_text, size=13),
+                                                ),
+                                                ft.Container(width=20),
+                                                ft.Checkbox(
+                                                    label="Joker aktivieren",
+                                                    value=bool(state.get("jokers_enabled", True)),
+                                                    on_change=on_jokers_enabled_change,
+                                                    fill_color=theme["accent"],
+                                                    check_color="white",
+                                                    label_style=ft.TextStyle(color=secondary_text, size=13),
+                                                ),
+                                            ],
+                                            alignment=ft.MainAxisAlignment.CENTER,
+                                        ),
+                                        ft.Container(height=6),
+                                        ft.Row(
+                                            [
+                                                ft.Text("Sekunden pro Frage:", size=13, color=secondary_text),
+                                                (lambda: (
+                                                    d := ft.Dropdown(
+                                                        options=[ft.dropdown.Option(str(v)) for v in QUESTION_TIME_OPTIONS],
+                                                        value=str(int(state.get("question_time_sec", QUESTION_TIME_SEC))),
+                                                        width=120,
+                                                    ),
+                                                    setattr(d, 'on_change', lambda e: on_question_time_change(e)),
+                                                    d
+                                                )[-1])() if bool(state.get("time_pressure_enabled", True)) else ft.Text(
+                                                    "Timer aus – kein Countdown",
+                                                    size=13,
+                                                    color=secondary_text,
+                                                    weight="bold",
+                                                ),
+                                            ],
+                                            alignment=ft.MainAxisAlignment.CENTER,
+                                            spacing=10,
+                                        ),
+                                    ],
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                                bgcolor=panel_bg,
+                                border_radius=14,
+                                padding=12,
+                                border=ft.border.Border.all(2, theme["border"]),
+                            ),
+                            ft.Container(height=10),
+                            ft.Container(
+                                content=ft.Row([
+                                    build_joker_slot_row(
+                                        pick, theme, slot_size=58, on_joker_click=toggle_joker,
+                                    ),
+                                    check_btn,
+                                ], alignment=ft.MainAxisAlignment.CENTER, spacing=14),
+                                bgcolor=panel_bg,
+                                border_radius=14,
+                                padding=16,
+                                border=ft.border.Border.all(2, theme["border"]),
+                                visible=state.get("jokers_enabled", True),
+                            ) if state.get("jokers_enabled", True) else ft.Container(
+                                content=ft.ElevatedButton("Start ohne Joker", on_click=on_check, style=ft.ButtonStyle(bgcolor=theme["success"], color="white")),
+                                padding=20,
+                            ),
+                            ft.Text("Deine Auswahl", size=13, color=theme["gold"], weight="bold", visible=state.get("jokers_enabled", True)),
+                            ft.Container(
+                                content=ft.Row(
+                                    catalog_tiles,
+                                    wrap=True,
+                                    spacing=10,
+                                    run_spacing=10,
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                ),
+                                width=520,
+                                padding=10,
+                                visible=state.get("jokers_enabled", True),
+                            ),
+                            ft.TextButton("← Zurück", on_click=on_back, style=ft.ButtonStyle(color="white")),
+                        ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=12,
+                            scroll=ft.ScrollMode.AUTO,
+                        ),
+                    ),
+                ],
+                expand=True,
             ),
             alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("Wähle deinen Joker", size=28, weight="bold", color="white", text_align="center"),
-                ft.Text(
-                    f"Tippe {JOKER_SELECT_COUNT} Joker an (oben oder unten) · erneut tippen zum Abwählen",
-                    size=14,
-                    color=theme_txt(theme, "secondary"),
-                    text_align="center",
-                ),
-                ft.Container(height=8),
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Row(
-                                [
-                                    ft.Checkbox(
-                                        label="Timer aktivieren",
-                                        value=bool(state.get("time_pressure_enabled", True)),
-                                        on_change=on_time_pressure_change,
-                                        fill_color=theme["accent"],
-                                        check_color="white",
-                                        label_style=ft.TextStyle(color=theme_txt(theme, "secondary"), size=13),
-                                    ),
-                                    ft.Container(width=20),
-                                    ft.Checkbox(
-                                        label="Joker aktivieren",
-                                        value=bool(state.get("jokers_enabled", True)),
-                                        on_change=on_jokers_enabled_change,
-                                        fill_color=theme["accent"],
-                                        check_color="white",
-                                        label_style=ft.TextStyle(color=theme_txt(theme, "secondary"), size=13),
-                                    ),
-                                ],
-                                alignment=ft.MainAxisAlignment.CENTER,
-                            ),
-                            ft.Container(height=6),
-                            ft.Row(
-                                [
-                                    ft.Text("Sekunden pro Frage:", size=13, color=theme_txt(theme, "secondary")),
-                                    (lambda: (
-                                        d := ft.Dropdown(
-                                            options=[ft.dropdown.Option(str(v)) for v in QUESTION_TIME_OPTIONS],
-                                            value=str(int(state.get("question_time_sec", QUESTION_TIME_SEC))),
-                                            width=120,
-                                        ),
-                                        setattr(d, 'on_change', lambda e: on_question_time_change(e)),
-                                        d
-                                    )[-1])() if bool(state.get("time_pressure_enabled", True)) else ft.Text(
-                                        "Timer aus – kein Countdown",
-                                        size=13,
-                                        color=theme_txt(theme, "secondary"),
-                                        weight="bold",
-                                    ),
-                                ],
-                                alignment=ft.MainAxisAlignment.CENTER,
-                                spacing=10,
-                            ),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    bgcolor=theme["panel"],
-                    border_radius=14,
-                    padding=12,
-                    border=ft.border.Border.all(2, theme["border"]),
-                ),
-                ft.Container(height=10),
-                ft.Container(
-                    content=ft.Row([
-                        build_joker_slot_row(
-                            pick, theme, slot_size=58, on_joker_click=toggle_joker,
-                        ),
-                        check_btn,
-                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=14),
-                    bgcolor=theme["panel"],
-                    border_radius=14,
-                    padding=16,
-                    border=ft.border.Border.all(2, theme["border"]),
-                    visible=state.get("jokers_enabled", True),
-                ) if state.get("jokers_enabled", True) else ft.Container(
-                    content=ft.ElevatedButton("Start ohne Joker", on_click=on_check, style=ft.ButtonStyle(bgcolor=theme["success"], color="white")),
-                    padding=20,
-                ),
-                ft.Text("Deine Auswahl", size=13, color=theme["gold"], weight="bold", visible=state.get("jokers_enabled", True)),
-                ft.Container(
-                    content=ft.Row(
-                        catalog_tiles,
-                        wrap=True,
-                        spacing=10,
-                        run_spacing=10,
-                        alignment=ft.MainAxisAlignment.CENTER,
-                    ),
-                    width=520,
-                    padding=10,
-                    visible=state.get("jokers_enabled", True),
-                ),
-                ft.TextButton("← Zurück", on_click=on_back, style=ft.ButtonStyle(color="white")),
-            ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=12,
-                scroll=ft.ScrollMode.AUTO,
-            ),
         )
     )
     page.update()
@@ -4984,11 +5031,11 @@ def render_game_screen(page: ft.Page, state: dict):
     bg_image = theme.get("game_bg") if themed else None
     has_video_bg = _is_video_background(bg_image)
     if is_nexus and has_video_bg:
-        overlay_color = "#00000078"
+        overlay_color = "#000000b8"
         question_text_color = "#F8FAFC"
         answer_text_color = "#F8FAFC"
-        answer_bg = "#09130de6"
-        question_bg_color = "#09130de6"
+        answer_bg = "#060d09f2"
+        question_bg_color = "#060d09f2"
     else:
         overlay_color = "#00000000" if is_nexus else (
             "#00000099" if not theme.get("is_light") else "#00000055"
