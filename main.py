@@ -2084,8 +2084,15 @@ def wikipedia_definition(term: str) -> str:
     )
 
 
-def word_tip_for(term: str, question: str = "") -> str:
+def word_tip_for(term: str, question: str = "", options: list[str] | None = None) -> str:
     key = term.strip().lower()
+    # Prefer a distinctive token from the correct answer that does not appear in other options.
+    if options:
+        opt_keys = [str(o).strip().lower() for o in options]
+        parts = [p for p in re.split(r"[\s,;/()\-]+", key) if len(p) >= 4]
+        for p in parts:
+            if sum(1 for o in opt_keys if p in o) == 1:
+                return p.capitalize()
     for hint_key, word in WORD_TIP_HINTS.items():
         if hint_key in key:
             return word
@@ -2216,20 +2223,45 @@ def _DraggableModal(panel: ft.Control) -> ft.Stack:
 
 
 async def _flash_joker_activation(page: ft.Page, theme: dict):
-    """Brief gold flash when a joker is used."""
-    flash = ft.Container(bgcolor="#55FFD700", expand=True)
-    page.overlay.append(flash)
+    """Animated pulse effect when a joker is used."""
+    accent = theme.get("accent", "#22D3EE")
+    gold = theme.get("gold", "#FFD700")
+    pulse = ft.Container(
+        content=ft.Stack(
+            [
+                ft.Container(width=220, height=220, border_radius=110, border=ft.border.Border.all(6, f"#66{accent[1:]}"), bgcolor="#00000000"),
+                ft.Container(width=140, height=140, border_radius=70, border=ft.border.Border.all(4, f"#77{gold[1:]}"), bgcolor="#00000000"),
+                ft.Container(content=ft.Text("✦", size=42, color=gold), alignment=ft.Alignment(0, 0), width=120, height=120),
+            ],
+            alignment=ft.Alignment(0, 0),
+        ),
+        alignment=ft.Alignment(0, 0),
+        expand=True,
+        bgcolor="#00000033",
+        scale=0.7,
+        opacity=0.0,
+        animate_scale=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
+        animate_opacity=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
+    )
+    page.overlay.append(pulse)
     try:
+        pulse.opacity = 1.0
+        pulse.scale = 1.05
         page.update()
+        await asyncio.sleep(0.24)
+        pulse.opacity = 0.0
+        pulse.scale = 1.35
+        page.update()
+        await asyncio.sleep(0.18)
     except Exception:
         pass
-    await asyncio.sleep(0.2)
-    if flash in page.overlay:
-        page.overlay.remove(flash)
-    try:
-        page.update()
-    except Exception:
-        pass
+    finally:
+        if pulse in page.overlay:
+            page.overlay.remove(pulse)
+        try:
+            page.update()
+        except Exception:
+            pass
 
 
 def show_game_message_with_body(page: ft.Page, state: dict, title: str, body_ctrl: ft.Control, theme: dict):
@@ -2239,6 +2271,7 @@ def show_game_message_with_body(page: ft.Page, state: dict, title: str, body_ctr
         state.pop("truefalse_mode", None)
         render_game_screen(page, state)
 
+    panel_bg = "#060d09f0" if _is_video_background(_resolve_theme_background(_theme_key_from_theme(theme) or "", "game")) else theme["panel"]
     set_game_modal(
         state,
         ft.Container(
@@ -2248,7 +2281,7 @@ def show_game_message_with_body(page: ft.Page, state: dict, title: str, body_ctr
                 ft.Container(height=8),
                 _game_menu_button("OK", close, theme["accent"], width=160),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
-            bgcolor=theme["panel"],
+            bgcolor=panel_bg,
             border_radius=16,
             padding=24,
             border=ft.border.Border.all(2, theme["gold"]),
@@ -2309,7 +2342,7 @@ def _show_joker_countdown_dialog(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=6,
         ),
-        bgcolor=theme.get("panel", "#1A1A1A"),
+        bgcolor="#060d09f0" if _is_video_background(_resolve_theme_background(_theme_key_from_theme(theme) or "", "game")) else theme.get("panel", "#1A1A1A"),
         border_radius=18,
         padding=28,
         border=ft.border.Border.all(2, theme.get("gold", "#FFD700")),
@@ -2438,7 +2471,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
 
     if joker_id == "wordtip":
         mark_joker_used(state, joker_id)
-        word = word_tip_for(options[correct_idx], question)
+        word = word_tip_for(options[correct_idx], question, options)
         show_game_message(
             page, state,
             "Wort-Tipp",
@@ -2450,12 +2483,13 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
     if joker_id == "truefalse":
         mark_joker_used(state, joker_id)
         state["truefalse_mode"] = True
+        state["info_hint"] = "W/F aktiv: Tippe eine Antwort, um richtig/falsch zu testen."
         page.snack_bar = ft.SnackBar(
             content=ft.Text("Tippe eine Antwort zum Testen – danach kannst du normal weiterwählen."),
             duration=3500,
         )
         page.snack_bar.open = True
-        page.update()
+        render_game_screen(page, state)
         return
 
     if joker_id == "emoji":
@@ -2467,7 +2501,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
         async def _load_emoji():
             loop = asyncio.get_event_loop()
             try:
-                em = await loop.run_in_executor(None, lambda: emoji_hint_for_answer(term))
+                em = await loop.run_in_executor(None, lambda: emoji_hint_for_answer(f"{term} {question}"))
             except Exception:
                 em = "💡 🧩 🎯"
             body_ref.value = f"Die richtige Antwort in Emojis:\n\n{em}"
@@ -2482,6 +2516,18 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
     if joker_id == "audience":
         mark_joker_used(state, joker_id)
         percents = generate_audience_percents(correct_idx)
+        # Make bars less uniform and keep correct answer around ~85% chance to lead.
+        if random.random() < 0.85:
+            top = random.randint(46, 72)
+            rest = 100 - top
+            wrong = [i for i in range(len(options)) if i != correct_idx]
+            random.shuffle(wrong)
+            split = [random.randint(5, max(8, rest - 10)), random.randint(3, 25)]
+            split.append(max(3, rest - split[0] - split[1]))
+            random.shuffle(split)
+            for i, v in zip(wrong, split):
+                percents[i] = max(3, v)
+            percents[correct_idx] = max(35, 100 - sum(percents[i] for i in wrong))
         bars = []
         for i, letter in enumerate(ANSWER_LETTERS[: len(options)]):
             p = percents[i]
@@ -2524,13 +2570,19 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
 
     if joker_id == "phone":
         mark_joker_used(state, joker_id)
-        state["phone_until"] = time.time() + PHONE_JOKER_SEC
+        if bool(state.get("time_pressure_enabled", True)):
+            state["phone_until"] = time.time() + PHONE_JOKER_SEC
+        else:
+            state.pop("phone_until", None)
         try:
             page.launch_url("tel:")
         except Exception:
             pass
-        sync_timer_display(page, state)
-        _show_joker_countdown_dialog(page, state, theme, "📞 Telefon-Joker", PHONE_JOKER_SEC, "phone_until")
+        if bool(state.get("time_pressure_enabled", True)):
+            sync_timer_display(page, state)
+            _show_joker_countdown_dialog(page, state, theme, "📞 Telefon-Joker", PHONE_JOKER_SEC, "phone_until")
+        else:
+            show_game_message(page, state, "📞 Telefon-Joker", "Timer ist aus. Nimm dir die Zeit, die du brauchst.", theme)
         return
 
 
@@ -4263,7 +4315,7 @@ def _game_menu_button(
     width: int = CUSTOM_QUIZ_BTN_WIDTH,
     height: int = CUSTOM_QUIZ_BTN_HEIGHT,
 ) -> ft.Container:
-    return ft.Container(
+    btn = ft.Container(
         content=ft.Text(
             label, size=14, weight="bold", color="white",
             text_align=ft.TextAlign.CENTER, max_lines=2, no_wrap=False,
@@ -4276,6 +4328,14 @@ def _game_menu_button(
         width=width,
         height=height,
     )
+    def on_hover(e):
+        hovering = e.data == "true"
+        e.control.shadow = ft.BoxShadow(blur_radius=24, color="#66FFFFFF", spread_radius=1) if hovering else None
+        e.control.scale = 1.03 if hovering else 1.0
+        e.control.update()
+    btn.on_hover = on_hover
+    btn.animate_scale = ft.Animation(140, ft.AnimationCurve.EASE_OUT)
+    return btn
 
 
 def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
@@ -4849,6 +4909,7 @@ def show_age_selection(page: ft.Page, state: dict):
     """Reset state and ask for age group (standard quiz)."""
     reset_game_timer(state)
     theme = get_theme(state)
+    age_btn_colors = [theme.get("accent", "#2ECC71"), theme.get("accent_2", "#F4A460"), theme.get("gold", "#E91E8C")]
     state["time_pressure_enabled"] = True
     state["question_time_sec"] = QUESTION_TIME_SEC
     state.update({
@@ -4892,9 +4953,9 @@ def show_age_selection(page: ft.Page, state: dict):
                 ft.Text("Wähle deine Altersgruppe", size=26, weight="bold",
                         color="white", text_align="center"),
                 ft.Container(height=10),
-                _age_button("🌟  6 – 10 Jahre", "young", "#2ECC71", choose_age),
-                _age_button("🔥  11 – 16 Jahre", "mid", "#F4A460", choose_age),
-                _age_button("⚡  Ab 16 Jahre", "old", "#E91E8C", choose_age),
+                _age_button("🌟  6 – 10 Jahre", "young", age_btn_colors[0], choose_age),
+                _age_button("🔥  11 – 16 Jahre", "mid", age_btn_colors[1], choose_age),
+                _age_button("⚡  Ab 16 Jahre", "old", age_btn_colors[2], choose_age),
                 ft.Container(height=10),
                 ft.TextButton(
                     "← Zurück",
@@ -4912,7 +4973,7 @@ def show_age_selection(page: ft.Page, state: dict):
 
 
 def _age_button(label: str, data: str, color: str, on_click) -> ft.Control:
-    return ft.Container(
+    btn = ft.Container(
         content=ft.Text(label, size=20, weight="bold", color="white"),
         data=data,
         on_click=on_click,
@@ -4921,6 +4982,13 @@ def _age_button(label: str, data: str, color: str, on_click) -> ft.Control:
         padding=ft.Padding(50, 16, 50, 16),
         shadow=ft.BoxShadow(blur_radius=12, color="#40000000"),
     )
+    def on_hover(e):
+        e.control.shadow = ft.BoxShadow(blur_radius=24, color="#66FFFFFF", spread_radius=1) if e.data == "true" else ft.BoxShadow(blur_radius=12, color="#40000000")
+        e.control.scale = 1.02 if e.data == "true" else 1.0
+        e.control.update()
+    btn.on_hover = on_hover
+    btn.animate_scale = ft.Animation(140, ft.AnimationCurve.EASE_OUT)
+    return btn
 
 
 # ---------- Open main menu ----------
@@ -5171,6 +5239,7 @@ def render_game_screen(page: ft.Page, state: dict):
                 await asyncio.sleep(1.4)
                 reset_answer_styles()
                 state.pop("truefalse_mode", None)
+                state.pop("info_hint", None)
                 answers_disabled[0] = False
                 page.update()
 
@@ -5456,6 +5525,15 @@ def render_game_screen(page: ft.Page, state: dict):
         padding=ft.Padding(14, 8, 14, 8),
         border=classic_panel_border,
     )
+    info_hint = state.get("info_hint")
+    if info_hint:
+        status_bar.content = ft.Column(
+            [
+                status_bar.content,
+                ft.Text(info_hint, size=11, color=theme.get("accent", "#93C5FD"), text_align=ft.TextAlign.CENTER),
+            ],
+            spacing=4,
+        )
 
     # Joker bar — always its own row, never overlaps timer or question
     has_jokers = len(state.get("selected_jokers", [])) > 0
@@ -5530,6 +5608,7 @@ def show_next_question(page: ft.Page, state: dict):
 
 
 def show_exit_confirmation(page: ft.Page, state: dict):
+    theme = get_theme(state)
     db = load_db()
     email = state.get("current_user_email")
     logged_in = email and email in db["users"]
@@ -5573,47 +5652,35 @@ def show_exit_confirmation(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=["#2C1654", "#6B2FA0", "#C2185B"],
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000096"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text("Spiel unterbrechen?", size=24, weight="bold", color="white", text_align="center"),
+                                    ft.Container(height=10),
+                                    ft.Text(info_text, size=16, color=theme_txt(theme, "secondary"), text_align="center"),
+                                    ft.Container(height=20),
+                                    ft.Row([
+                                        _theme_action_button("Ja, beenden", theme, on_confirm_exit, width=170, bg=theme.get("danger", "#C0392B")),
+                                        _theme_action_button("Nein, weiter", theme, on_resume_game, width=170, bg=theme.get("success", "#2ECC71")),
+                                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=16),
+                                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                                bgcolor=theme.get("panel", "#1A0A30"),
+                                border_radius=20,
+                                padding=30,
+                                border=ft.border.Border.all(2, theme.get("border", "#9B59B6")),
+                                width=420,
+                            )
+                        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    ),
+                ],
+                expand=True,
             ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text("Spiel unterbrechen?", size=24, weight="bold", color="white", text_align="center"),
-                        ft.Container(height=10),
-                        ft.Text(info_text, size=16, color="#E0D0F0", text_align="center"),
-                        ft.Container(height=20),
-                        ft.Row([
-                            ft.Container(
-                                content=ft.Text("Ja, beenden", size=16, weight="bold", color="white"),
-                                on_click=on_confirm_exit,
-                                bgcolor="#C0392B",
-                                border_radius=30,
-                                padding=ft.Padding(24, 12, 24, 12),
-                                alignment=ft.Alignment(0, 0),
-                                width=160,
-                            ),
-                            ft.Container(
-                                content=ft.Text("Nein, weiter", size=16, weight="bold", color="white"),
-                                on_click=on_resume_game,
-                                bgcolor="#2ECC71",
-                                border_radius=30,
-                                padding=ft.Padding(24, 12, 24, 12),
-                                alignment=ft.Alignment(0, 0),
-                                width=160,
-                            ),
-                        ], alignment=ft.MainAxisAlignment.CENTER, spacing=16),
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-                    bgcolor="#1A0A30",
-                    border_radius=20,
-                    padding=30,
-                    border=ft.border.Border.all(2, "#9B59B6"),
-                    width=420,
-                )
-            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         )
     )
     page.update()
