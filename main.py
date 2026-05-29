@@ -3,6 +3,7 @@ import asyncio
 import copy
 import inspect
 import json
+import math
 import os
 import random
 import re
@@ -4093,45 +4094,106 @@ def _avatar_piece_color(item_id: str, theme: dict, fallback: str) -> str:
     return fallback
 
 
-def build_avatar_figure(user: dict, theme: dict, size: int = 110) -> ft.Control:
+def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: float = 0.0) -> ft.Control:
     ensure_avatar_defaults(user)
     equipped = user["avatar"]["equipped"]
+    turn = max(-1.0, min(1.0, math.sin(math.radians(angle_deg))))
+    front = 1.0 - abs(turn) * 0.35
     base_skin = "#E7C8A0"
     top_color = _avatar_piece_color(equipped.get("top", ""), theme, theme.get("accent", "#10B981"))
     pants_color = _avatar_piece_color(equipped.get("pants", ""), theme, "#334155")
     shoes_color = _avatar_piece_color(equipped.get("shoes", ""), theme, "#111827")
     acc_color = _avatar_piece_color(equipped.get("accessory", ""), theme, theme.get("gold", "#F59E0B"))
 
-    head = ft.Container(width=int(size * 0.30), height=int(size * 0.30), bgcolor=base_skin, border_radius=999, border=ft.border.Border.all(1, "#1F2937"))
-    torso = ft.Container(width=int(size * 0.34), height=int(size * 0.30), bgcolor=top_color, border_radius=8, border=ft.border.Border.all(1, "#1F2937"))
-    legs = ft.Row(
-        [
-            ft.Container(width=int(size * 0.14), height=int(size * 0.26), bgcolor=pants_color, border_radius=6),
-            ft.Container(width=int(size * 0.14), height=int(size * 0.26), bgcolor=pants_color, border_radius=6),
-        ],
-        spacing=4,
+    head_w = max(20, int(size * 0.30 * front))
+    torso_w = max(24, int(size * 0.36 * front))
+    leg_w = max(10, int(size * 0.14 * front))
+    shoe_w = max(12, int(size * 0.16 * front))
+
+    eye_shift = int(turn * 4)
+    head = ft.Container(
+        width=head_w,
+        height=int(size * 0.30),
+        border_radius=999,
+        border=ft.border.Border.all(1, "#1F2937"),
+        gradient=ft.LinearGradient(
+            begin=ft.Alignment(-1, -1),
+            end=ft.Alignment(1, 1),
+            colors=["#F6D8B8", "#E7C8A0", "#C9A27B"],
+        ),
+        content=ft.Stack(
+            [
+                ft.Container(width=max(2, int(head_w * 0.16)), height=max(2, int(size * 0.03)), left=max(2, int(head_w * 0.26) + eye_shift), top=max(2, int(size * 0.11)), border_radius=99, bgcolor="#1f2937"),
+                ft.Container(width=max(2, int(head_w * 0.16)), height=max(2, int(size * 0.03)), left=max(2, int(head_w * 0.54) + eye_shift), top=max(2, int(size * 0.11)), border_radius=99, bgcolor="#1f2937"),
+            ]
+        ),
+    )
+
+    shoulder = ft.Container(
+        width=max(12, int(size * 0.10)),
+        height=int(size * 0.20),
+        bgcolor=_avatar_piece_color(equipped.get("top", ""), theme, "#1E3A8A"),
+        border_radius=10,
+    )
+    shoulder_opposite = ft.Container(
+        width=max(8, int(size * 0.08)),
+        height=int(size * 0.18),
+        bgcolor=_avatar_piece_color(equipped.get("top", ""), theme, "#1E3A8A"),
+        border_radius=10,
+        opacity=0.65,
+    )
+    torso = ft.Container(
+        width=torso_w,
+        height=int(size * 0.30),
+        border_radius=10,
+        border=ft.border.Border.all(1, "#1F2937"),
+        gradient=ft.LinearGradient(
+            begin=ft.Alignment(-1, -1),
+            end=ft.Alignment(1, 1),
+            colors=[top_color, "#1f2937"],
+        ),
+        content=ft.Container(
+            content=ft.Text("✦", size=max(8, int(size * 0.09)), color="#ffffff99"),
+            alignment=ft.Alignment(0, -0.5),
+        ),
+    )
+    torso_row = ft.Row(
+        [shoulder, torso, shoulder_opposite] if turn >= 0 else [shoulder_opposite, torso, shoulder],
+        spacing=3,
         alignment=ft.MainAxisAlignment.CENTER,
     )
+
+    leg_left = ft.Container(width=leg_w, height=int(size * 0.26), border_radius=6, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[pants_color, "#111827"]))
+    leg_right = ft.Container(width=leg_w, height=int(size * 0.26), border_radius=6, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[pants_color, "#0f172a"]))
+    legs = ft.Row([leg_left, leg_right], spacing=4, alignment=ft.MainAxisAlignment.CENTER)
+
     shoes = ft.Row(
         [
-            ft.Container(width=int(size * 0.16), height=int(size * 0.07), bgcolor=shoes_color, border_radius=5),
-            ft.Container(width=int(size * 0.16), height=int(size * 0.07), bgcolor=shoes_color, border_radius=5),
+            ft.Container(width=shoe_w, height=int(size * 0.07), border_radius=5, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[shoes_color, "#020617"])),
+            ft.Container(width=shoe_w, height=int(size * 0.07), border_radius=5, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[shoes_color, "#020617"])),
         ],
         spacing=4,
         alignment=ft.MainAxisAlignment.CENTER,
     )
     accessory = ft.Container(
-        width=int(size * 0.18),
-        height=int(size * 0.05),
+        width=max(10, int(size * 0.18)),
+        height=max(4, int(size * 0.05)),
         bgcolor=acc_color if equipped.get("accessory") != "acc_none" else "#00000000",
         border_radius=8,
+        shadow=ft.BoxShadow(blur_radius=8, color=f"#66{acc_color[1:]}" if acc_color.startswith("#") else "#66ffffff"),
     )
-    return ft.Column(
-        [head, accessory, torso, legs, shoes],
+
+    body = ft.Column(
+        [head, accessory, torso_row, legs, shoes],
         spacing=2,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         alignment=ft.MainAxisAlignment.CENTER,
         tight=True,
+    )
+    return ft.Container(
+        content=body,
+        rotate=ft.Rotate(math.radians(angle_deg) * 0.30, alignment=ft.Alignment(0, 0)),
+        animate_rotation=ft.Animation(240, ft.AnimationCurve.EASE_OUT),
     )
 
 
@@ -4148,6 +4210,7 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
     theme = get_theme(state)
     ui = theme_ui_palette(theme)
     slot_state = {"value": "top"}
+    angle_state = {"value": 0.0}
     status = ft.Text("", size=12, color=theme_txt(theme, "secondary"))
 
     def buy_item(item: dict):
@@ -4179,7 +4242,9 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
     preview_text = ft.Text("", size=13, color=ui["text"], text_align=ft.TextAlign.CENTER)
     preview_figure = ft.Container(alignment=ft.Alignment(0, 0))
     gender_row = ft.Row(spacing=8, alignment=ft.MainAxisAlignment.CENTER)
-    item_list = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, height=320)
+    item_list = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
+    rotate_text = ft.Text("", size=12, color=theme_txt(theme, "secondary"))
+    rotate_slider = ft.Slider(min=0, max=360, divisions=24, value=0, expand=True)
     slot_dropdown = ft.Dropdown(
         label="Kategorie",
         value=slot_state["value"],
@@ -4196,7 +4261,8 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
         ensure_avatar_defaults(user)
         wallet_text.value = f"Guthaben: {int(user.get('stats', {}).get('wallet_balance', 0))} €"
         preview_text.value = _avatar_preview_text(user, theme)
-        preview_figure.content = build_avatar_figure(user, theme, size=118)
+        preview_figure.content = build_avatar_figure(user, theme, size=260, angle_deg=angle_state["value"])
+        rotate_text.value = f"Drehung: {int(angle_state['value'])}°"
 
         gender_buttons = []
         for g_key, g_label in AVATAR_GENDER_OPTIONS:
@@ -4261,7 +4327,19 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
         render()
         page.update()
 
+    def on_rotate_change(e):
+        angle_state["value"] = float(e.control.value or 0.0)
+        render()
+        page.update()
+
+    def rotate_step(delta: float):
+        angle_state["value"] = (float(angle_state["value"]) + delta) % 360.0
+        rotate_slider.value = angle_state["value"]
+        render()
+        page.update()
+
     slot_dropdown.on_select = on_slot_change
+    rotate_slider.on_change = on_rotate_change
     render()
 
     page.controls.clear()
@@ -4276,7 +4354,7 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
                         alignment=ft.Alignment(0, 0),
                         padding=ft.Padding(12, 12, 12, 12),
                         content=ft.Container(
-                            width=min(820, int(_page_size(page)[0] - 20)),
+                            width=min(1120, int(_page_size(page)[0] - 20)),
                             border_radius=16,
                             bgcolor="#060d09f0",
                             border=ft.border.Border.all(2, ui["card_border"]),
@@ -4290,23 +4368,62 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
                                         ],
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
-                                    ft.Container(
-                                        content=ft.Column(
-                                            [
-                                                preview_figure,
-                                                preview_text,
-                                            ],
-                                            spacing=6,
-                                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                        ),
-                                        border_radius=14,
-                                        border=ft.border.Border.all(1.5, ui["card_border"]),
-                                        bgcolor=ui["card_bg"],
-                                        padding=ft.Padding(16, 14, 16, 14),
+                                    ft.Row(
+                                        [
+                                            ft.Container(
+                                                width=380,
+                                                border_radius=14,
+                                                border=ft.border.Border.all(1.5, ui["card_border"]),
+                                                bgcolor=ui["card_bg"],
+                                                padding=ft.Padding(14, 14, 14, 14),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Garderobe", size=20, weight="bold", color=ui["text"]),
+                                                        gender_row,
+                                                        ft.Row([slot_dropdown], alignment=ft.MainAxisAlignment.START),
+                                                        item_list,
+                                                    ],
+                                                    spacing=10,
+                                                    expand=True,
+                                                ),
+                                            ),
+                                            ft.Container(width=16),
+                                            ft.Container(
+                                                expand=True,
+                                                border_radius=14,
+                                                border=ft.border.Border.all(1.5, ui["card_border"]),
+                                                bgcolor=ui["card_bg"],
+                                                padding=ft.Padding(16, 16, 16, 16),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Avatar-Vorschau", size=20, weight="bold", color=ui["text"], text_align=ft.TextAlign.CENTER),
+                                                        ft.Container(
+                                                            content=preview_figure,
+                                                            expand=True,
+                                                            alignment=ft.Alignment(0, 0),
+                                                        ),
+                                                        preview_text,
+                                                        ft.Row(
+                                                            [
+                                                                _theme_action_button("↺", theme, lambda e: rotate_step(-15), width=64),
+                                                                rotate_slider,
+                                                                _theme_action_button("↻", theme, lambda e: rotate_step(15), width=64),
+                                                            ],
+                                                            alignment=ft.MainAxisAlignment.CENTER,
+                                                            spacing=8,
+                                                        ),
+                                                        ft.Row([rotate_text], alignment=ft.MainAxisAlignment.CENTER),
+                                                    ],
+                                                    spacing=8,
+                                                    expand=True,
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                ),
+                                            ),
+                                        ],
+                                        expand=True,
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        vertical_alignment=ft.CrossAxisAlignment.START,
                                     ),
-                                    gender_row,
-                                    ft.Row([slot_dropdown], alignment=ft.MainAxisAlignment.CENTER),
-                                    item_list,
                                     status,
                                     ft.Row(
                                         [
@@ -7029,6 +7146,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
         return
 
     ensure_social_defaults(friend)
+    ensure_avatar_defaults(friend)
     friend_theme_name = friend.get("settings", {}).get("theme", "classic")
     friend_theme = THEMES.get(friend_theme_name, THEMES["classic"])
     last_active_str = format_last_active(friend.get("last_active"))
@@ -7127,7 +7245,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
                 ft.Divider(color=theme["border"], height=1),
                 ft.Text("Was möchtest du tun?", size=13, color="#CCCCCC"),
                 ft.Text(duel_hint, size=12, color=theme["gold"], visible=bool(duel_hint)),
-                menu_button("📊 Statistik ansehen", theme["accent"], on_stats),
+                menu_button("👤 Profil ansehen", theme["accent"], on_stats),
                 menu_button(
                     "⚔️ Deine Runde spielen" if can_play_opponent else (
                         "⚔️ Duell fortsetzen" if can_resume else "⚔️ Herausfordern"
@@ -7982,8 +8100,11 @@ def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
         show_friends_view(page, state)
         return
 
+    ensure_avatar_defaults(friend)
     stats = friend.get("stats", {})
     ensure_stats_defaults(stats)
+    friend_title = str(friend.get("active_title") or "Neuling")
+    friend_name = friend.get("name", friend_email)
     games = stats.get("games_played", 0)
     card = _stats_card(
         f"Statistik: {friend.get('name', friend_email)}",
@@ -8012,8 +8133,34 @@ def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
                         expand=True,
                         alignment=ft.Alignment(0, 0),
                         content=ft.Column([
-                            ft.Text("Freundesstatistik", size=30, weight="bold", color="white"),
-                            card,
+                            ft.Text("Freundesprofil", size=30, weight="bold", color="white"),
+                            ft.Container(
+                                width=min(760, int(_page_size(page)[0] - 24)),
+                                border_radius=14,
+                                bgcolor="#060d09e8",
+                                border=ft.border.Border.all(1.5, theme.get("border", "#334155")),
+                                padding=14,
+                                content=ft.Row(
+                                    [
+                                        ft.Container(
+                                            width=240,
+                                            content=ft.Column(
+                                                [
+                                                    build_avatar_figure(friend, theme, size=180, angle_deg=18),
+                                                    ft.Text(friend_name, size=18, weight="bold", color=theme_txt(theme, "primary"), text_align=ft.TextAlign.CENTER),
+                                                    ft.Text(friend_title, size=13, color=theme.get("gold", "#F59E0B"), text_align=ft.TextAlign.CENTER),
+                                                ],
+                                                spacing=6,
+                                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                            ),
+                                        ),
+                                        ft.Container(width=12),
+                                        ft.Container(content=card, expand=True),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                ),
+                            ),
                             ft.TextButton(
                                 "Zurück",
                                 on_click=lambda e: show_friends_view(e.page, state),
