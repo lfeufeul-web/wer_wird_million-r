@@ -282,10 +282,10 @@ THEMES = {
         "game_layout": "themed",
         "game_bg": "backgrounds/neon_nexus/hintergrund_bild_neon_nexus.mp4",
         "layout_zones": NEON_NEXUS_ZONES,
-        "is_light": True,
-        "text_primary": "#0F172A",
-        "text_secondary": "#334155",
-        "text_muted": "#64748B",
+        "is_light": False,
+        "text_primary": "#F8FAFC",
+        "text_secondary": "#D1E7FF",
+        "text_muted": "#9FB8D9",
         "gradient": ["#000000", "#021208", "#042810"],
         "panel": "#00000000",
         "border": "#00000000",
@@ -293,11 +293,11 @@ THEMES = {
         "accent_2": "#D946EF",
         "success": "#16A34A",
         "danger": "#DC2626",
-        "gold": "#D946EF",
+        "gold": "#22D3EE",
         "question_bg": "#00000000",
-        "question_text": "#1E293B",
+        "question_text": "#F8FAFC",
         "answer_bg": "#00000000",
-        "answer_text": "#1E293B",
+        "answer_text": "#F8FAFC",
         "answer_colors": ["#0ea5e9", "#d946ef", "#10b981", "#f59e0b"],
     },
     "hacker": {
@@ -402,8 +402,33 @@ SHOP_CATALOG = {
         {"id": "Alleswisser", "name": "Alleswisser", "price": 15000, "type": "title"},
         {"id": "Millionär-Club", "name": "Millionär-Club", "price": 150000, "type": "title"},
         {"id": "Quiz-Gott", "name": "Quiz-Gott", "price": 1000000, "type": "title"},
-    ]
+    ],
+    "avatar_items": [
+        {"id": "top_basic", "slot": "top", "name": "Basic Shirt", "icon": "👕", "price": 0},
+        {"id": "top_neon", "slot": "top", "name": "Neon Jacket", "icon": "🧥", "price": 3500},
+        {"id": "top_royal", "slot": "top", "name": "Royal Cape", "icon": "🎽", "price": 12000},
+        {"id": "top_ocean", "slot": "top", "name": "Ocean Suit", "icon": "🫧", "price": 9000},
+        {"id": "pants_basic", "slot": "pants", "name": "Basic Pants", "icon": "👖", "price": 0},
+        {"id": "pants_dark", "slot": "pants", "name": "Dark Pants", "icon": "🩳", "price": 2500},
+        {"id": "pants_royal", "slot": "pants", "name": "Royal Pants", "icon": "👘", "price": 9000},
+        {"id": "shoes_basic", "slot": "shoes", "name": "Basic Shoes", "icon": "👟", "price": 0},
+        {"id": "shoes_lux", "slot": "shoes", "name": "Luxury Shoes", "icon": "🥾", "price": 6500},
+        {"id": "shoes_ocean", "slot": "shoes", "name": "Diver Boots", "icon": "🩴", "price": 7000},
+        {"id": "acc_none", "slot": "accessory", "name": "Kein Accessoire", "icon": "➖", "price": 0},
+        {"id": "acc_glasses", "slot": "accessory", "name": "Matrix Brille", "icon": "🕶️", "price": 4500},
+        {"id": "acc_chain", "slot": "accessory", "name": "Goldkette", "icon": "📿", "price": 11000},
+        {"id": "acc_crown", "slot": "accessory", "name": "Krone", "icon": "👑", "price": 30000},
+    ],
 }
+
+AVATAR_SLOTS = ("top", "pants", "shoes", "accessory")
+AVATAR_BASE_EQUIPPED = {
+    "top": "top_basic",
+    "pants": "pants_basic",
+    "shoes": "shoes_basic",
+    "accessory": "acc_none",
+}
+AVATAR_GENDER_OPTIONS = [("male", "Männlich"), ("female", "Weiblich"), ("diverse", "Divers")]
 
 
 # ---------- Audio & TTS System ----------
@@ -537,6 +562,7 @@ def default_user(email: str, uid: str | None = None) -> dict:
         "unlocked_titles": ["Neuling"],
         "active_title": "Neuling",
         "unlocked_achievements": [],
+        "avatar": default_avatar_profile(),
     }
     if uid:
         user["uid"] = uid
@@ -718,6 +744,7 @@ def ensure_firebase_user(uid: str, email: str) -> dict:
     user.setdefault("stats", DEFAULT_USER_STATS.copy())
     user.setdefault("game_history", [])
     ensure_social_defaults(user)
+    ensure_avatar_defaults(user)
     for key, value in DEFAULT_USER_SETTINGS.items():
         user["settings"].setdefault(key, value)
     ensure_stats_defaults(user["stats"])
@@ -831,6 +858,53 @@ def ensure_user_settings(db: dict, email: str):
     settings = user.setdefault("settings", {})
     for key, value in DEFAULT_USER_SETTINGS.items():
         settings.setdefault(key, value)
+    ensure_avatar_defaults(user)
+
+
+def _avatar_catalog_by_id() -> dict[str, dict]:
+    return {item["id"]: item for item in SHOP_CATALOG.get("avatar_items", [])}
+
+
+def default_avatar_profile() -> dict:
+    owned = list(dict.fromkeys(list(AVATAR_BASE_EQUIPPED.values())))
+    return {
+        "gender": "male",
+        "owned_items": owned,
+        "equipped": dict(AVATAR_BASE_EQUIPPED),
+    }
+
+
+def ensure_avatar_defaults(user: dict):
+    avatar = user.setdefault("avatar", default_avatar_profile())
+    if not isinstance(avatar, dict):
+        user["avatar"] = default_avatar_profile()
+        avatar = user["avatar"]
+    avatar.setdefault("gender", "male")
+    if avatar.get("gender") not in {"male", "female", "diverse"}:
+        avatar["gender"] = "diverse"
+
+    owned = avatar.setdefault("owned_items", [])
+    if not isinstance(owned, list):
+        owned = []
+        avatar["owned_items"] = owned
+    for base_item in AVATAR_BASE_EQUIPPED.values():
+        if base_item not in owned:
+            owned.append(base_item)
+
+    equipped = avatar.setdefault("equipped", dict(AVATAR_BASE_EQUIPPED))
+    if not isinstance(equipped, dict):
+        equipped = dict(AVATAR_BASE_EQUIPPED)
+        avatar["equipped"] = equipped
+
+    catalog = _avatar_catalog_by_id()
+    for slot in AVATAR_SLOTS:
+        current = equipped.get(slot, AVATAR_BASE_EQUIPPED[slot])
+        item = catalog.get(current)
+        if not item or item.get("slot") != slot:
+            equipped[slot] = AVATAR_BASE_EQUIPPED[slot]
+            current = equipped[slot]
+        if current not in owned:
+            owned.append(current)
 
 
 def ensure_stats_defaults(stats: dict):
@@ -1020,6 +1094,61 @@ def theme_txt(theme: dict, role: str = "primary") -> str:
     return theme.get(f"text_{role}", defaults.get(role, "#FFFFFF"))
 
 
+def theme_ui_palette(theme: dict) -> dict:
+    theme_key = _theme_key_from_theme(theme) or "classic"
+    palettes = {
+        "royal": {
+            "card_bg": "#2B1500CC",
+            "card_border": "#F2C94C",
+            "hover": "#FFD76A",
+            "text": "#FFF6D5",
+        },
+        "hacker": {
+            "card_bg": "#041109D9",
+            "card_border": "#00FF41",
+            "hover": "#3BFF7A",
+            "text": "#D5FFE2",
+        },
+        "ocean": {
+            "card_bg": "#03233AE0",
+            "card_border": "#4FC3FF",
+            "hover": "#7CE8FF",
+            "text": "#EAF9FF",
+        },
+        "neon_nexus": {
+            "card_bg": "#07151DE0",
+            "card_border": "#22D3EE",
+            "hover": "#D946EF",
+            "text": "#F8FAFC",
+        },
+    }
+    default_palette = {
+        "card_bg": theme.get("panel", "#0f172acc"),
+        "card_border": theme.get("border", "#60A5FA"),
+        "hover": theme.get("accent_2", "#C084FC"),
+        "text": theme_txt(theme, "primary"),
+    }
+    return palettes.get(theme_key, default_palette)
+
+
+def avatar_scene(theme_key: str) -> str:
+    return {
+        "ocean": "🛥️ U‑Boot Mission",
+        "hacker": "💻 Matrix-Konsole",
+        "royal": "🏰 Königliche Lounge",
+        "neon_nexus": "🌌 Neon Deck",
+        "classic": "🎮 Quiz-Studio",
+    }.get(theme_key, "🎮 Quiz-Studio")
+
+
+def avatar_base_emoji(gender: str) -> str:
+    return {
+        "male": "🧑‍💼",
+        "female": "👩‍💼",
+        "diverse": "🧑‍🎤",
+    }.get(gender, "🧑")
+
+
 def uses_themed_game(theme: dict) -> bool:
     return theme.get("game_layout") == "themed" and bool(theme.get("game_bg"))
 
@@ -1157,10 +1286,11 @@ def _theme_action_button(
     width: int = 240,
     bg: str | None = None,
 ) -> ft.Container:
-    color_bg = bg or theme.get("accent", "#2563EB")
-    border_color = theme.get("gold", "#F59E0B")
+    ui = theme_ui_palette(theme)
+    color_bg = bg or ui["card_bg"]
+    border_color = ui["card_border"]
     btn = ft.Container(
-        content=ft.Text(label, size=16, weight="bold", color="white"),
+        content=ft.Text(label, size=16, weight="bold", color=ui["text"]),
         on_click=on_click,
         bgcolor=color_bg,
         border_radius=30,
@@ -1173,13 +1303,14 @@ def _theme_action_button(
 
     def on_hover(e):
         hovering = e.data == "true"
-        e.control.border = ft.border.Border.all(2.5 if hovering else 1.8, theme.get("accent_2", border_color) if hovering else border_color)
+        hover_color = ui["hover"]
+        e.control.border = ft.border.Border.all(2.8 if hovering else 1.8, hover_color if hovering else border_color)
         e.control.shadow = ft.BoxShadow(
-            blur_radius=22 if hovering else 14,
-            color=f"#77{(theme.get('accent_2', border_color))[1:]}" if hovering else f"#55{border_color[1:]}",
-            spread_radius=1 if hovering else 0,
+            blur_radius=26 if hovering else 14,
+            color=f"#88{hover_color[1:]}" if hovering else f"#55{border_color[1:]}",
+            spread_radius=2 if hovering else 0,
         )
-        e.control.scale = 1.02 if hovering else 1.0
+        e.control.scale = 1.03 if hovering else 1.0
         e.control.update()
 
     btn.on_hover = on_hover
@@ -2041,15 +2172,39 @@ QUESTION_WORD_TIPS = [
 ]
 
 
-def wikipedia_definition(term: str) -> str:
-    """
-    Fetches a short extract from the German Wikipedia using OpenSearch API to find the best title first.
-    """
-    key = term.strip().lower()
+def _wiki_local_hint(term: str, question: str = "", options: list[str] | None = None) -> str:
+    key = (term or "").strip().lower()
+    q = (question or "").strip().lower()
+    for hint_key, text in WIKIPEDIA_HINTS.items():
+        if hint_key in key:
+            return text
 
+    if "tier" in q:
+        return "Ein Lebewesen aus dem Tierreich, oft in Biologie und Alltag bekannt."
+    if any(k in q for k in ("land", "hauptstadt", "stadt", "kontinent")):
+        return "Ein geografischer Begriff mit Bezug zu Ort, Region oder Staat."
+    if any(k in q for k in ("farbe", "misch", "farben")):
+        return "Ein Begriff aus der Farblehre oder visuellen Wahrnehmung."
+    if any(k in q for k in ("jahr", "monat", "tag", "uhr", "zeit")):
+        return "Ein Begriff aus Zeitrechnung, Kalender oder Tagesablauf."
+    if any(k in q for k in ("element", "chem", "formel", "gas")):
+        return "Ein Fachbegriff aus Chemie oder Naturwissenschaft."
+    if any(k in q for k in ("musik", "instrument", "komponist")):
+        return "Ein Begriff aus Musik, Kultur oder Kunstgeschichte."
+    if any(k in q for k in ("planet", "sonne", "mond", "stern")):
+        return "Ein Begriff aus Astronomie oder Weltraumforschung."
+    if options:
+        return (
+            "Die Lösung ist ein Fachbegriff, der klar in den Kontext der Frage passt. "
+            "Vergleiche die Antwortmöglichkeiten nach Bedeutung statt nach Klang."
+        )
+    return "Ein Begriff aus Allgemeinwissen mit klarer Definition in Lexika."
+
+
+def wikipedia_definition(term: str, question: str = "", options: list[str] | None = None) -> str:
+    """Fetches a short extract from German Wikipedia and hides spoiler words."""
     # 1. Try Wikipedia API (German)
     try:
-        # First, search for the best matching article title
         search_url = "https://de.wikipedia.org/w/api.php?action=opensearch&search=" + requests.utils.quote(term.strip()) + "&limit=1&format=json"
         s_resp = requests.get(search_url, timeout=3)
         if s_resp.status_code == 200:
@@ -2057,31 +2212,23 @@ def wikipedia_definition(term: str) -> str:
             if len(s_data) >= 2 and s_data[1]:
                 best_title = s_data[1][0]
                 base_title = best_title.split("(")[0].strip()
-                
-                # Get the summary for the exact title
                 url = "https://de.wikipedia.org/api/rest_v1/page/summary/" + requests.utils.quote(best_title)
                 resp = requests.get(url, timeout=4)
                 if resp.status_code == 200:
                     data = resp.json()
                     extract: str = data.get("extract", "")
                     if extract and len(extract) > 20:
-                        # Replace occurrences of the answer to avoid spoiling
                         for w in [term.strip(), term.strip().capitalize(), best_title, best_title.capitalize(), base_title, base_title.capitalize()]:
                             if w and len(w) > 3 and w in extract:
                                 extract = extract.replace(w, "___")
-                        return extract[:300].rsplit(" ", 1)[0] + " …"
+                        if len(extract) > 300:
+                            extract = extract[:300].rsplit(" ", 1)[0] + " …"
+                        return extract
     except Exception:
         pass
 
     # 2. Local fallback
-    for hint_key, text in WIKIPEDIA_HINTS.items():
-        if hint_key in key:
-            return text
-
-    return (
-        "Ein Begriff aus Allgemeinwissen – nähere Informationen findest du "
-        "in Lexika und Enzyklopädien (z. B. Wikipedia)."
-    )
+    return _wiki_local_hint(term, question, options)
 
 
 def word_tip_for(term: str, question: str = "", options: list[str] | None = None) -> str:
@@ -2142,120 +2289,130 @@ def swap_question_at_index(state: dict) -> bool:
     return False
 
 
-def set_game_modal(state: dict, panel: ft.Control):
+def set_game_modal(state: dict, panel: ft.Control, page: ft.Page | None = None):
     """Wrap panel in a draggable overlay that cannot leave the screen."""
-    state["_modal_overlay"] = _DraggableModal(panel)
+    state["_modal_overlay"] = _DraggableModal(panel, page=page)
 
 
 def clear_game_modal(state: dict):
     state.pop("_modal_overlay", None)
 
 
-def _DraggableModal(panel: ft.Control) -> ft.Stack:
-    """
-    Full-screen darkened overlay whose inner panel can be dragged.
-    The panel stays within the visible screen area and cannot be dragged off-screen.
-    """
-    PANEL_W = 400
-    pos = {"left": -1.0, "top": -1.0}
+def _DraggableModal(panel: ft.Control, page: ft.Page | None = None) -> ft.Stack:
+    """Darkened overlay + draggable card, centered initially and clamped to viewport."""
+    panel_w = int(getattr(panel, "width", None) or 420)
+    panel_h_est = 360
+    pos = {"left": None, "top": None}
 
-    handle = ft.Container(
-        content=ft.Text("⠿  verschieben", size=10, color="#AAAAAA", text_align="center"),
-        height=22,
-        bgcolor="#22222244",
-        border_radius=ft.BorderRadius(12, 12, 0, 0),
-        alignment=ft.Alignment(0, 0),
-        width=PANEL_W,
+    panel_host = ft.Container(content=panel, width=panel_w)
+    initial_left = 120
+    initial_top = 120
+    if page is not None:
+        pw, ph = _page_size(page)
+        initial_left = max(10, int((pw - panel_w) / 2))
+        initial_top = max(10, int((ph - panel_h_est) / 2))
+        pos["left"] = float(initial_left)
+        pos["top"] = float(initial_top)
+
+    floating = ft.Container(
+        content=ft.Column([], spacing=0),
+        left=initial_left,
+        top=initial_top,
     )
 
-    card = ft.Column(
-        [
-            handle,
-            ft.Container(content=panel, width=PANEL_W),
-        ],
-        spacing=0,
-    )
-
-    box = ft.Container(content=card, border_radius=16, width=PANEL_W)
-    
-    # We will wrap only the handle with the GestureDetector to move it!
-    # Flet's drag works by tracking the drag on the handle.
-    
-    drag_container = ft.Container(content=box)
+    def ensure_position(page: ft.Page):
+        pw, ph = _page_size(page)
+        max_w = max(280, min(panel_w, int(pw - 20)))
+        panel_host.width = max_w
+        if pos["left"] is None or pos["top"] is None:
+            pos["left"] = max(10, (pw - max_w) / 2)
+            pos["top"] = max(10, (ph - panel_h_est) / 2)
+        pos["left"] = max(10, min(float(pos["left"]), max(10, pw - max_w - 10)))
+        pos["top"] = max(10, min(float(pos["top"]), max(10, ph - 140)))
+        floating.left = pos["left"]
+        floating.top = pos["top"]
 
     def on_pan_update(e):
         try:
             page = e.control.page
-            if page is None: return
-            pw = float(getattr(page, "width", None) or 1100)
-            ph = float(getattr(page, "height", None) or 720)
-
-            if pos["left"] < 0:
-                pos["left"] = (pw - PANEL_W) / 2
-                pos["top"] = (ph - 340) / 2
-
-            pos["left"] += e.delta_x
-            pos["top"] += e.delta_y
-
-            # Constrain to visible screen bounds
-            pos["left"] = max(0, min(pw - PANEL_W, pos["left"]))
-            pos["top"] = max(0, min(ph - 150, pos["top"]))
-
-            drag_container.left = pos["left"]
-            drag_container.top = pos["top"]
-            drag_container.update()
+            if page is None:
+                return
+            ensure_position(page)
+            pw, ph = _page_size(page)
+            max_w = float(panel_host.width or panel_w)
+            pos["left"] = max(10, min((pos["left"] or 10) + e.delta_x, max(10, pw - max_w - 10)))
+            pos["top"] = max(10, min((pos["top"] or 10) + e.delta_y, max(10, ph - 140)))
+            floating.left = pos["left"]
+            floating.top = pos["top"]
+            floating.update()
         except Exception:
             pass
 
-    gesture = ft.GestureDetector(
-        content=drag_container,
+    drag_handle = ft.GestureDetector(
+        content=ft.Container(
+            content=ft.Text("⠿ verschieben", size=11, color="#D1D5DB", text_align="center"),
+            height=26,
+            bgcolor="#33415599",
+            border_radius=ft.BorderRadius(14, 14, 0, 0),
+            alignment=ft.Alignment(0, 0),
+            width=panel_w,
+        ),
         on_pan_update=on_pan_update,
         mouse_cursor=ft.MouseCursor.MOVE,
+        drag_interval=12,
     )
-    
-    # We need to center the modal initially. We can do this in the build or via alignment.
-    # Since we're using Stack with absolute positioning, we'll let it be centered initially via Stack properties? No, Stack left/top are absolute.
-    # Let's initialize pos and center it initially via window size (assuming typical 1100x720 if not available)
-    # Removed left/top positioning to fix overlay error
 
-    backdrop = ft.Container(expand=True, bgcolor="#00000088")
-    return ft.Stack([backdrop, gesture], expand=True)
+    floating.content.controls = [
+        ft.Container(
+            content=ft.Column([drag_handle, panel_host], spacing=0),
+            border_radius=16,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            shadow=ft.BoxShadow(blur_radius=30, color="#AA000000", spread_radius=2),
+        )
+    ]
+
+    backdrop = ft.Container(expand=True, bgcolor="#0000009a", blur=8)
+    return ft.Stack([backdrop, floating], expand=True)
 
 
-async def _flash_joker_activation(page: ft.Page, theme: dict):
-    """Animated pulse effect when a joker is used."""
+async def _flash_joker_activation(page: ft.Page, state: dict, theme: dict):
+    """Large animated pulse effect when a joker is used (pauses timer)."""
     accent = theme.get("accent", "#22D3EE")
     gold = theme.get("gold", "#FFD700")
+    duration = 3.0
+    state["_timer_pause_until"] = time.time() + duration
+
     pulse = ft.Container(
         content=ft.Stack(
             [
-                ft.Container(width=220, height=220, border_radius=110, border=ft.border.Border.all(6, f"#66{accent[1:]}"), bgcolor="#00000000"),
-                ft.Container(width=140, height=140, border_radius=70, border=ft.border.Border.all(4, f"#77{gold[1:]}"), bgcolor="#00000000"),
-                ft.Container(content=ft.Text("✦", size=42, color=gold), alignment=ft.Alignment(0, 0), width=120, height=120),
+                ft.Container(width=360, height=360, border_radius=180, border=ft.border.Border.all(8, f"#66{accent[1:]}"), bgcolor="#00000000"),
+                ft.Container(width=240, height=240, border_radius=120, border=ft.border.Border.all(6, f"#77{gold[1:]}"), bgcolor="#00000000"),
+                ft.Container(content=ft.Text("✦", size=64, color=gold), alignment=ft.Alignment(0, 0), width=180, height=180),
             ],
             alignment=ft.Alignment(0, 0),
         ),
         alignment=ft.Alignment(0, 0),
         expand=True,
-        bgcolor="#00000033",
-        scale=0.7,
+        bgcolor="#00000044",
+        scale=0.4,
         opacity=0.0,
-        animate_scale=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
-        animate_opacity=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
+        animate_scale=ft.Animation(2600, ft.AnimationCurve.EASE_OUT),
+        animate_opacity=ft.Animation(2600, ft.AnimationCurve.EASE_OUT),
     )
     page.overlay.append(pulse)
     try:
         pulse.opacity = 1.0
-        pulse.scale = 1.05
+        pulse.scale = 0.9
         page.update()
-        await asyncio.sleep(0.24)
-        pulse.opacity = 0.0
-        pulse.scale = 1.35
+        await asyncio.sleep(0.25)
+        pulse.scale = 2.8
+        pulse.opacity = 0.02
         page.update()
-        await asyncio.sleep(0.18)
+        await asyncio.sleep(max(0.1, duration - 0.25))
     except Exception:
         pass
     finally:
+        state.pop("_timer_pause_until", None)
         if pulse in page.overlay:
             page.overlay.remove(pulse)
         try:
@@ -2287,6 +2444,7 @@ def show_game_message_with_body(page: ft.Page, state: dict, title: str, body_ctr
             border=ft.border.Border.all(2, theme["gold"]),
             width=360,
         ),
+        page=page,
     )
     render_game_screen(page, state)
 
@@ -2457,7 +2615,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
         async def _load_wiki():
             loop = asyncio.get_event_loop()
             try:
-                definition = await loop.run_in_executor(None, lambda: wikipedia_definition(term))
+                definition = await loop.run_in_executor(None, lambda: wikipedia_definition(term, question, options))
             except Exception:
                 definition = "Kein Wikipedia-Eintrag gefunden."
             body_ref.value = definition
@@ -2515,6 +2673,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
 
     if joker_id == "audience":
         mark_joker_used(state, joker_id)
+        panel_bg = "#060d09f0" if _is_video_background(_resolve_theme_background(_theme_key_from_theme(theme) or "", "game")) else theme["panel"]
         percents = generate_audience_percents(correct_idx)
         # Make bars less uniform and keep correct answer around ~85% chance to lead.
         if random.random() < 0.85:
@@ -2558,12 +2717,13 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
                     *bars,
                     _game_menu_button("OK", close_audience, theme["accent"], width=140),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
-                bgcolor=theme["panel"],
+                bgcolor=panel_bg,
                 border_radius=16,
                 padding=20,
                 border=ft.border.Border.all(2, theme["border"]),
                 width=400,
             ),
+            page=page,
         )
         render_game_screen(page, state)
         return
@@ -2720,7 +2880,7 @@ def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | No
             return
 
         async def run_joker():
-            await _flash_joker_activation(page, theme)
+            await _flash_joker_activation(page, state, theme)
             activate_joker(page, state, joker_id, ctx)
 
         page.run_task(run_joker)
@@ -3897,6 +4057,217 @@ def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
     )
 
 
+# ---------- Avatar ----------
+def _avatar_piece_icon(user: dict, slot: str) -> str:
+    catalog = _avatar_catalog_by_id()
+    ensure_avatar_defaults(user)
+    item_id = user["avatar"]["equipped"].get(slot, AVATAR_BASE_EQUIPPED[slot])
+    item = catalog.get(item_id) or catalog.get(AVATAR_BASE_EQUIPPED[slot]) or {}
+    return str(item.get("icon", "•"))
+
+
+def _avatar_preview_text(user: dict, theme: dict) -> str:
+    ensure_avatar_defaults(user)
+    gender = user["avatar"].get("gender", "diverse")
+    base = avatar_base_emoji(gender)
+    top = _avatar_piece_icon(user, "top")
+    pants = _avatar_piece_icon(user, "pants")
+    shoes = _avatar_piece_icon(user, "shoes")
+    accessory = _avatar_piece_icon(user, "accessory")
+    theme_key = _theme_key_from_theme(theme) or "classic"
+    scene = avatar_scene(theme_key)
+    return f"{scene}\n{base} {top} {pants} {shoes} {accessory}"
+
+
+def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
+    db = load_db()
+    email = state.get("current_user_email")
+    if not email or email not in db.get("users", {}):
+        show_login_view(page, state)
+        return
+    user = db["users"][email]
+    ensure_user_settings(db, email)
+    ensure_avatar_defaults(user)
+    save_db(db)
+    theme = get_theme(state)
+    ui = theme_ui_palette(theme)
+    slot_state = {"value": "top"}
+    status = ft.Text("", size=12, color=theme_txt(theme, "secondary"))
+
+    def buy_item(item: dict):
+        wallet = int(user.get("stats", {}).get("wallet_balance", 0))
+        if item["id"] in user["avatar"]["owned_items"]:
+            return
+        if wallet < int(item.get("price", 0)):
+            status.value = "Nicht genug Guthaben für diesen Avatar-Item."
+            status.color = theme.get("danger", "#EF4444")
+            return
+        user["stats"]["wallet_balance"] = wallet - int(item.get("price", 0))
+        user["avatar"]["owned_items"].append(item["id"])
+        status.value = f"Gekauft: {item['name']}"
+        status.color = theme.get("success", "#22C55E")
+        save_db(db)
+
+    def equip_item(item: dict):
+        slot = item["slot"]
+        if item["id"] not in user["avatar"]["owned_items"]:
+            buy_item(item)
+            if item["id"] not in user["avatar"]["owned_items"]:
+                return
+        user["avatar"]["equipped"][slot] = item["id"]
+        status.value = f"Ausgerüstet: {item['name']}"
+        status.color = theme.get("success", "#22C55E")
+        save_db(db)
+
+    wallet_text = ft.Text("", size=16, weight="bold", color=theme["gold"])
+    preview_text = ft.Text("", size=18, color=ui["text"], text_align=ft.TextAlign.CENTER)
+    gender_row = ft.Row(spacing=8, alignment=ft.MainAxisAlignment.CENTER)
+    item_list = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, height=320)
+    slot_dropdown = ft.Dropdown(
+        label="Kategorie",
+        value=slot_state["value"],
+        width=220,
+        options=[
+            ft.dropdown.Option("top", "Oberteil"),
+            ft.dropdown.Option("pants", "Hose"),
+            ft.dropdown.Option("shoes", "Schuhe"),
+            ft.dropdown.Option("accessory", "Accessoire"),
+        ],
+    )
+
+    def render():
+        ensure_avatar_defaults(user)
+        wallet_text.value = f"Guthaben: {int(user.get('stats', {}).get('wallet_balance', 0))} €"
+        preview_text.value = _avatar_preview_text(user, theme)
+
+        gender_buttons = []
+        for g_key, g_label in AVATAR_GENDER_OPTIONS:
+            selected = user["avatar"].get("gender") == g_key
+            gender_buttons.append(
+                _theme_action_button(
+                    g_label,
+                    theme,
+                    lambda e, g=g_key: set_gender(g),
+                    width=120,
+                    bg=theme.get("accent", "#2563EB") if selected else ui["card_bg"],
+                )
+            )
+        gender_row.controls = gender_buttons
+
+        slot = slot_state["value"]
+        cards = []
+        for item in [it for it in SHOP_CATALOG.get("avatar_items", []) if it.get("slot") == slot]:
+            owned = item["id"] in user["avatar"]["owned_items"]
+            equipped = user["avatar"]["equipped"].get(slot) == item["id"]
+            if equipped:
+                action = ft.ElevatedButton("Ausgerüstet", disabled=True)
+            elif owned:
+                action = ft.ElevatedButton("Anziehen", on_click=lambda e, itm=item: (equip_item(itm), render(), page.update()))
+            else:
+                action = ft.ElevatedButton(f"Kaufen ({item['price']} €)", on_click=lambda e, itm=item: (buy_item(itm), render(), page.update()))
+
+            cards.append(
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Text(item.get("icon", "•"), size=24),
+                            ft.Column(
+                                [
+                                    ft.Text(item["name"], size=14, weight="bold", color=ui["text"]),
+                                    ft.Text("Besitzt du" if owned else f"Preis: {item['price']} €", size=11, color=theme_txt(theme, "secondary")),
+                                ],
+                                spacing=2,
+                                expand=True,
+                            ),
+                            action,
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    bgcolor=ui["card_bg"],
+                    border_radius=12,
+                    padding=10,
+                    border=ft.border.Border.all(1.5, ui["card_border"]),
+                )
+            )
+        item_list.controls = cards
+
+    def set_gender(gender: str):
+        user["avatar"]["gender"] = gender
+        save_db(db)
+        render()
+        page.update()
+
+    def on_slot_change(e):
+        slot_state["value"] = e.control.value or "top"
+        render()
+        page.update()
+
+    slot_dropdown.on_select = on_slot_change
+    render()
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000095"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=ft.Padding(12, 12, 12, 12),
+                        content=ft.Container(
+                            width=min(820, int(_page_size(page)[0] - 20)),
+                            border_radius=16,
+                            bgcolor="#060d09f0",
+                            border=ft.border.Border.all(2, ui["card_border"]),
+                            padding=18,
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            ft.Text("Avatar-Garderobe", size=26, weight="bold", color=ui["text"], expand=True),
+                                            wallet_text,
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Container(
+                                        content=preview_text,
+                                        border_radius=14,
+                                        border=ft.border.Border.all(1.5, ui["card_border"]),
+                                        bgcolor=ui["card_bg"],
+                                        padding=ft.Padding(16, 14, 16, 14),
+                                    ),
+                                    gender_row,
+                                    ft.Row([slot_dropdown], alignment=ft.MainAxisAlignment.CENTER),
+                                    item_list,
+                                    status,
+                                    ft.Row(
+                                        [
+                                            _theme_action_button(
+                                                "Zurück",
+                                                theme,
+                                                lambda e: open_main_menu(e.page, state) if back_to_main else show_shop_screen(e.page, state),
+                                                width=180,
+                                            ),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                    ),
+                                ],
+                                spacing=12,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
 # ---------- Welcome Screen ----------
 def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     """Styled welcome / main menu screen."""
@@ -4060,8 +4431,34 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             )
         return ft.Column(dots, spacing=6)
 
-    # Profile actions at top right (removed to fix gray background issue)
-    header_actions = ft.Row([])
+    # Profile actions at top right
+    if logged_in and email in db.get("users", {}):
+        user_info = db["users"][email]
+        ensure_avatar_defaults(user_info)
+        avatar_box = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(
+                        _avatar_preview_text(user_info, theme),
+                        size=11,
+                        text_align=ft.TextAlign.CENTER,
+                        color=menu_card_icon,
+                    ),
+                    ft.Text(f"Hallo, {username}", size=12, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                ],
+                spacing=4,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor="#07110DCC",
+            border=ft.border.Border.all(1.5, menu_card_border),
+            border_radius=14,
+            padding=ft.Padding(10, 8, 10, 8),
+            on_click=lambda e: show_avatar_wardrobe(e.page, state, back_to_main=True),
+            shadow=ft.BoxShadow(blur_radius=16, color="#44000000"),
+        )
+        header_actions = ft.Row([avatar_box], spacing=8)
+    else:
+        header_actions = ft.Row([])
 
     # Top Central Banner Card
     top_card = ft.Container(
@@ -4327,11 +4724,13 @@ def _game_menu_button(
         alignment=ft.Alignment(0, 0),
         width=width,
         height=height,
+        border=ft.border.Border.all(1.6, "#A7F3D0"),
     )
     def on_hover(e):
         hovering = e.data == "true"
-        e.control.shadow = ft.BoxShadow(blur_radius=24, color="#66FFFFFF", spread_radius=1) if hovering else None
-        e.control.scale = 1.03 if hovering else 1.0
+        e.control.shadow = ft.BoxShadow(blur_radius=28, color="#88FFFFFF", spread_radius=2) if hovering else ft.BoxShadow(blur_radius=10, color="#33000000")
+        e.control.border = ft.border.Border.all(2.8, "#FDE68A") if hovering else ft.border.Border.all(1.6, "#A7F3D0")
+        e.control.scale = 1.04 if hovering else 1.0
         e.control.update()
     btn.on_hover = on_hover
     btn.animate_scale = ft.Animation(140, ft.AnimationCurve.EASE_OUT)
@@ -4341,6 +4740,7 @@ def _game_menu_button(
 def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
     """Spiel starten: fortsetzen, Standard-Quiz oder eigene Quizzes."""
     theme = get_theme(state)
+    ui = theme_ui_palette(theme)
     logged_in = bool(state.get("current_user_email"))
     buttons = []
 
@@ -4354,7 +4754,7 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
             _game_menu_button(
                 "▶  Altes Spiel fortsetzen",
                 lambda e: resume_saved_game(e.page, state, saved),
-                theme["success"],
+                ui["card_bg"],
             ),
         ])
 
@@ -4362,7 +4762,7 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
         _game_menu_button(
             "🎲  Neues Spiel starten",
             lambda e: show_age_selection(e.page, state),
-            theme["accent"],
+            ui["card_bg"],
         )
     )
     if logged_in:
@@ -4370,7 +4770,7 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
             _game_menu_button(
                 "✏️  Eigene Spiele erstellen",
                 lambda e: show_custom_quiz_hub(e.page, state),
-                theme["accent_2"],
+                ui["card_bg"],
             )
         )
     else:
@@ -4387,31 +4787,36 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000095"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("Spiel starten", size=30, weight="bold", color=ui["text"], text_align="center"),
+                            ft.Container(height=8),
+                            ft.Container(
+                                content=ft.Column(buttons, spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                bgcolor=ui["card_bg"],
+                                border_radius=16,
+                                padding=24,
+                                border=ft.border.Border.all(2, ui["card_border"]),
+                                width=400,
+                            ),
+                            ft.TextButton(
+                                "Zurück",
+                                on_click=lambda e: open_main_menu(e.page, state),
+                                style=ft.ButtonStyle(color=ui["text"]),
+                            ),
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=14),
+                    ),
+                ],
+                expand=True,
             ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("Spiel starten", size=30, weight="bold", color="white", text_align="center"),
-                ft.Container(height=8),
-                ft.Container(
-                    content=ft.Column(buttons, spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=theme["panel"],
-                    border_radius=16,
-                    padding=24,
-                    border=ft.border.Border.all(2, theme["border"]),
-                    width=400,
-                ),
-                ft.TextButton(
-                    "Zurück",
-                    on_click=lambda e: open_main_menu(e.page, state),
-                    style=ft.ButtonStyle(color="white"),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=14),
+            page=page,
         )
     )
     page.update()
@@ -4419,6 +4824,7 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
 
 def show_custom_quiz_hub(page: ft.Page, state: dict):
     theme = get_theme(state)
+    ui = theme_ui_palette(theme)
     if not state.get("current_user_email"):
         show_login_view(page, state)
         return
@@ -4485,38 +4891,42 @@ def show_custom_quiz_hub(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
-            ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("Eigene Spiele", size=28, weight="bold", color="white", text_align="center"),
-                ft.Container(height=8),
-                ft.Container(
-                    content=ft.Column(
-                        quiz_rows,
-                        spacing=10,
-                        scroll=ft.ScrollMode.AUTO,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000095"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("Eigene Spiele", size=28, weight="bold", color=ui["text"], text_align="center"),
+                            ft.Container(height=8),
+                            ft.Container(
+                                content=ft.Column(
+                                    quiz_rows,
+                                    spacing=10,
+                                    scroll=ft.ScrollMode.AUTO,
+                                ),
+                                width=420,
+                                height=320,
+                            ),
+                            ft.Container(height=8),
+                            _game_menu_button(
+                                "➕  Neues Spiel anlegen",
+                                lambda e: show_custom_quiz_editor(e.page, state, None),
+                                ui["card_bg"],
+                            ),
+                            ft.TextButton(
+                                "← Zurück",
+                                on_click=lambda e: show_game_start_menu(e.page, state, get_saved_game_for_state(state)),
+                                style=ft.ButtonStyle(color=ui["text"]),
+                            ),
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=10),
                     ),
-                    width=420,
-                    height=320,
-                ),
-                ft.Container(height=8),
-                _game_menu_button(
-                    "➕  Neues Spiel anlegen",
-                    lambda e: show_custom_quiz_editor(e.page, state, None),
-                    theme["success"],
-                ),
-                ft.TextButton(
-                    "← Zurück",
-                    on_click=lambda e: show_game_start_menu(e.page, state, get_saved_game_for_state(state)),
-                    style=ft.ButtonStyle(color="white"),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=10),
+                ],
+                expand=True,
+            ),
         )
     )
     page.update()
@@ -4612,7 +5022,7 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
             state["editing_quiz"]["question_time_sec"] = QUESTION_TIME_SEC
         auto_save_editing_quiz(state, title=title_field.value)
 
-    time_sec_dropdown.on_change = on_time_sec_change
+    time_sec_dropdown.on_select = on_time_sec_change
 
     def save_finished(e):
         q = state["editing_quiz"]
@@ -4688,57 +5098,61 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
-            ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("Quiz bearbeiten", size=26, weight="bold", color="white", text_align="center"),
-                title_field,
-                ft.Container(height=6),
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            time_pressure_checkbox,
-                            ft.Container(height=8),
-                            time_sec_dropdown,
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000096"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("Quiz bearbeiten", size=26, weight="bold", color="white", text_align="center"),
+                            title_field,
+                            ft.Container(height=6),
+                            ft.Container(
+                                content=ft.Column(
+                                    [
+                                        time_pressure_checkbox,
+                                        ft.Container(height=8),
+                                        time_sec_dropdown,
+                                    ],
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                                width=420,
+                                padding=12,
+                                bgcolor=theme["panel"],
+                                border_radius=12,
+                                border=ft.border.Border.all(1, theme["border"]),
+                            ),
+                            ft.Container(height=10),
+                            ft.Container(
+                                content=ft.Column(question_items or [
+                                    ft.Text("Noch keine Fragen", size=13, color=theme_txt(theme, "muted"))
+                                ], spacing=4, scroll=ft.ScrollMode.AUTO),
+                                width=400,
+                                height=200,
+                                bgcolor=theme["panel"],
+                                border_radius=12,
+                                padding=10,
+                                border=ft.border.Border.all(1, theme["border"]),
+                            ),
+                            save_status,
+                            ft.Row([
+                                _game_menu_button("➕ Frage", add_question, theme["accent"]),
+                                _game_menu_button("✅ Fertig", save_finished, theme["success"]),
+                                _game_menu_button("▶ Spielen", play_now, theme["gold"]),
+                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=12, wrap=True),
+                            ft.TextButton(
+                                "← Zurück zur Liste",
+                                on_click=go_back_to_hub,
+                                style=ft.ButtonStyle(color="white"),
+                            ),
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=10, scroll=ft.ScrollMode.AUTO),
                     ),
-                    width=420,
-                    padding=12,
-                    bgcolor=theme["panel"],
-                    border_radius=12,
-                    border=ft.border.Border.all(1, theme["border"]),
-                ),
-                ft.Container(height=10),
-                ft.Container(
-                    content=ft.Column(question_items or [
-                        ft.Text("Noch keine Fragen", size=13, color=theme_txt(theme, "muted"))
-                    ], spacing=4, scroll=ft.ScrollMode.AUTO),
-                    width=400,
-                    height=200,
-                    bgcolor=theme["panel"],
-                    border_radius=12,
-                    padding=10,
-                    border=ft.border.Border.all(1, theme["border"]),
-                ),
-                save_status,
-                ft.Row([
-                    _game_menu_button("➕ Frage", add_question, theme["accent"]),
-                    _game_menu_button("✅ Fertig", save_finished, theme["success"]),
-                    _game_menu_button("▶ Spielen", play_now, theme["gold"]),
-                ], alignment=ft.MainAxisAlignment.CENTER, spacing=12, wrap=True),
-                ft.TextButton(
-                    "← Zurück zur Liste",
-                    on_click=go_back_to_hub,
-                    style=ft.ButtonStyle(color="white"),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=10, scroll=ft.ScrollMode.AUTO),
+                ],
+                expand=True,
+            ),
         )
     )
     page.update()
@@ -4848,47 +5262,51 @@ def show_custom_question_editor(page: ft.Page, state: dict, question_index: int 
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000096"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text(
+                                "Frage bearbeiten" if question_index is not None else "Neue Frage",
+                                size=24, weight="bold", color="white", text_align="center",
+                            ),
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text(
+                                        f"Frage {q_num} von {planned_total}",
+                                        size=16, weight="bold", color=theme_txt(theme, "primary"),
+                                        text_align="center",
+                                    ),
+                                    ft.Text(
+                                        f"Preisstufe bei richtiger Antwort: {prize}",
+                                        size=15, weight="bold", color=theme["gold"],
+                                        text_align="center",
+                                    ),
+                                ], spacing=4),
+                                bgcolor=theme["panel"],
+                                border_radius=12,
+                                padding=14,
+                                border=ft.border.Border.all(2, theme["border"]),
+                                width=360,
+                            ),
+                            question_field,
+                            *answer_fields,
+                            correct_dropdown,
+                            ft.Container(height=8),
+                            ft.Row([
+                                _game_menu_button("💾 Frage speichern", save_question, theme["success"]),
+                                _game_menu_button("← Zurück", back_to_editor, theme["accent"]),
+                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=12),
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=8, scroll=ft.ScrollMode.AUTO),
+                    ),
+                ],
+                expand=True,
             ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text(
-                    "Frage bearbeiten" if question_index is not None else "Neue Frage",
-                    size=24, weight="bold", color="white", text_align="center",
-                ),
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(
-                            f"Frage {q_num} von {planned_total}",
-                            size=16, weight="bold", color=theme_txt(theme, "primary"),
-                            text_align="center",
-                        ),
-                        ft.Text(
-                            f"Preisstufe bei richtiger Antwort: {prize}",
-                            size=15, weight="bold", color=theme["gold"],
-                            text_align="center",
-                        ),
-                    ], spacing=4),
-                    bgcolor=theme["panel"],
-                    border_radius=12,
-                    padding=14,
-                    border=ft.border.Border.all(2, theme["border"]),
-                    width=360,
-                ),
-                question_field,
-                *answer_fields,
-                correct_dropdown,
-                ft.Container(height=8),
-                ft.Row([
-                    _game_menu_button("💾 Frage speichern", save_question, theme["success"]),
-                    _game_menu_button("← Zurück", back_to_editor, theme["accent"]),
-                ], alignment=ft.MainAxisAlignment.CENTER, spacing=12),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=8, scroll=ft.ScrollMode.AUTO),
         )
     )
     page.update()
@@ -4909,7 +5327,7 @@ def show_age_selection(page: ft.Page, state: dict):
     """Reset state and ask for age group (standard quiz)."""
     reset_game_timer(state)
     theme = get_theme(state)
-    age_btn_colors = [theme.get("accent", "#2ECC71"), theme.get("accent_2", "#F4A460"), theme.get("gold", "#E91E8C")]
+    ui = theme_ui_palette(theme)
     state["time_pressure_enabled"] = True
     state["question_time_sec"] = QUESTION_TIME_SEC
     state.update({
@@ -4943,48 +5361,58 @@ def show_age_selection(page: ft.Page, state: dict):
     page.add(
         ft.Container(
             expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
-            ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("Wähle deine Altersgruppe", size=26, weight="bold",
-                        color="white", text_align="center"),
-                ft.Container(height=10),
-                _age_button("🌟  6 – 10 Jahre", "young", age_btn_colors[0], choose_age),
-                _age_button("🔥  11 – 16 Jahre", "mid", age_btn_colors[1], choose_age),
-                _age_button("⚡  Ab 16 Jahre", "old", age_btn_colors[2], choose_age),
-                ft.Container(height=10),
-                ft.TextButton(
-                    "← Zurück",
-                    on_click=lambda e: show_game_start_menu(
-                        e.page, state, get_saved_game_for_state(state)
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000009f"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Text("Wähle deine Altersgruppe", size=26, weight="bold",
+                                    color=ui["text"], text_align="center"),
+                            ft.Container(height=10),
+                            _age_button("🌟  6 – 10 Jahre", "young", ui["card_bg"], choose_age, theme),
+                            _age_button("🔥  11 – 16 Jahre", "mid", ui["card_bg"], choose_age, theme),
+                            _age_button("⚡  Ab 16 Jahre", "old", ui["card_bg"], choose_age, theme),
+                            ft.Container(height=10),
+                            ft.TextButton(
+                                "← Zurück",
+                                on_click=lambda e: show_game_start_menu(
+                                    e.page, state, get_saved_game_for_state(state)
+                                ),
+                                style=ft.ButtonStyle(color=ui["text"]),
+                            ),
+                        ], alignment=ft.MainAxisAlignment.CENTER,
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                           spacing=14),
                     ),
-                    style=ft.ButtonStyle(color="white"),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=14),
+                ],
+                expand=True,
+            ),
         )
     )
     page.update()
 
 
-def _age_button(label: str, data: str, color: str, on_click) -> ft.Control:
+def _age_button(label: str, data: str, color: str, on_click, theme: dict | None = None) -> ft.Control:
+    hover = theme_ui_palette(theme or THEMES["classic"])["hover"] if theme else "#93C5FD"
+    border = theme_ui_palette(theme or THEMES["classic"])["card_border"] if theme else "#60A5FA"
     btn = ft.Container(
-        content=ft.Text(label, size=20, weight="bold", color="white"),
+        content=ft.Text(label, size=20, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
         data=data,
         on_click=on_click,
         bgcolor=color,
         border_radius=50,
         padding=ft.Padding(50, 16, 50, 16),
         shadow=ft.BoxShadow(blur_radius=12, color="#40000000"),
+        border=ft.border.Border.all(2, border),
+        width=340,
     )
     def on_hover(e):
-        e.control.shadow = ft.BoxShadow(blur_radius=24, color="#66FFFFFF", spread_radius=1) if e.data == "true" else ft.BoxShadow(blur_radius=12, color="#40000000")
-        e.control.scale = 1.02 if e.data == "true" else 1.0
+        hovering = e.data == "true"
+        e.control.shadow = ft.BoxShadow(blur_radius=28, color=f"#88{hover[1:]}", spread_radius=2) if hovering else ft.BoxShadow(blur_radius=12, color="#40000000")
+        e.control.border = ft.border.Border.all(2.8 if hovering else 2, hover if hovering else border)
+        e.control.scale = 1.03 if hovering else 1.0
         e.control.update()
     btn.on_hover = on_hover
     btn.animate_scale = ft.Animation(140, ft.AnimationCurve.EASE_OUT)
@@ -5114,10 +5542,15 @@ def _start_question_timer(page: ft.Page, state: dict):
     async def tick():
         while not state.get("_timer_cancel") and state.get("_timer_active_key") == timer_key:
             now = time.time()
+            pause_until = float(state.get("_timer_pause_until") or 0)
             phone_until = float(state.get("phone_until") or 0)
             friend_until = float(state.get("friend_until") or 0)
 
             # Joker-Countdowns laufen unabhängig vom Frage-Timer
+            if pause_until > now:
+                sync_timer_display(page, state)
+                await asyncio.sleep(0.05)
+                continue
             if phone_until > now or friend_until > now:
                 sync_timer_display(page, state)
                 await asyncio.sleep(0.3)
@@ -5180,6 +5613,10 @@ def render_game_screen(page: ft.Page, state: dict):
     theme_key = _theme_key_from_theme(theme)
     themed_bg_preview = _resolve_theme_background(theme_key, "game", allow_video=bool(FletVideo and VideoMedia and PlaylistMode)) if theme_key else None
     has_themed_video_bg = themed and _is_video_background(themed_bg_preview if themed_bg_preview else theme.get("game_bg"))
+    answer_border_default = ft.border.Border.all(
+        2,
+        (theme.get("border", "#60A5FA") if not has_themed_video_bg else theme.get("gold", "#93C5FD")),
+    )
 
     state.setdefault("hidden_answers", [])
     hidden = set(state.get("hidden_answers", []))
@@ -5217,7 +5654,7 @@ def render_game_screen(page: ft.Page, state: dict):
     def reset_answer_styles():
         for btn in answer_buttons:
             btn.bgcolor = answer_bg
-            btn.border = None if has_themed_video_bg else ft.border.Border.all(2, theme["border"])
+            btn.border = answer_border_default
 
     def handle_answer(e):
         if answers_disabled[0]:
@@ -5232,7 +5669,7 @@ def render_game_screen(page: ft.Page, state: dict):
                     btn.bgcolor = "#C8E6C9" if is_correct else "#FFCDD2"
                 else:
                     btn.bgcolor = answer_bg
-                    btn.border = None if has_themed_video_bg else ft.border.Border.all(2, theme["border"])
+                    btn.border = answer_border_default
             page.update()
 
             async def clear_test_feedback():
@@ -5283,7 +5720,7 @@ def render_game_screen(page: ft.Page, state: dict):
             bgcolor=answer_bg,
             border_radius=10,
             padding=ft.Padding(10, 10, 10, 10),
-            border=None if (_is_nexus or has_themed_video_bg) else ft.border.Border.all(2, theme["border"]),
+            border=answer_border_default,
             expand=True,
             visible=idx not in hidden,
             height=None if _is_nexus else (56 if not is_mobile else 50),
@@ -5295,7 +5732,7 @@ def render_game_screen(page: ft.Page, state: dict):
                 e.control.border = ft.border.Border.all(3, theme.get("accent_2", theme["gold"]))
                 e.control.shadow = ft.BoxShadow(blur_radius=18, color="#55D946EF", spread_radius=1)
             else:
-                e.control.border = None if (_is_nexus or has_themed_video_bg) else ft.border.Border.all(2, theme["border"])
+                e.control.border = answer_border_default
                 e.control.shadow = None
             e.control.update()
         box.on_hover = on_hover
@@ -5340,11 +5777,11 @@ def render_game_screen(page: ft.Page, state: dict):
     bg_image = themed_bg if themed_bg else (theme.get("game_bg") if themed else None)
     has_video_bg = _is_video_background(bg_image)
     if themed and has_video_bg:
-        overlay_color = "#000000c4"
+        overlay_color = "#000000d6"
         question_text_color = "#F8FAFC"
         answer_text_color = "#F8FAFC"
-        answer_bg = "#060d09f7"
-        question_bg_color = "#060d09f7"
+        answer_bg = "#08121cee"
+        question_bg_color = "#08121cee"
     else:
         overlay_color = "#00000000" if is_nexus else (
             "#00000099" if not theme.get("is_light") else "#00000055"
@@ -6273,9 +6710,9 @@ def show_settings_view(page: ft.Page, state: dict):
         ft.Container(
             content=ft.Column([
                 _theme_action_button("Statistiken", theme, lambda e: show_stats(e.page, state), width=240),
-                _theme_action_button("Design", theme, lambda e: show_design_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240, bg=theme["accent"]),
+                _theme_action_button("Design", theme, lambda e: show_design_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240),
                 _theme_action_button("Freunde", theme, lambda e: show_friends_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240),
-                _theme_action_button("Profil bearbeiten", theme, lambda e: show_edit_profile_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240, bg=theme["accent"]),
+                _theme_action_button("Profil bearbeiten", theme, lambda e: show_edit_profile_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240),
                 ft.Text(
                     "Melde dich an, um Designs pro Account zu speichern." if not logged_in else f"Konto: {email}",
                     size=12,
@@ -6284,7 +6721,7 @@ def show_settings_view(page: ft.Page, state: dict):
                 ),
             ] + ([
                 ft.Container(height=4),
-                _theme_action_button("🚪 Abmelden", theme, lambda e: page.run_task(_do_logout, page, state), width=240, bg=theme["accent"]),
+                _theme_action_button("🚪 Abmelden", theme, lambda e: page.run_task(_do_logout, page, state), width=240),
             ] if logged_in else []),
             spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=theme["panel"],
@@ -7997,6 +8434,8 @@ def show_shop_screen(page: ft.Page, state: dict):
         open_main_menu(page, state)
         return
     user = db["users"][email]
+    ensure_avatar_defaults(user)
+    save_db(db)
     theme = get_theme(state)
     
     async def flash_insufficient_funds(btn):
@@ -8040,6 +8479,19 @@ def show_shop_screen(page: ft.Page, state: dict):
         else:
             await flash_insufficient_funds(e.control)
 
+    async def on_buy_avatar_item(e, item):
+        price = int(item.get("price", 0))
+        owned = user.get("avatar", {}).get("owned_items", [])
+        if item["id"] in owned:
+            return
+        if user["stats"].get("wallet_balance", 0) >= price:
+            user["stats"]["wallet_balance"] -= price
+            user.setdefault("avatar", default_avatar_profile()).setdefault("owned_items", []).append(item["id"])
+            save_db(db)
+            build_shop()
+        else:
+            await flash_insufficient_funds(e.control)
+
     def on_equip_theme(e, theme_id):
         user["settings"]["theme"] = theme_id
         state["settings"]["theme"] = theme_id
@@ -8051,12 +8503,23 @@ def show_shop_screen(page: ft.Page, state: dict):
         save_db(db)
         build_shop()
 
+    def on_equip_avatar_item(e, item):
+        ensure_avatar_defaults(user)
+        if item["id"] not in user["avatar"]["owned_items"]:
+            return
+        user["avatar"]["equipped"][item["slot"]] = item["id"]
+        save_db(db)
+        build_shop()
+
     def build_shop():
         unlocked_themes = user.get("unlocked_themes", ["classic", "neon_nexus"])
         unlocked_titles = user.get("unlocked_titles", ["Neuling"])
         current_theme = user.get("settings", {}).get("theme", "classic")
         current_title = user.get("active_title", "Neuling")
         wallet = user["stats"].get("wallet_balance", 0)
+        ensure_avatar_defaults(user)
+        owned_avatar = set(user["avatar"].get("owned_items", []))
+        equipped_avatar = user["avatar"].get("equipped", {})
 
         theme_cards = []
         for t in SHOP_CATALOG["themes"]:
@@ -8090,6 +8553,32 @@ def show_shop_screen(page: ft.Page, state: dict):
                 padding=10, border_radius=8, bgcolor=theme["panel"], border=ft.border.Border.all(1, theme["border"])
             ))
 
+        avatar_cards = []
+        for item in SHOP_CATALOG.get("avatar_items", []):
+            owned = item["id"] in owned_avatar
+            equipped = equipped_avatar.get(item["slot"]) == item["id"]
+            if equipped:
+                btn = ft.ElevatedButton("Ausgerüstet", disabled=True)
+            elif owned:
+                btn = ft.ElevatedButton("Ausrüsten", on_click=lambda e, it=item: on_equip_avatar_item(e, it))
+            else:
+                btn = ft.ElevatedButton(f"{item['price']} € Kaufen", on_click=lambda e, it=item: page.run_task(on_buy_avatar_item, e, it))
+            avatar_cards.append(
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Text(f"{item.get('icon', '•')} {item['name']} ({item['slot']})", size=15, weight="bold", color=theme_txt(theme, "primary"), expand=True),
+                            btn,
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    padding=10,
+                    border_radius=8,
+                    bgcolor=theme["panel"],
+                    border=ft.border.Border.all(1, theme["border"]),
+                )
+            )
+
         page.controls.clear()
         page.add(
             ft.Container(
@@ -8112,6 +8601,16 @@ def show_shop_screen(page: ft.Page, state: dict):
                                 ft.Divider(color=theme["border"]),
                                 ft.Text("🏷️ Titel", size=20, weight="bold", color="white"),
                                 ft.Column(title_cards, scroll=ft.ScrollMode.AUTO, height=200),
+                                ft.Divider(color=theme["border"]),
+                                ft.Row(
+                                    [
+                                        ft.Text("🧍 Avatar-Items", size=20, weight="bold", color="white"),
+                                        ft.Container(expand=True),
+                                        _theme_action_button("Garderobe", theme, lambda e: show_avatar_wardrobe(e.page, state, back_to_main=False), width=160),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
+                                ft.Column(avatar_cards, scroll=ft.ScrollMode.AUTO, height=220),
                             ])
                         ),
                     ],
