@@ -280,7 +280,7 @@ THEMES = {
     "neon_nexus": {
         "label": "Neon Nexus",
         "game_layout": "themed",
-        "game_bg": "neon_nexus_bg_clean.png",
+        "game_bg": "hintergrund_bild.mp4",
         "layout_zones": NEON_NEXUS_ZONES,
         "is_light": True,
         "text_primary": "#0F172A",
@@ -1008,12 +1008,32 @@ def _build_looping_menu_background(page: ft.Page) -> ft.Control:
     )
 
 
+def _is_video_background(src: str | None) -> bool:
+    return bool(src) and str(src).lower().endswith(".mp4")
+
+
 def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay_color: str) -> ft.Stack:
     """Background stretched to the full viewport (bottom layer in game Stack)."""
     w, h = max(1, int(page_w)), max(1, int(page_h))
+    if _is_video_background(bg_image) and FletVideo and VideoMedia and PlaylistMode:
+        media = FletVideo(
+            width=w,
+            height=h,
+            playlist=[VideoMedia(bg_image)],
+            playlist_mode=PlaylistMode.LOOP,
+            autoplay=True,
+            muted=True,
+            fill_color="#000000",
+            fit=ft.BoxFit.COVER,
+            show_controls=False,
+            aspect_ratio=None,
+        )
+    else:
+        media = ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h)
+
     return ft.Stack(
         [
-            ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h),
+            media,
             ft.Container(width=w, height=h, bgcolor=overlay_color),
         ],
         width=w,
@@ -4649,10 +4669,11 @@ def _neon_panel_border(theme: dict, width: int = 2) -> ft.Border:
 def _neon_solid_panel(content: ft.Control, theme: dict, expand: bool = True, compact: bool = False) -> ft.Container:
     """Opaque panel so text stays readable on any background."""
     is_nexus = theme.get("label") == "Neon Nexus"
+    has_video_bg = _is_video_background(theme.get("game_bg"))
     pad = 6 if compact else 10
     return ft.Container(
         content=content,
-        bgcolor="#00000000" if is_nexus else theme.get("panel", "#0c1814"),
+        bgcolor="#08120de0" if (is_nexus and has_video_bg) else ("#00000000" if is_nexus else theme.get("panel", "#0c1814")),
         border_radius=6,
         padding=ft.Padding(pad, pad - 2, pad, pad - 2),
         border=None if is_nexus else _neon_panel_border(theme),
@@ -4703,10 +4724,11 @@ def _game_panel(
 ) -> ft.Container:
     """White/game panel with consistent width styling."""
     is_nexus = theme.get("label") == "Neon Nexus"
+    has_video_bg = _is_video_background(theme.get("game_bg"))
     return ft.Container(
         content=content,
         width=width,
-        bgcolor="#00000000" if is_nexus else theme.get("question_bg", "#FFFFFF"),
+        bgcolor="#08120de0" if (is_nexus and has_video_bg) else ("#00000000" if is_nexus else theme.get("question_bg", "#FFFFFF")),
         border_radius=10,
         padding=ft.Padding(12, 10, 12, 10),
         border=None if is_nexus else ft.border.Border.all(2, theme["border"]),
@@ -4808,6 +4830,7 @@ def render_game_screen(page: ft.Page, state: dict):
     question_text_color = theme_value(theme, "question_text", "#2C1654")
     answer_text_color = theme_value(theme, "answer_text", "#2C1654")
     answer_bg = theme_value(theme, "answer_bg", "#FFFFFF")
+    question_bg_color = theme_value(theme, "question_bg", "#FFFFFF")
     question, options, correct_idx = state["questions"][state["question_index"]]
     q_num = state["question_index"] + 1
     total_q = len(state["questions"])
@@ -4959,9 +4982,17 @@ def render_game_screen(page: ft.Page, state: dict):
 
     # ── background ─────────────────────────────────────────────────────────────
     bg_image = theme.get("game_bg") if themed else None
-    overlay_color = "#00000000" if is_nexus else (
-        "#00000099" if not theme.get("is_light") else "#00000055"
-    )
+    has_video_bg = _is_video_background(bg_image)
+    if is_nexus and has_video_bg:
+        overlay_color = "#00000078"
+        question_text_color = "#F8FAFC"
+        answer_text_color = "#F8FAFC"
+        answer_bg = "#09130de6"
+        question_bg_color = "#09130de6"
+    else:
+        overlay_color = "#00000000" if is_nexus else (
+            "#00000099" if not theme.get("is_light") else "#00000055"
+        )
     if bg_image:
         bg_layer = _themed_game_background(bg_image, page_w, page_h, overlay_color)
     else:
@@ -5087,7 +5118,7 @@ def render_game_screen(page: ft.Page, state: dict):
                 ft.Container(content=timer_text, width=36, alignment=ft.Alignment(1, 0)),
             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             expand=True,
-            bgcolor=theme.get("question_bg", "#FFFFFF"),
+            bgcolor=question_bg_color,
             border_radius=6,
             padding=ft.Padding(10, 7, 10, 7),
             border=ft.border.Border.all(2, theme["border"]),
@@ -5106,7 +5137,7 @@ def render_game_screen(page: ft.Page, state: dict):
                     color=question_text_color, text_align=ft.TextAlign.CENTER,
                     max_lines=4, no_wrap=False),
         ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-        bgcolor=theme.get("question_bg", "#FFFFFF"),
+        bgcolor=question_bg_color,
         border_radius=10,
         padding=ft.Padding(16, 12, 16, 12),
         border=ft.border.Border.all(2, theme["border"]),
@@ -5129,7 +5160,7 @@ def render_game_screen(page: ft.Page, state: dict):
             ft.Text(f"◆ {state.get('money', '0 €')}", size=14,
                     color=theme["gold"], weight="bold"),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        bgcolor=theme.get("question_bg", "#FFFFFF"),
+        bgcolor=question_bg_color,
         border_radius=8,
         padding=ft.Padding(14, 8, 14, 8),
         border=ft.border.Border.all(2, theme["border"]),
@@ -5139,7 +5170,7 @@ def render_game_screen(page: ft.Page, state: dict):
     has_jokers = len(state.get("selected_jokers", [])) > 0
     joker_bar = ft.Container(
         content=build_game_joker_bar(page, state, theme, ctx),
-        bgcolor=theme.get("question_bg", "#FFFFFF"),
+        bgcolor=question_bg_color,
         border_radius=8,
         padding=ft.Padding(10, 10, 10, 10),
         border=ft.border.Border.all(2, theme["border"]),
