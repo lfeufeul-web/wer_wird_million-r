@@ -19,6 +19,13 @@ from email.message import EmailMessage
 import requests
 
 try:
+    from flet_video import Video as FletVideo, VideoMedia, PlaylistMode
+except ImportError:
+    FletVideo = None
+    VideoMedia = None
+    PlaylistMode = None
+
+try:
     import qrcode
 except ImportError:
     qrcode = None
@@ -55,7 +62,7 @@ DEFAULT_GLOBAL_STATS = {
     "games_played": 0,
     "correct_answers": 0,
     "questions_answered": 0,
-    "highest_money": "0 â‚¬",
+    "highest_money": "0 €",
     "highest_money_level": -1,
 }
 
@@ -63,7 +70,7 @@ DEFAULT_USER_STATS = {
     "games_played": 0,
     "correct_answers": 0,
     "questions_answered": 0,
-    "highest_money": "0 â‚¬",
+    "highest_money": "0 €",
     "highest_money_level": -1,
 }
 EXTRA_STATS_DEFAULTS = {
@@ -78,7 +85,7 @@ EXTRA_STATS_DEFAULTS = {
     "wallet_balance": 0,
     "daily_current_streak": 0,
     "daily_best_streak": 0,
-    "daily_best_result": "0 â‚¬",
+    "daily_best_result": "0 €",
     "daily_avg_correct": 0.0,
     "daily_games_played": 0,
     "last_daily_played": "",
@@ -119,7 +126,7 @@ def get_smtp_config():
     sender = os.getenv("SMTP_FROM", username).strip()
     use_ssl = os.getenv("SMTP_SSL", "false").strip().lower() in ("1", "true", "yes", "on")
     use_tls = os.getenv("SMTP_TLS", "true").strip().lower() in ("1", "true", "yes", "on")
-    app_name = os.getenv("APP_NAME", "Wer wird MillionÃ¤r").strip() or "Wer wird MillionÃ¤r"
+    app_name = os.getenv("APP_NAME", "Wer wird Millionär").strip() or "Wer wird Millionär"
 
     missing = []
     if not host:
@@ -150,13 +157,13 @@ def send_verification_email(recipient: str, code: str):
         raise RuntimeError("E-Mail-Versand ist noch nicht eingerichtet. Bitte SMTP-Daten in .env eintragen.")
 
     msg = EmailMessage()
-    msg["Subject"] = f"Dein Login-Code fÃ¼r {config['app_name']}"
+    msg["Subject"] = f"Dein Login-Code für {config['app_name']}"
     msg["From"] = config["sender"]
     msg["To"] = recipient
     msg.set_content(
         f"Hallo,\n\n"
-        f"dein 6-stelliger BestÃ¤tigungscode lautet: {code}\n\n"
-        f"Der Code ist 10 Minuten gÃ¼ltig.\n\n"
+        f"dein 6-stelliger Bestätigungscode lautet: {code}\n\n"
+        f"Der Code ist 10 Minuten gültig.\n\n"
         f"Wenn du dich nicht anmelden wolltest, kannst du diese E-Mail ignorieren.\n"
     )
     msg.add_alternative(
@@ -164,9 +171,9 @@ def send_verification_email(recipient: str, code: str):
         <html>
           <body style="font-family: Arial, sans-serif; color: #1f1f1f;">
             <h2>{config['app_name']}</h2>
-            <p>Dein 6-stelliger BestÃ¤tigungscode lautet:</p>
+            <p>Dein 6-stelliger Bestätigungscode lautet:</p>
             <p style="font-size: 28px; font-weight: bold; letter-spacing: 4px;">{code}</p>
-            <p>Der Code ist 10 Minuten gÃ¼ltig.</p>
+            <p>Der Code ist 10 Minuten gültig.</p>
             <p style="color: #666;">Wenn du dich nicht anmelden wolltest, kannst du diese E-Mail ignorieren.</p>
           </body>
         </html>
@@ -197,7 +204,7 @@ def load_db() -> dict:
                 "games_played": 0,
                 "correct_answers": 0,
                 "questions_answered": 0,
-                "highest_money": "0 â‚¬",
+                "highest_money": "0 €",
                 "highest_money_level": -1
             },
             "users": {}
@@ -214,7 +221,7 @@ def load_db() -> dict:
                 "games_played": 0,
                 "correct_answers": 0,
                 "questions_answered": 0,
-                "highest_money": "0 â‚¬",
+                "highest_money": "0 €",
                 "highest_money_level": -1
             },
             "users": {}
@@ -229,7 +236,7 @@ def save_db(db: dict):
 
 
 THEME_GAME_ZONES = {
-    # Classic / gradient themes use flow layout â€” these zones are only
+    # Classic / gradient themes use flow layout — these zones are only
     # used by the neon_nexus image-based theme.
     "play_column": {"l": 0.032, "t": 0.09, "w": 0.648, "h": 0.65},
     "jokers": {"l": 0.032, "t": 0.75, "w": 0.648, "h": 0.10},
@@ -273,7 +280,7 @@ THEMES = {
     "neon_nexus": {
         "label": "Neon Nexus",
         "game_layout": "themed",
-        "game_bg": "hintergrund.mp4",
+        "game_bg": "neon_nexus_bg_clean.png",
         "layout_zones": NEON_NEXUS_ZONES,
         "is_light": True,
         "text_primary": "#0F172A",
@@ -366,7 +373,7 @@ SHOP_CATALOG = {
         {"id": "Neuling", "name": "Neuling", "price": 0, "type": "title"},
         {"id": "Quiz-Lehrling", "name": "Quiz-Lehrling", "price": 2500, "type": "title"},
         {"id": "Alleswisser", "name": "Alleswisser", "price": 15000, "type": "title"},
-        {"id": "MillionÃ¤r-Club", "name": "MillionÃ¤r-Club", "price": 150000, "type": "title"},
+        {"id": "Millionär-Club", "name": "Millionär-Club", "price": 150000, "type": "title"},
         {"id": "Quiz-Gott", "name": "Quiz-Gott", "price": 1000000, "type": "title"},
     ]
 }
@@ -379,6 +386,8 @@ try:
 except Exception:
     pass  # read-only filesystem on Render is fine, TTS just won't work
 BG_MUSIC_FILE = "bg_music.mp3"
+MENU_BG_VIDEO = "hintergrund.mp4"
+MENU_BG_FALLBACK_IMAGE = "hintergrund.gif"
 
 def play_tts(page: ft.Page, text: str):
     """Generates an MP3 via gTTS and plays it on the page."""
@@ -732,7 +741,7 @@ async def restore_remembered_login(page: ft.Page, state: dict):
     print(f"[auto-login] token={'yes' if refresh_token else 'no'}, email={email}, uid={uid}")
 
     if not refresh_token or not email or not uid:
-        print("[auto-login] No stored credentials â€“ showing guest menu.")
+        print("[auto-login] No stored credentials – showing guest menu.")
         open_main_menu(page, state)
         return
 
@@ -752,10 +761,10 @@ async def restore_remembered_login(page: ft.Page, state: dict):
         # Persist updated tokens back to storage.
         await storage_set(page, AUTH_UID_KEY, new_uid)
         await storage_set(page, AUTH_REFRESH_TOKEN_KEY, new_token)
-        print(f"[auto-login] Success â€“ logged in as {email}")
+        print(f"[auto-login] Success – logged in as {email}")
         open_main_menu(page, state)
     except Exception as e:
-        print(f"[auto-login] Token refresh failed: {e} â€“ showing guest menu.")
+        print(f"[auto-login] Token refresh failed: {e} – showing guest menu.")
         open_main_menu(page, state)
 
 
@@ -971,6 +980,34 @@ def _page_size(page: ft.Page) -> tuple[float, float]:
     return float(w or 1100), float(h or 720)
 
 
+def _build_looping_menu_background(page: ft.Page) -> ft.Control:
+    """Returns the main-menu background media control."""
+    page_w, page_h = _page_size(page)
+    width, height = max(1, int(page_w)), max(1, int(page_h))
+
+    if FletVideo and VideoMedia and PlaylistMode:
+        return FletVideo(
+            expand=True,
+            width=width,
+            height=height,
+            playlist=[VideoMedia(resource=MENU_BG_VIDEO)],
+            playlist_mode=PlaylistMode.SINGLE,
+            autoplay=True,
+            muted=True,
+            fill_color="#000000",
+            fit=ft.ImageFit.COVER,
+            show_controls=False,
+            aspect_ratio=None,
+        )
+
+    return ft.Image(
+        src=MENU_BG_FALLBACK_IMAGE,
+        fit=ft.BoxFit.COVER,
+        width=width,
+        height=height,
+    )
+
+
 def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay_color: str) -> ft.Stack:
     """Background stretched to the full viewport (bottom layer in game Stack)."""
     w, h = max(1, int(page_w)), max(1, int(page_h))
@@ -1017,7 +1054,7 @@ def update_stats_block(stats: dict, correct: int, answered: int, money: str, mon
     
     # Parse money string to add to wallet
     try:
-        money_amount = int(money.replace(" â‚¬", "").replace(".", "").replace(",", ""))
+        money_amount = int(money.replace(" €", "").replace(".", "").replace(",", ""))
     except ValueError:
         money_amount = 0
     stats["wallet_balance"] = stats.get("wallet_balance", 0) + money_amount
@@ -1087,7 +1124,7 @@ def save_current_game(state: dict):
         return
 
     saved_game = {
-        "money": state.get("money", "0 â‚¬"),
+        "money": state.get("money", "0 €"),
         "questions_answered": state.get("questions_answered", 0),
         "correct": state.get("correct", 0),
         "jokers_used": state.get("jokers_used", 0),
@@ -1153,13 +1190,13 @@ def saved_game_summary(saved: dict) -> str:
     total = len(saved.get("questions", []))
     question_index = saved.get("question_index", 0)
     current_question = min(question_index + 1, total) if total else 1
-    money = saved.get("money", "0 â‚¬")
+    money = saved.get("money", "0 €")
     correct = saved.get("correct", 0)
     prefix = ""
     if saved.get("is_custom_game"):
         title = saved.get("custom_quiz_title") or "Eigenes Quiz"
-        prefix = f"{title} Â· "
-    return f"{prefix}Frage {current_question} von {total} Â· {money} Â· {correct} richtig"
+        prefix = f"{title} · "
+    return f"{prefix}Frage {current_question} von {total} · {money} · {correct} richtig"
 
 
 def resume_saved_game(page: ft.Page, state: dict, saved: dict | None = None):
@@ -1169,7 +1206,7 @@ def resume_saved_game(page: ft.Page, state: dict, saved: dict | None = None):
         return
 
     state.update({
-        "money": saved.get("money", "0 â‚¬"),
+        "money": saved.get("money", "0 €"),
         "questions_answered": saved.get("questions_answered", 0),
         "correct": saved.get("correct", 0),
         "jokers_used": saved.get("jokers_used", 0),
@@ -1335,7 +1372,7 @@ def start_custom_quiz_play(page: ft.Page, state: dict, quiz: dict):
     state["time_pressure_enabled"] = bool(quiz.get("time_pressure_enabled", True))
     state["question_time_sec"] = int(quiz.get("question_time_sec", QUESTION_TIME_SEC)) or QUESTION_TIME_SEC
     state.update({
-        "money": "0 â‚¬",
+        "money": "0 €",
         "questions_answered": 0,
         "correct": 0,
         "jokers_used": 0,
@@ -1356,21 +1393,21 @@ def start_custom_quiz_play(page: ft.Page, state: dict, quiz: dict):
 
 # ---------- Constants ----------
 MONEY_LEVELS = [
-    "50 â‚¬",
-    "100 â‚¬",
-    "200 â‚¬",
-    "300 â‚¬",
-    "500 â‚¬",
-    "1.000 â‚¬",
-    "2.000 â‚¬",
-    "4.000 â‚¬",
-    "8.000 â‚¬",
-    "16.000 â‚¬",
-    "32.000 â‚¬",
-    "64.000 â‚¬",
-    "125.000 â‚¬",
-    "500.000 â‚¬",
-    "1.000.000 â‚¬",
+    "50 €",
+    "100 €",
+    "200 €",
+    "300 €",
+    "500 €",
+    "1.000 €",
+    "2.000 €",
+    "4.000 €",
+    "8.000 €",
+    "16.000 €",
+    "32.000 €",
+    "64.000 €",
+    "125.000 €",
+    "500.000 €",
+    "1.000.000 €",
 ]
 
 # Answer letter colors matching the design reference
@@ -1448,7 +1485,7 @@ def sync_timer_display(page: ft.Page, state: dict):
     # Joker-spezifische Countdown-Anzeige
     if friend_end > now:
         sec = max(0, int(friend_end - now))
-        ui["text"].value = f"ðŸ‘¥ {sec}"
+        ui["text"].value = f"👥 {sec}"
         ui["bar"].value = min(1.0, sec / FRIEND_JOKER_SEC)
         ui["text"].color = theme["gold"]
         ui["bar"].color = theme["accent"]
@@ -1460,7 +1497,7 @@ def sync_timer_display(page: ft.Page, state: dict):
 
     if phone_end > now:
         sec = max(0, int(phone_end - now))
-        ui["text"].value = f"ðŸ“ž {sec}"
+        ui["text"].value = f"📞 {sec}"
         ui["bar"].value = min(1.0, sec / PHONE_JOKER_SEC)
         ui["text"].color = theme["gold"]
         ui["bar"].color = theme["accent"]
@@ -1470,7 +1507,7 @@ def sync_timer_display(page: ft.Page, state: dict):
             pass
         return
 
-    # AufrÃ¤umen abgelaufener Joker-Countdowns
+    # Aufräumen abgelaufener Joker-Countdowns
     if phone_end:
         state.pop("phone_until", None)
     if friend_end:
@@ -1478,7 +1515,7 @@ def sync_timer_display(page: ft.Page, state: dict):
 
     # Zeitdruck aus -> kein Countdown, Balken bleibt voll
     if not time_pressure_enabled:
-        ui["text"].value = "âˆž"
+        ui["text"].value = "∞"
         ui["bar"].value = 1.0
         ui["text"].color = theme_txt(theme, "primary")
         ui["bar"].color = theme["success"]
@@ -1534,116 +1571,116 @@ def generate_audience_percents(correct_idx: int, count: int = 4) -> list[int]:
 
 
 EMOJI_BY_WORD: dict[str, str] = {
-    # LÃ¤nder & StÃ¤dte
-    "berlin": "ðŸ™ï¸ðŸ‡©ðŸ‡ª", "mÃ¼nchen": "ðŸºðŸ”ï¸", "hamburg": "âš“ðŸŒŠ", "kÃ¶ln": "â›ªðŸŽ‰", "frankfurt": "ðŸ¦ðŸŒ†",
-    "deutschland": "ðŸ‡©ðŸ‡ª", "Ã¶sterreich": "ðŸ‡¦ðŸ‡¹ðŸ”ï¸", "schweiz": "ðŸ‡¨ðŸ‡­ðŸ§€", "frankreich": "ðŸ‡«ðŸ‡·",
-    "eiffelturm": "ðŸ—¼âœ¨", "paris": "ðŸ—¼â¤ï¸", "italien": "ðŸ‡®ðŸ‡¹ðŸ•", "pizza": "ðŸ•",
-    "spanien": "ðŸ‡ªðŸ‡¸ðŸ’ƒ", "england": "ðŸ‡¬ðŸ‡§â˜•", "griechenland": "ðŸ‡¬ðŸ‡·ðŸ›ï¸", "japan": "ðŸ‡¯ðŸ‡µðŸ—»",
-    "tokio": "ðŸŒ†ðŸ—»", "australien": "ðŸ¦˜ðŸŒ", "kanada": "ðŸðŸŒ²", "usa": "ðŸ—½ðŸ‡ºðŸ‡¸",
-    "china": "ðŸ‡¨ðŸ‡³ðŸ‰", "indien": "ðŸ‡®ðŸ‡³ðŸ˜", "brasilien": "ðŸ‡§ðŸ‡·ðŸŒ´", "mexiko": "ðŸ‡²ðŸ‡½ðŸŒ®",
-    "rom": "ðŸ›ï¸ðŸ•", "london": "ðŸŽ¡ðŸ‡¬ðŸ‡§", "new york": "ðŸ—½ðŸŒ†", "moskau": "ðŸ›ï¸â„ï¸",
-    "amsterdam": "ðŸš²ðŸŒ·", "wien": "ðŸŽµðŸ°", "prag": "ðŸ°ðŸ‡¨ðŸ‡¿", "dÃ¤nemark": "ðŸ‡©ðŸ‡°ðŸ§Š",
-    "schweden": "ðŸ‡¸ðŸ‡ªâ„ï¸", "norwegen": "ðŸ‡³ðŸ‡´ðŸŒŠ", "finnland": "ðŸ‡«ðŸ‡®ðŸŽ¿", "portugal": "ðŸ‡µðŸ‡¹ðŸŸ",
-    "tÃ¼rkei": "ðŸ‡¹ðŸ‡·ðŸ•Œ", "Ã¤gypten": "ðŸ‡ªðŸ‡¬ðŸœï¸ðŸ”º", "russland": "ðŸ‡·ðŸ‡ºâ„ï¸",
-    "hauptstadt": "ðŸ›ï¸ðŸŒ†",
+    # Länder & Städte
+    "berlin": "🏙️🇩🇪", "münchen": "🍺🏔️", "hamburg": "⚓🌊", "köln": "⛪🎉", "frankfurt": "🏦🌆",
+    "deutschland": "🇩🇪", "österreich": "🇦🇹🏔️", "schweiz": "🇨🇭🧀", "frankreich": "🇫🇷",
+    "eiffelturm": "🗼✨", "paris": "🗼❤️", "italien": "🇮🇹🍕", "pizza": "🍕",
+    "spanien": "🇪🇸💃", "england": "🇬🇧☕", "griechenland": "🇬🇷🏛️", "japan": "🇯🇵🗻",
+    "tokio": "🌆🗻", "australien": "🦘🌏", "kanada": "🍁🌲", "usa": "🗽🇺🇸",
+    "china": "🇨🇳🐉", "indien": "🇮🇳🐘", "brasilien": "🇧🇷🌴", "mexiko": "🇲🇽🌮",
+    "rom": "🏛️🍕", "london": "🎡🇬🇧", "new york": "🗽🌆", "moskau": "🏛️❄️",
+    "amsterdam": "🚲🌷", "wien": "🎵🏰", "prag": "🏰🇨🇿", "dänemark": "🇩🇰🧊",
+    "schweden": "🇸🇪❄️", "norwegen": "🇳🇴🌊", "finnland": "🇫🇮🎿", "portugal": "🇵🇹🐟",
+    "türkei": "🇹🇷🕌", "ägypten": "🇪🇬🏜️🔺", "russland": "🇷🇺❄️",
+    "hauptstadt": "🏛️🌆",
 
     # Tiere
-    "elefant": "ðŸ˜", "giraffe": "ðŸ¦’", "spinne": "ðŸ•·ï¸", "kuh": "ðŸ„ðŸ¥›", "schwein": "ðŸ·",
-    "schaf": "ðŸ‘ðŸ§¶", "pferd": "ðŸ´", "biene": "ðŸðŸ¯", "frosch": "ðŸ¸", "hund": "ðŸ•", "katze": "ðŸˆ",
-    "vogel": "ðŸ¦", "fisch": "ðŸŸ", "nilpferd": "ðŸ¦›", "nashorn": "ðŸ¦", "lÃ¶we": "ðŸ¦",
-    "tiger": "ðŸ¯", "bÃ¤r": "ðŸ»", "panda": "ðŸ¼", "delfin": "ðŸ¬", "hai": "ðŸ¦ˆ",
-    "oktopus": "ðŸ™", "krebs": "ðŸ¦€", "pinguin": "ðŸ§", "eule": "ðŸ¦‰", "adler": "ðŸ¦…",
-    "schlange": "ðŸ", "krokodil": "ðŸŠ", "eidechse": "ðŸ¦Ž", "dinosaurier": "ðŸ¦•",
-    "maus": "ðŸ­", "ratte": "ðŸ€", "kaninchen": "ðŸ‡", "igel": "ðŸ¦”", "fuchs": "ðŸ¦Š",
-    "wolf": "ðŸº", "affe": "ðŸ’", "gorilla": "ðŸ¦", "zebra": "ðŸ¦“", "kÃ¤nguru": "ðŸ¦˜",
-    "koala": "ðŸ¨", "fledermaus": "ðŸ¦‡", "biber": "ðŸ¦«", "otter": "ðŸ¦¦",
+    "elefant": "🐘", "giraffe": "🦒", "spinne": "🕷️", "kuh": "🐄🥛", "schwein": "🐷",
+    "schaf": "🐑🧶", "pferd": "🐴", "biene": "🐝🍯", "frosch": "🐸", "hund": "🐕", "katze": "🐈",
+    "vogel": "🐦", "fisch": "🐟", "nilpferd": "🦛", "nashorn": "🦏", "löwe": "🦁",
+    "tiger": "🐯", "bär": "🐻", "panda": "🐼", "delfin": "🐬", "hai": "🦈",
+    "oktopus": "🐙", "krebs": "🦀", "pinguin": "🐧", "eule": "🦉", "adler": "🦅",
+    "schlange": "🐍", "krokodil": "🐊", "eidechse": "🦎", "dinosaurier": "🦕",
+    "maus": "🐭", "ratte": "🐀", "kaninchen": "🐇", "igel": "🦔", "fuchs": "🦊",
+    "wolf": "🐺", "affe": "🐒", "gorilla": "🦍", "zebra": "🦓", "känguru": "🦘",
+    "koala": "🐨", "fledermaus": "🦇", "biber": "🦫", "otter": "🦦",
 
     # Pflanzen & Natur
-    "baum": "ðŸŒ²", "blume": "ðŸŒ¸", "rose": "ðŸŒ¹", "tulpe": "ðŸŒ·", "sonnenblume": "ðŸŒ»",
-    "gras": "ðŸŒ¿", "pilz": "ðŸ„", "kaktus": "ðŸŒµ", "palme": "ðŸŒ´", "bambus": "ðŸŽ‹",
-    "wald": "ðŸŒ²ðŸŒ³", "dschungel": "ðŸŒ¿ðŸ¦", "wÃ¼ste": "ðŸœï¸ðŸª", "strand": "ðŸ–ï¸", "berg": "â›°ï¸",
-    "ozean": "ðŸŒŠ", "see": "ðŸžï¸", "fluss": "ðŸžï¸", "gletscher": "ðŸ§ŠðŸ”ï¸",
+    "baum": "🌲", "blume": "🌸", "rose": "🌹", "tulpe": "🌷", "sonnenblume": "🌻",
+    "gras": "🌿", "pilz": "🍄", "kaktus": "🌵", "palme": "🌴", "bambus": "🎋",
+    "wald": "🌲🌳", "dschungel": "🌿🦁", "wüste": "🏜️🐪", "strand": "🏖️", "berg": "⛰️",
+    "ozean": "🌊", "see": "🏞️", "fluss": "🏞️", "gletscher": "🧊🏔️",
 
     # Weltraum & Astronomie
-    "sonne": "â˜€ï¸", "mond": "ðŸŒ™", "mars": "ðŸ”´ðŸª", "venus": "ðŸªðŸ’›", "jupiter": "ðŸªðŸŒ€",
-    "saturn": "ðŸªðŸ’«", "merkur": "ðŸŒ‘", "uranus": "ðŸªðŸŒŠ", "neptun": "ðŸ”µðŸª",
-    "stern": "â­", "galaxie": "ðŸŒŒ", "weltraum": "ðŸš€ðŸŒŒ", "mondlandung": "ðŸŒ•ðŸš€",
-    "asteroid": "â˜„ï¸", "komet": "â˜„ï¸", "schwarzes loch": "ðŸ•³ï¸ðŸŒŒ",
+    "sonne": "☀️", "mond": "🌙", "mars": "🔴🪐", "venus": "🪐💛", "jupiter": "🪐🌀",
+    "saturn": "🪐💫", "merkur": "🌑", "uranus": "🪐🌊", "neptun": "🔵🪐",
+    "stern": "⭐", "galaxie": "🌌", "weltraum": "🚀🌌", "mondlandung": "🌕🚀",
+    "asteroid": "☄️", "komet": "☄️", "schwarzes loch": "🕳️🌌",
 
-    # KÃ¶rper & Biologie
-    "herz": "â¤ï¸", "lunge": "ðŸ«", "gehirn": "ðŸ§ ", "leber": "ðŸ«€", "niere": "ðŸ«˜",
-    "blut": "ðŸ©¸", "blutplÃ¤ttchen": "ðŸ©¹ðŸ©¸", "blutkÃ¶rperchen": "ðŸ©¸ðŸ§¬",
-    "rote blutkÃ¶rperchen": "ðŸ”´ðŸ©¸", "weiÃŸe blutkÃ¶rperchen": "ðŸ¤ðŸ§«",
-    "sauerstoff": "ðŸ’¨ðŸ«", "dna": "ðŸ§¬", "zelle": "ðŸ”¬ðŸ§¬", "nervenzellen": "ðŸ§ âš¡",
-    "knochen": "ðŸ¦´", "muskel": "ðŸ’ª", "haut": "ðŸ–ï¸", "auge": "ðŸ‘ï¸", "ohr": "ðŸ‘‚",
-    "mund": "ðŸ‘„", "nase": "ðŸ‘ƒ", "hand": "âœ‹", "fuÃŸb": "ðŸ¦¶",
+    # Körper & Biologie
+    "herz": "❤️", "lunge": "🫁", "gehirn": "🧠", "leber": "🫀", "niere": "🫘",
+    "blut": "🩸", "blutplättchen": "🩹🩸", "blutkörperchen": "🩸🧬",
+    "rote blutkörperchen": "🔴🩸", "weiße blutkörperchen": "🤍🧫",
+    "sauerstoff": "💨🫁", "dna": "🧬", "zelle": "🔬🧬", "nervenzellen": "🧠⚡",
+    "knochen": "🦴", "muskel": "💪", "haut": "🖐️", "auge": "👁️", "ohr": "👂",
+    "mund": "👄", "nase": "👃", "hand": "✋", "fußb": "🦶",
 
     # Chemie & Physik
-    "wasser": "ðŸ’§", "h2o": "ðŸ’§ðŸ§ª", "feuer": "ðŸ”¥", "eis": "ðŸ§Š", "dampf": "ðŸ’¨",
-    "stickstoff": "ðŸ«§", "helium": "ðŸŽˆ", "kohlenstoff": "â¬›", "eisen": "âš™ï¸",
-    "gold": "ðŸ¥‡âœ¨", "silber": "ðŸ¥ˆ", "kupfer": "ðŸ”¶", "atom": "âš›ï¸", "elektron": "âš¡",
-    "magnetismus": "ðŸ§²", "gravitation": "ðŸŽâ¬‡ï¸", "licht": "ðŸ’¡", "laser": "ðŸ”´ðŸ’¡",
-    "radioaktiv": "â˜¢ï¸", "explosion": "ðŸ’¥",
+    "wasser": "💧", "h2o": "💧🧪", "feuer": "🔥", "eis": "🧊", "dampf": "💨",
+    "stickstoff": "🫧", "helium": "🎈", "kohlenstoff": "⬛", "eisen": "⚙️",
+    "gold": "🥇✨", "silber": "🥈", "kupfer": "🔶", "atom": "⚛️", "elektron": "⚡",
+    "magnetismus": "🧲", "gravitation": "🍎⬇️", "licht": "💡", "laser": "🔴💡",
+    "radioaktiv": "☢️", "explosion": "💥",
 
     # Mathematik
-    "pi": "ðŸŸ Ï€", "primzahl": "ðŸ”¢", "quadrat": "ðŸ”²", "kreis": "â­•", "dreieck": "ðŸ”º",
-    "gleichung": "âš–ï¸", "integral": "âˆ«", "algebra": "âž—",
+    "pi": "🟠π", "primzahl": "🔢", "quadrat": "🔲", "kreis": "⭕", "dreieck": "🔺",
+    "gleichung": "⚖️", "integral": "∫", "algebra": "➗",
 
     # Geschichte & Personen
-    "napoleon": "ðŸ‘‘âš”ï¸", "kaiser": "ðŸ‘‘", "einstein": "ðŸ§‘â€ðŸ”¬E=mcÂ²", "goethe": "âœï¸ðŸ“œ",
-    "mozart": "ðŸŽµðŸŽ¼", "beethoven": "ðŸŽ¹ðŸŽ¶", "shakespeare": "ðŸŽ­", "aristoteles": "ðŸ“–ðŸ›ï¸",
-    "kleopatra": "ðŸ‘‘ðŸ", "kolumbus": "â›µðŸ—ºï¸", "galilei": "ðŸ”­ðŸŒ", "newton": "ðŸŽâ¬‡ï¸",
-    "hitler": "âš ï¸", "stalin": "âš ï¸", "churchill": "ðŸŽ©", "kennedy": "ðŸ—½",
-    "martin luther king": "âœŠ", "darwin": "ðŸ¦ŽðŸ”¬",
-    "mittelalter": "âš”ï¸ðŸ°", "renaissance": "ðŸŽ¨ðŸ›ï¸", "revolution": "ðŸ”¥âœŠ",
-    "weltkrieg": "âš”ï¸ðŸ’£", "krieg": "âš”ï¸",
+    "napoleon": "👑⚔️", "kaiser": "👑", "einstein": "🧑‍🔬E=mc²", "goethe": "✍️📜",
+    "mozart": "🎵🎼", "beethoven": "🎹🎶", "shakespeare": "🎭", "aristoteles": "📖🏛️",
+    "kleopatra": "👑🐍", "kolumbus": "⛵🗺️", "galilei": "🔭🌍", "newton": "🍎⬇️",
+    "hitler": "⚠️", "stalin": "⚠️", "churchill": "🎩", "kennedy": "🗽",
+    "martin luther king": "✊", "darwin": "🦎🔬",
+    "mittelalter": "⚔️🏰", "renaissance": "🎨🏛️", "revolution": "🔥✊",
+    "weltkrieg": "⚔️💣", "krieg": "⚔️",
 
     # Essen & Trinken
-    "brot": "ðŸž", "kÃ¤se": "ðŸ§€", "milch": "ðŸ¥›", "butter": "ðŸ§ˆ", "ei": "ðŸ¥š",
-    "fleisch": "ðŸ¥©", "fisch": "ðŸŸðŸ½ï¸", "gemÃ¼se": "ðŸ¥¦", "obst": "ðŸŽ", "apfel": "ðŸŽ",
-    "banane": "ðŸŒ", "erdbeere": "ðŸ“", "orange": "ðŸŠ", "zitrone": "ðŸ‹",
-    "tomate": "ðŸ…", "kartoffel": "ðŸ¥”", "zwiebel": "ðŸ§…", "knoblauch": "ðŸ§„",
-    "nudeln": "ðŸ", "reis": "ðŸš", "suppe": "ðŸ²", "kuchen": "ðŸŽ‚", "schokolade": "ðŸ«",
-    "kaffee": "â˜•", "tee": "ðŸµ", "bier": "ðŸº", "wein": "ðŸ·", "saft": "ðŸ§ƒ",
+    "brot": "🍞", "käse": "🧀", "milch": "🥛", "butter": "🧈", "ei": "🥚",
+    "fleisch": "🥩", "fisch": "🐟🍽️", "gemüse": "🥦", "obst": "🍎", "apfel": "🍎",
+    "banane": "🍌", "erdbeere": "🍓", "orange": "🍊", "zitrone": "🍋",
+    "tomate": "🍅", "kartoffel": "🥔", "zwiebel": "🧅", "knoblauch": "🧄",
+    "nudeln": "🍝", "reis": "🍚", "suppe": "🍲", "kuchen": "🎂", "schokolade": "🍫",
+    "kaffee": "☕", "tee": "🍵", "bier": "🍺", "wein": "🍷", "saft": "🧃",
 
     # Jahreszeiten & Wetter
-    "herbst": "ðŸ‚ðŸ", "frÃ¼hling": "ðŸŒ¸ðŸŒ±", "sommer": "â˜€ï¸ðŸ–ï¸", "winter": "â„ï¸â›„",
-    "regen": "ðŸŒ§ï¸", "schnee": "â„ï¸", "gewitter": "â›ˆï¸", "regenbogen": "ðŸŒˆ",
-    "wind": "ðŸ’¨", "tornado": "ðŸŒªï¸", "nebel": "ðŸŒ«ï¸", "hitze": "ðŸ¥µ",
+    "herbst": "🍂🍁", "frühling": "🌸🌱", "sommer": "☀️🏖️", "winter": "❄️⛄",
+    "regen": "🌧️", "schnee": "❄️", "gewitter": "⛈️", "regenbogen": "🌈",
+    "wind": "💨", "tornado": "🌪️", "nebel": "🌫️", "hitze": "🥵",
 
     # Transport
-    "flugzeug": "âœˆï¸", "auto": "ðŸš—", "zug": "ðŸš†", "fahrrad": "ðŸš²", "schiff": "ðŸš¢",
-    "rakete": "ðŸš€", "hubschrauber": "ðŸš", "bus": "ðŸšŒ", "u-bahn": "ðŸš‡", "taxi": "ðŸš•",
-    "motorrad": "ðŸï¸", "boot": "â›µ",
+    "flugzeug": "✈️", "auto": "🚗", "zug": "🚆", "fahrrad": "🚲", "schiff": "🚢",
+    "rakete": "🚀", "hubschrauber": "🚁", "bus": "🚌", "u-bahn": "🚇", "taxi": "🚕",
+    "motorrad": "🏍️", "boot": "⛵",
 
     # Technologie
-    "computer": "ðŸ’»", "handy": "ðŸ“±", "telefon": "ðŸ“ž", "fernseher": "ðŸ“º",
-    "kamera": "ðŸ“·", "roboter": "ðŸ¤–", "internet": "ðŸŒ", "ki": "ðŸ¤–ðŸ§ ",
-    "algorithmus": "âš™ï¸ðŸ’¡", "datenbank": "ðŸ—„ï¸",
+    "computer": "💻", "handy": "📱", "telefon": "📞", "fernseher": "📺",
+    "kamera": "📷", "roboter": "🤖", "internet": "🌐", "ki": "🤖🧠",
+    "algorithmus": "⚙️💡", "datenbank": "🗄️",
 
     # Sport
-    "fuÃŸball": "âš½", "basketball": "ðŸ€", "tennis": "ðŸŽ¾", "schwimmen": "ðŸŠ",
-    "laufen": "ðŸƒ", "boxen": "ðŸ¥Š", "radfahren": "ðŸš´", "ski": "â›·ï¸",
-    "olympia": "ðŸ…", "marathon": "ðŸƒðŸ…",
+    "fußball": "⚽", "basketball": "🏀", "tennis": "🎾", "schwimmen": "🏊",
+    "laufen": "🏃", "boxen": "🥊", "radfahren": "🚴", "ski": "⛷️",
+    "olympia": "🏅", "marathon": "🏃🏅",
 
     # Kunst & Kultur
-    "musik": "ðŸŽµ", "klavier": "ðŸŽ¹", "gitarre": "ðŸŽ¸", "geige": "ðŸŽ»", "oper": "ðŸŽ­",
-    "theater": "ðŸŽ­", "film": "ðŸŽ¬", "buch": "ðŸ“š", "malen": "ðŸŽ¨", "skulptur": "ðŸ—¿",
-    "tanz": "ðŸ’ƒ", "gesang": "ðŸŽ¤",
+    "musik": "🎵", "klavier": "🎹", "gitarre": "🎸", "geige": "🎻", "oper": "🎭",
+    "theater": "🎭", "film": "🎬", "buch": "📚", "malen": "🎨", "skulptur": "🗿",
+    "tanz": "💃", "gesang": "🎤",
 
     # Farben
-    "gelb": "ðŸŸ¡", "grÃ¼n": "ðŸŸ¢", "rot": "ðŸ”´", "blau": "ðŸ”µ", "schwarz": "â¬›",
-    "weiÃŸ": "â¬œ", "lila": "ðŸŸ£", "orange": "ðŸŸ ", "rosa": "ðŸ©·", "braun": "ðŸŸ«",
+    "gelb": "🟡", "grün": "🟢", "rot": "🔴", "blau": "🔵", "schwarz": "⬛",
+    "weiß": "⬜", "lila": "🟣", "orange": "🟠", "rosa": "🩷", "braun": "🟫",
 
     # Zahlen & Zeit
-    "zeit": "â°", "stunde": "ðŸ•", "tag": "ðŸ“…", "woche": "ðŸ“†", "jahr": "ðŸ—“ï¸",
-    "sekunde": "â±ï¸", "minute": "â³",
+    "zeit": "⏰", "stunde": "🕐", "tag": "📅", "woche": "📆", "jahr": "🗓️",
+    "sekunde": "⏱️", "minute": "⏳",
     
-    # Ãœbergreifende Kategorien
-    "instrument": "ðŸ¥ðŸŽ»ðŸŽº", "werkzeug": "ðŸ”¨ðŸ”§", "fahrzeug": "ðŸš—ðŸš€â›µ", "beruf": "ðŸ‘·ðŸ§‘â€âš•ï¸",
-    "planet": "ðŸªðŸŒ", "kleidung": "ðŸ‘•ðŸ‘–ðŸ‘—", "mÃ¶bel": "ðŸ›‹ï¸ðŸ›ï¸", "gebÃ¤ude": "ðŸ ðŸ¢",
-    "tier": "ðŸ¾", "pflanze": "ðŸŒ¿", "krankheit": "ðŸ¤’ðŸ¦ ", "sprache": "ðŸ—£ï¸",
-    "religion": "â›ªðŸ•ŒðŸ•", "waffe": "âš”ï¸ðŸ”«", "spiel": "ðŸŽ²ðŸŽ®", "sÃ¼ÃŸigkeit": "ðŸ¬ðŸ«",
+    # Übergreifende Kategorien
+    "instrument": "🥁🎻🎺", "werkzeug": "🔨🔧", "fahrzeug": "🚗🚀⛵", "beruf": "👷🧑‍⚕️",
+    "planet": "🪐🌍", "kleidung": "👕👖👗", "möbel": "🛋️🛏️", "gebäude": "🏠🏢",
+    "tier": "🐾", "pflanze": "🌿", "krankheit": "🤒🦠", "sprache": "🗣️",
+    "religion": "⛪🕌🕍", "waffe": "⚔️🔫", "spiel": "🎲🎮", "süßigkeit": "🍬🍫",
 }
 
 
@@ -1691,75 +1728,75 @@ def emoji_hint_for_answer(answer: str) -> str:
 
     # Fallback: derive emojis from word properties
     if re.search(r"\d{4}", text):
-        return "ðŸ“… ðŸ—“ï¸ ðŸ”¢"  # looks like a year
+        return "📅 🗓️ 🔢"  # looks like a year
     if re.search(r"\d", text):
-        return "ðŸ”¢ ðŸ§® âž•"
+        return "🔢 🧮 ➕"
     if len(text) <= 3:
-        return f"ðŸ”¤ â“"  # abbreviation / short code
+        return f"🔤 ❓"  # abbreviation / short code
     # Category guessing from common syllables
     if any(w in text for w in ("burg", "stadt", "dorf", "heim")):
-        return "ðŸ™ï¸ ðŸ—ºï¸ ðŸ˜ï¸"
+        return "🏙️ 🗺️ 🏘️"
     if any(w in text for w in ("berg", "stein", "fels")):
-        return "â›°ï¸ ðŸª¨"
+        return "⛰️ 🪨"
     if any(w in text for w in ("meer", "see", "bach", "fluss")):
-        return "ðŸŒŠ ðŸ’§"
+        return "🌊 💧"
     if any(w in text for w in ("tier", "vieh", "wild")):
-        return "ðŸ¾ ðŸ¦"
+        return "🐾 🦁"
     if any(w in text for w in ("pflanz", "baum", "gras", "blatt")):
-        return "ðŸŒ¿ ðŸŒ±"
+        return "🌿 🌱"
     if any(w in text for w in ("krieg", "schlacht", "soldat")):
-        return "âš”ï¸ ðŸ³ï¸"
+        return "⚔️ 🏳️"
     if any(w in text for w in ("musik", "lied", "ton", "klang")):
-        return "ðŸŽµ ðŸŽ¶"
+        return "🎵 🎶"
     if any(w in text for w in ("buch", "schreib", "lese", "text")):
-        return "ðŸ“– âœï¸"
-    return "ðŸ’¡ ðŸ§© ðŸŽ¯"
+        return "📖 ✍️"
+    return "💡 🧩 🎯"
 
 
 def moderator_hint_for(question: str, options: list, correct_idx: int) -> str:
     correct = options[correct_idx] if 0 <= correct_idx < len(options) else ""
     return (
-        f"Moderator: Denke an etwas mit â€ž{correct[:3]}â€¦â€œ â€“ "
-        f"die LÃ¶sung hat {len(correct)} Buchstaben."
+        f"Moderator: Denke an etwas mit „{correct[:3]}…“ – "
+        f"die Lösung hat {len(correct)} Buchstaben."
     )
 
 
 WIKIPEDIA_HINTS = {
-    "biene": "Ein Insekt, das BlÃ¼ten bestÃ¤ubt und Honig herstellt.",
+    "biene": "Ein Insekt, das Blüten bestäubt und Honig herstellt.",
     "frosch": "Ein springendes Amphib, das oft in Teichen und Feuchtgebieten lebt.",
-    "elefant": "Das grÃ¶ÃŸte lebende Landtier mit einem langen RÃ¼ssel.",
-    "berlin": "GroÃŸstadt in Mitteleuropa mit Regierungssitz und vielen Museen.",
-    "wasser": "FlÃ¼ssigkeit aus Wasserstoff und Sauerstoff, lebensnotwendig fÃ¼r Menschen.",
-    "sonne": "Der Stern im Zentrum unseres Sonnensystems, liefert Licht und WÃ¤rme.",
+    "elefant": "Das größte lebende Landtier mit einem langen Rüssel.",
+    "berlin": "Großstadt in Mitteleuropa mit Regierungssitz und vielen Museen.",
+    "wasser": "Flüssigkeit aus Wasserstoff und Sauerstoff, lebensnotwendig für Menschen.",
+    "sonne": "Der Stern im Zentrum unseres Sonnensystems, liefert Licht und Wärme.",
     "buch": "Gedruckte oder digitale Seiten zum Lesen und Lernen.",
-    "auto": "Kraftfahrzeug fÃ¼r den StraÃŸenverkehr mit Motor.",
-    "maus": "Kleines Nagetier oder ein Computer-EingabegerÃ¤t.",
+    "auto": "Kraftfahrzeug für den Straßenverkehr mit Motor.",
+    "maus": "Kleines Nagetier oder ein Computer-Eingabegerät.",
     "hund": "Haus- und Heimtier, enger Begleiter des Menschen.",
     "herbst": "Jahreszeit mit fallendem Laub zwischen Sommer und Winter.",
-    "frÃ¼hling": "Jahreszeit, in der Natur erwacht und es wÃ¤rmer wird.",
-    "herz": "Muskelorgan, das Blut durch den KÃ¶rper pumpt.",
-    "jupiter": "Gasriese und grÃ¶ÃŸter Planet unseres Sonnensystems.",
+    "frühling": "Jahreszeit, in der Natur erwacht und es wärmer wird.",
+    "herz": "Muskelorgan, das Blut durch den Körper pumpt.",
+    "jupiter": "Gasriese und größter Planet unseres Sonnensystems.",
     "h2o": "Chemische Verbindung aus zwei Wasserstoff- und einem Sauerstoffatom.",
-    "sauerstoff": "Gas, das fÃ¼r Verbrennung und Atmung wichtig ist.",
-    "stickstoff": "HÃ¤ufigstes Gas in der ErdatmosphÃ¤re.",
-    "frankreich": "WesteuropÃ¤isches Land, bekannt fÃ¼r Kultur und KÃ¼che.",
-    "italien": "SÃ¼deuropÃ¤isches Land mit langer Geschichte und KÃ¼che.",
-    "tokio": "GroÃŸstadt und wichtiges Zentrum auf einer ostasiatischen Insel.",
-    "rom": "Historische Hauptstadt eines europÃ¤ischen Landes mit Kolosseum.",
-    "napoleon": "FranzÃ¶sischer Kaiser und Feldherr des frÃ¼hen 19. Jahrhunderts.",
-    "mozart": "Ã–sterreichischer Komponist der klassischen Epoche.",
-    "einstein": "Physiker, bekannt fÃ¼r RelativitÃ¤tstheorie und E=mcÂ².",
+    "sauerstoff": "Gas, das für Verbrennung und Atmung wichtig ist.",
+    "stickstoff": "Häufigstes Gas in der Erdatmosphäre.",
+    "frankreich": "Westeuropäisches Land, bekannt für Kultur und Küche.",
+    "italien": "Südeuropäisches Land mit langer Geschichte und Küche.",
+    "tokio": "Großstadt und wichtiges Zentrum auf einer ostasiatischen Insel.",
+    "rom": "Historische Hauptstadt eines europäischen Landes mit Kolosseum.",
+    "napoleon": "Französischer Kaiser und Feldherr des frühen 19. Jahrhunderts.",
+    "mozart": "Österreichischer Komponist der klassischen Epoche.",
+    "einstein": "Physiker, bekannt für Relativitätstheorie und E=mc².",
     "goethe": "Deutscher Dichter der Klassik, schrieb auch Faust.",
-    "flugzeug": "Luftfahrzeug mit TragflÃ¤chen fÃ¼r Passagier- oder Frachtverkehr.",
-    "pazifik": "GrÃ¶ÃŸtes Meer der Erde, erstreckt sich zwischen Asien und Amerika.",
+    "flugzeug": "Luftfahrzeug mit Tragflächen für Passagier- oder Frachtverkehr.",
+    "pazifik": "Größtes Meer der Erde, erstreckt sich zwischen Asien und Amerika.",
 }
 
 WORD_TIP_HINTS = {
-    "biene": "BestÃ¤ubung",
+    "biene": "Bestäubung",
     "frosch": "Amphib",
-    "elefant": "RÃ¼ssel",
+    "elefant": "Rüssel",
     "berlin": "Regierung",
-    "wasser": "MolekÃ¼l",
+    "wasser": "Molekül",
     "sonne": "Fusion",
     "buch": "Literatur",
     "auto": "Motor",
@@ -1769,27 +1806,27 @@ WORD_TIP_HINTS = {
     "vogel": "Gefieder",
     "fisch": "Kiemen",
     "herbst": "Laub",
-    "frÃ¼hling": "Knospung",
+    "frühling": "Knospung",
     "herz": "Puls",
     "jupiter": "Gasriese",
     "sauerstoff": "Atmung",
-    "h2o": "LÃ¶sungsmittel",
+    "h2o": "Lösungsmittel",
     "frankreich": "Europa",
     "italien": "Mediterran",
     "tokio": "Metropole",
     "rom": "Antike",
     "mozart": "Komponist",
-    "einstein": "RelativitÃ¤t",
+    "einstein": "Relativität",
     "goethe": "Dichtung",
     "flugzeug": "Aviation",
     "spinne": "Arachnid",
     "kuh": "Weidetier",
     "gelb": "Spektrum",
-    "grÃ¼n": "Chlorophyll",
-    # Ãœbergreifende Kategorien
-    "instrument": "MusikgerÃ¤t", "werkzeug": "Hilfsmittel", "fahrzeug": "Verkehrsmittel",
-    "beruf": "TÃ¤tigkeit", "planet": "HimmelskÃ¶rper", "kleidung": "Textil",
-    "mÃ¶bel": "Einrichtung", "gebÃ¤ude": "Bauwerk", "tier": "Lebewesen",
+    "grün": "Chlorophyll",
+    # Übergreifende Kategorien
+    "instrument": "Musikgerät", "werkzeug": "Hilfsmittel", "fahrzeug": "Verkehrsmittel",
+    "beruf": "Tätigkeit", "planet": "Himmelskörper", "kleidung": "Textil",
+    "möbel": "Einrichtung", "gebäude": "Bauwerk", "tier": "Lebewesen",
     "pflanze": "Flora", "krankheit": "Symptom", "sprache": "Kommunikation",
 }
 
@@ -1799,12 +1836,12 @@ QUESTION_WORD_TIPS = [
     (("farbe", "mischt"), "Farbe"),
     (("jahr", "monat", "tag", "stunde", "woche", "jahreszeit"), "Zeit"),
     (("zahl", "viele", "wie viel", "wurzel", "gleichung"), "Zahl"),
-    (("organ", "kÃ¶rper", "zÃ¤hne", "knochen"), "KÃ¶rper"),
+    (("organ", "körper", "zähne", "knochen"), "Körper"),
     (("planet", "mond", "sonne", "himmel"), "Planet"),
     (("chem", "element", "formel", "gas"), "Element"),
     (("schrieb", "malte", "oper", "drama"), "Autor"),
     (("krieg", "mauer", "kaiser", "jahr wurde"), "Geschichte"),
-    (("transport", "transportieren", "fliegt", "fÃ¤hrt", "sauerstoff"), "Blut"),
+    (("transport", "transportieren", "fliegt", "fährt", "sauerstoff"), "Blut"),
     (("meer", "ozean", "graben"), "Ozean"),
 ]
 
@@ -1837,7 +1874,7 @@ def wikipedia_definition(term: str) -> str:
                         for w in [term.strip(), term.strip().capitalize(), best_title, best_title.capitalize(), base_title, base_title.capitalize()]:
                             if w and len(w) > 3 and w in extract:
                                 extract = extract.replace(w, "___")
-                        return extract[:300].rsplit(" ", 1)[0] + " â€¦"
+                        return extract[:300].rsplit(" ", 1)[0] + " …"
     except Exception:
         pass
 
@@ -1847,8 +1884,8 @@ def wikipedia_definition(term: str) -> str:
             return text
 
     return (
-        "Ein Begriff aus Allgemeinwissen â€“ nÃ¤here Informationen findest du "
-        "in Lexika und EnzyklopÃ¤dien (z. B. Wikipedia)."
+        "Ein Begriff aus Allgemeinwissen – nähere Informationen findest du "
+        "in Lexika und Enzyklopädien (z. B. Wikipedia)."
     )
 
 
@@ -1869,7 +1906,7 @@ def word_tip_for(term: str, question: str = "") -> str:
         return "Zahl"
 
     # Wenn kein passender Hinweis greifbar ist, geben wir deterministisch
-    # ein anderes "Hinweiswort" zurÃ¼ck (statt immer das gleiche).
+    # ein anderes "Hinweiswort" zurück (statt immer das gleiche).
     fallback_words = list(dict.fromkeys(list(WORD_TIP_HINTS.values()) + [t for _, t in QUESTION_WORD_TIPS]))
     if fallback_words:
         return fallback_words[abs(hash(key)) % len(fallback_words)]
@@ -1921,7 +1958,7 @@ def _DraggableModal(panel: ft.Control) -> ft.Stack:
     pos = {"left": -1.0, "top": -1.0}
 
     handle = ft.Container(
-        content=ft.Text("â ¿  verschieben", size=10, color="#AAAAAA", text_align="center"),
+        content=ft.Text("⠿  verschieben", size=10, color="#AAAAAA", text_align="center"),
         height=22,
         bgcolor="#22222244",
         border_radius=ft.BorderRadius(12, 12, 0, 0),
@@ -2067,7 +2104,7 @@ def _show_joker_countdown_dialog(
                 countdown_text,
                 ft.Container(height=12),
                 ft.ElevatedButton(
-                    "Fertig â€“ weiter spielen",
+                    "Fertig – weiter spielen",
                     on_click=lambda e: close_dialog(),
                     bgcolor=theme.get("accent", "#C00"),
                     color="white",
@@ -2160,7 +2197,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
         mark_joker_used(state, joker_id)
         state["friend_until"] = time.time() + FRIEND_JOKER_SEC
         sync_timer_display(page, state)
-        _show_joker_countdown_dialog(page, state, theme, "ðŸ‘¥ Frag einen Freund", FRIEND_JOKER_SEC, "friend_until")
+        _show_joker_countdown_dialog(page, state, theme, "👥 Frag einen Freund", FRIEND_JOKER_SEC, "friend_until")
         return
 
     if joker_id == "swap":
@@ -2186,7 +2223,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
     if joker_id == "wikipedia":
         mark_joker_used(state, joker_id)
         term = options[correct_idx]
-        body_ref = ft.Text("â³ Lade Wikipedia-Artikel â€¦", size=14, color=theme_txt(theme, "secondary"), text_align="center")
+        body_ref = ft.Text("⏳ Lade Wikipedia-Artikel …", size=14, color=theme_txt(theme, "secondary"), text_align="center")
         show_game_message_with_body(page, state, "Wikipedia", body_ref, theme)
 
         async def _load_wiki():
@@ -2210,7 +2247,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
         show_game_message(
             page, state,
             "Wort-Tipp",
-            f"Denke an das Wort: â€ž{word}â€œ",
+            f"Denke an das Wort: „{word}“",
             theme,
         )
         return
@@ -2219,7 +2256,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
         mark_joker_used(state, joker_id)
         state["truefalse_mode"] = True
         page.snack_bar = ft.SnackBar(
-            content=ft.Text("Tippe eine Antwort zum Testen â€“ danach kannst du normal weiterwÃ¤hlen."),
+            content=ft.Text("Tippe eine Antwort zum Testen – danach kannst du normal weiterwählen."),
             duration=3500,
         )
         page.snack_bar.open = True
@@ -2229,7 +2266,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
     if joker_id == "emoji":
         mark_joker_used(state, joker_id)
         term = options[correct_idx]
-        body_ref = ft.Text("â³ Suche Emojis â€¦", size=24, color=theme_txt(theme, "secondary"), text_align="center")
+        body_ref = ft.Text("⏳ Suche Emojis …", size=24, color=theme_txt(theme, "secondary"), text_align="center")
         show_game_message_with_body(page, state, "Emoji-Joker", body_ref, theme)
 
         async def _load_emoji():
@@ -2237,7 +2274,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
             try:
                 em = await loop.run_in_executor(None, lambda: emoji_hint_for_answer(term))
             except Exception:
-                em = "ðŸ’¡ ðŸ§© ðŸŽ¯"
+                em = "💡 🧩 🎯"
             body_ref.value = f"Die richtige Antwort in Emojis:\n\n{em}"
             try:
                 body_ref.update()
@@ -2298,7 +2335,7 @@ def activate_joker(page: ft.Page, state: dict, joker_id: str, ctx: dict):
         except Exception:
             pass
         sync_timer_display(page, state)
-        _show_joker_countdown_dialog(page, state, theme, "ðŸ“ž Telefon-Joker", PHONE_JOKER_SEC, "phone_until")
+        _show_joker_countdown_dialog(page, state, theme, "📞 Telefon-Joker", PHONE_JOKER_SEC, "phone_until")
         return
 
 
@@ -2502,9 +2539,9 @@ def show_joker_confirm_screen(page: ft.Page, state: dict, picked_ids: list[str],
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("Joker bestÃ¤tigen", size=28, weight="bold", color="white", text_align="center"),
+                ft.Text("Joker bestätigen", size=28, weight="bold", color="white", text_align="center"),
                 ft.Text(
-                    "MÃ¶chtest du diese Joker auswÃ¤hlen?",
+                    "Möchtest du diese Joker auswählen?",
                     size=16,
                     text_align="center",
                     color=theme_txt(theme, "secondary"),
@@ -2580,7 +2617,7 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
         if len(current) != JOKER_SELECT_COUNT:
             page.snack_bar = ft.SnackBar(
                 content=ft.Text(
-                    f"Bitte genau {JOKER_SELECT_COUNT} Joker auswÃ¤hlen ({len(current)}/{JOKER_SELECT_COUNT}), oder gar keinen."
+                    f"Bitte genau {JOKER_SELECT_COUNT} Joker auswählen ({len(current)}/{JOKER_SELECT_COUNT}), oder gar keinen."
                 ),
             )
             page.snack_bar.open = True
@@ -2612,7 +2649,7 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
 
     check_enabled = len(pick) == JOKER_SELECT_COUNT
     check_btn = ft.Container(
-        content=ft.Text("âœ“", size=28, weight="bold", color="white" if check_enabled else "#888888"),
+        content=ft.Text("✓", size=28, weight="bold", color="white" if check_enabled else "#888888"),
         width=58,
         height=58,
         border_radius=12,
@@ -2634,9 +2671,9 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("WÃ¤hle deinen Joker", size=28, weight="bold", color="white", text_align="center"),
+                ft.Text("Wähle deinen Joker", size=28, weight="bold", color="white", text_align="center"),
                 ft.Text(
-                    f"Tippe {JOKER_SELECT_COUNT} Joker an (oben oder unten) Â· erneut tippen zum AbwÃ¤hlen",
+                    f"Tippe {JOKER_SELECT_COUNT} Joker an (oben oder unten) · erneut tippen zum Abwählen",
                     size=14,
                     color=theme_txt(theme, "secondary"),
                     text_align="center",
@@ -2680,7 +2717,7 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
                                         setattr(d, 'on_change', lambda e: on_question_time_change(e)),
                                         d
                                     )[-1])() if bool(state.get("time_pressure_enabled", True)) else ft.Text(
-                                        "Timer aus â€“ kein Countdown",
+                                        "Timer aus – kein Countdown",
                                         size=13,
                                         color=theme_txt(theme, "secondary"),
                                         weight="bold",
@@ -2727,7 +2764,7 @@ def show_joker_selection(page: ft.Page, state: dict, on_start):
                     padding=10,
                     visible=state.get("jokers_enabled", True),
                 ),
-                ft.TextButton("â† ZurÃ¼ck", on_click=on_back, style=ft.ButtonStyle(color="white")),
+                ft.TextButton("← Zurück", on_click=on_back, style=ft.ButtonStyle(color="white")),
             ],
                 alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -2757,71 +2794,71 @@ def launch_game_after_jokers(page: ft.Page, state: dict):
 
 # ---------- Question Data ----------
 EASY_QUESTIONS = [
-    ("Wie heiÃŸt die Hauptstadt von Deutschland?", ["Berlin", "MÃ¼nchen", "Hamburg", "KÃ¶ln"], 0),
+    ("Wie heißt die Hauptstadt von Deutschland?", ["Berlin", "München", "Hamburg", "Köln"], 0),
     ("Wie viele Beine hat eine Spinne?", ["6", "8", "10", "4"], 1),
-    ("Welches Tier ist das grÃ¶ÃŸte Landtier der Welt?", ["Giraffe", "Nashorn", "Elefant", "Nilpferd"], 2),
-    ("Welche Farbe hat eine reife Banane?", ["GrÃ¼n", "Rot", "Blau", "Gelb"], 3),
+    ("Welches Tier ist das größte Landtier der Welt?", ["Giraffe", "Nashorn", "Elefant", "Nilpferd"], 2),
+    ("Welche Farbe hat eine reife Banane?", ["Grün", "Rot", "Blau", "Gelb"], 3),
     ("Wie viele Monate hat ein Jahr?", ["10", "11", "12", "13"], 2),
-    ("Was ist 5 Ã— 5?", ["20", "25", "30", "35"], 1),
+    ("Was ist 5 × 5?", ["20", "25", "30", "35"], 1),
     ("Welches Tier macht 'Muh'?", ["Schwein", "Schaf", "Kuh", "Pferd"], 2),
     ("Wie viele Tage hat eine Woche?", ["5", "6", "7", "8"], 2),
     ("In welchem Land liegt der Eiffelturm?", ["England", "Italien", "Spanien", "Frankreich"], 3),
-    ("Welche Jahreszeit kommt nach dem Winter?", ["Sommer", "Herbst", "FrÃ¼hling", "Winter"], 2),
-    ("Welches Organ pumpt Blut durch den KÃ¶rper?", ["Herz", "Lunge", "Magen", "Gehirn"], 0),
-    ("Wie viele ZÃ¤hne hat ein erwachsener Mensch normalerweise?", ["32", "28", "36", "24"], 0),
-    ("Welcher HimmelskÃ¶rper leuchtet tagsÃ¼ber am Himmel?", ["Sonne", "Mond", "Mars", "Venus"], 0),
+    ("Welche Jahreszeit kommt nach dem Winter?", ["Sommer", "Herbst", "Frühling", "Winter"], 2),
+    ("Welches Organ pumpt Blut durch den Körper?", ["Herz", "Lunge", "Magen", "Gehirn"], 0),
+    ("Wie viele Zähne hat ein erwachsener Mensch normalerweise?", ["32", "28", "36", "24"], 0),
+    ("Welcher Himmelskörper leuchtet tagsüber am Himmel?", ["Sonne", "Mond", "Mars", "Venus"], 0),
     ("Welcher Tag kommt nach dem Freitag?", ["Samstag", "Sonntag", "Montag", "Donnerstag"], 0),
-    ("Was ist das Gegenteil von 'heiÃŸ'?", ["Kalt", "Warm", "Nass", "Trocken"], 0),
-    ("Wie heiÃŸt die FlÃ¼ssigkeit in BÃ¤umen?", ["Harz", "Saft", "Wasser", "Milch"], 1),
+    ("Was ist das Gegenteil von 'heiß'?", ["Kalt", "Warm", "Nass", "Trocken"], 0),
+    ("Wie heißt die Flüssigkeit in Bäumen?", ["Harz", "Saft", "Wasser", "Milch"], 1),
     ("Welches Transportmittel fliegt in der Luft?", ["Flugzeug", "Auto", "Zug", "Fahrrad"], 0),
     ("Wie viele Stunden hat ein Tag?", ["24", "12", "48", "30"], 0),
-    ("Welche Farbe erhÃ¤lt man, wenn man Blau und Gelb mischt?", ["GrÃ¼n", "Rot", "Orange", "Lila"], 0),
+    ("Welche Farbe erhält man, wenn man Blau und Gelb mischt?", ["Grün", "Rot", "Orange", "Lila"], 0),
     ("Aus welchem Land stammt die Pizza?", ["Italien", "Spanien", "Frankreich", "Griechenland"], 0),
 ]
 
 MEDIUM_QUESTIONS = [
     ("Welches Element hat das chemische Symbol 'O'?", ["Gold", "Sauerstoff", "Silber", "Kohlenstoff"], 1),
-    ("Wer schrieb 'Die Blechtrommel'?", ["GÃ¼nter Grass", "Heinrich Heine", "Thomas Mann", "Bertolt Brecht"], 0),
+    ("Wer schrieb 'Die Blechtrommel'?", ["Günter Grass", "Heinrich Heine", "Thomas Mann", "Bertolt Brecht"], 0),
     ("Wie viele Knochen hat ein erwachsener Mensch?", ["106", "156", "206", "256"], 2),
     ("Wann wurde die Berliner Mauer gebaut?", ["1951", "1961", "1971", "1981"], 1),
     ("Was ist die Hauptstadt von Japan?", ["Peking", "Seoul", "Tokio", "Bangkok"], 2),
-    ("Welcher Planet ist der grÃ¶ÃŸte im Sonnensystem?", ["Saturn", "Jupiter", "Uranus", "Neptun"], 1),
-    ("Wie lautet die chemische Formel fÃ¼r Wasser?", ["CO2", "NaCl", "H2O", "O2"], 2),
+    ("Welcher Planet ist der größte im Sonnensystem?", ["Saturn", "Jupiter", "Uranus", "Neptun"], 1),
+    ("Wie lautet die chemische Formel für Wasser?", ["CO2", "NaCl", "H2O", "O2"], 2),
     ("In welchem Jahr begann der Erste Weltkrieg?", ["1912", "1914", "1916", "1918"], 1),
     ("Wer malte die Sixtinische Kapelle?", ["Leonardo da Vinci", "Raffael", "Michelangelo", "Botticelli"], 2),
     ("Was ist die Wurzel aus 144?", ["10", "11", "12", "13"], 2),
-    ("Wie viele BundeslÃ¤nder hat Deutschland?", ["16", "12", "14", "18"], 0),
+    ("Wie viele Bundesländer hat Deutschland?", ["16", "12", "14", "18"], 0),
     ("Wer schrieb das Drama 'Faust'?", ["Johann Wolfgang von Goethe", "Friedrich Schiller", "Gotthold Ephraim Lessing", "Heinrich Heine"], 0),
-    ("Wie heiÃŸt das grÃ¶ÃŸte Meer der Erde?", ["Pazifischer Ozean", "Atlantischer Ozean", "Indischer Ozean", "Arktischer Ozean"], 0),
+    ("Wie heißt das größte Meer der Erde?", ["Pazifischer Ozean", "Atlantischer Ozean", "Indischer Ozean", "Arktischer Ozean"], 0),
     ("Welches ist das leichteste chemische Element?", ["Wasserstoff", "Helium", "Lithium", "Sauerstoff"], 0),
     ("In welcher Stadt steht das Kolosseum?", ["Rom", "Athen", "Paris", "Mailand"], 0),
-    ("Welches Land grenzt im Norden an Deutschland?", ["DÃ¤nemark", "Polen", "Tschechien", "Ã–sterreich"], 0),
-    ("Wie viele ZÃ¤hne hat ein Milchgebiss?", ["20", "24", "28", "32"], 0),
+    ("Welches Land grenzt im Norden an Deutschland?", ["Dänemark", "Polen", "Tschechien", "Österreich"], 0),
+    ("Wie viele Zähne hat ein Milchgebiss?", ["20", "24", "28", "32"], 0),
     ("Wer war der erste Mensch auf dem Mond?", ["Neil Armstrong", "Buzz Aldrin", "Yuri Gagarin", "Michael Collins"], 0),
-    ("Welches Organ im menschlichen KÃ¶rper entgiftet?", ["Leber", "Niere", "Milz", "Lunge"], 0),
+    ("Welches Organ im menschlichen Körper entgiftet?", ["Leber", "Niere", "Milz", "Lunge"], 0),
     ("Aus welcher Pflanze wird Tequila hergestellt?", ["Agave", "Kaktus", "Zuckerrohr", "Mais"], 0),
 ]
 
 HARD_QUESTIONS = [
-    ("Was ist die LÃ¶sung der Gleichung xÂ² - 4 = 0?", ["x=2", "x=-2", "x=Â±2", "x=4"], 2),
-    ("Welches Land hat die meisten olympischen Goldmedaillen gewonnen?", ["USA", "Sowjetunion", "Deutschland", "GroÃŸbritannien"], 0),
-    ("In welchem Jahr wurde das RelativitÃ¤tsprinzip von Einstein verÃ¶ffentlicht?", ["1900", "1905", "1910", "1915"], 1),
-    ("Was ist das Lichtjahr?", ["Zeit", "Geschwindigkeit", "Masse", "LÃ¤nge"], 3),
+    ("Was ist die Lösung der Gleichung x² - 4 = 0?", ["x=2", "x=-2", "x=±2", "x=4"], 2),
+    ("Welches Land hat die meisten olympischen Goldmedaillen gewonnen?", ["USA", "Sowjetunion", "Deutschland", "Großbritannien"], 0),
+    ("In welchem Jahr wurde das Relativitätsprinzip von Einstein veröffentlicht?", ["1900", "1905", "1910", "1915"], 1),
+    ("Was ist das Lichtjahr?", ["Zeit", "Geschwindigkeit", "Masse", "Länge"], 3),
     ("Wie viele Primzahlen gibt es zwischen 1 und 100?", ["20", "25", "27", "30"], 1),
     ("Wer entwickelte die Quantenmechanik zusammen mit Bohr?", ["Einstein", "Newton", "Heisenberg", "Feynman"], 2),
-    ("Was ist der Hauptbestandteil der ErdatmosphÃ¤re?", ["Sauerstoff", "Kohlendioxid", "Stickstoff", "Argon"], 2),
-    ("Wie lautet Avogadros Zahl (gerundet)?", ["6,022 Ã— 10Â²Â³", "3,14 Ã— 10Â¹âµ", "9,81 Ã— 10â¶", "1,38 Ã— 10â»Â²Â³"], 0),
-    ("Welche Frequenz hat das menschliche HÃ¶rvermÃ¶gen maximal?", ["10 kHz", "15 kHz", "20 kHz", "25 kHz"], 2),
-    ("Was beschreibt das Pauli-Prinzip?", ["Gravitationskraft", "Elektronenbesetzung", "Lichtbrechung", "WÃ¤rmeausdehnung"], 1),
-    ("Welcher physikalische Effekt beschreibt die FrequenzÃ¤nderung bei Bewegung?", ["Doppler-Effekt", "Fotoelektrischer Effekt", "MeiÃŸner-Effekt", "Stark-Effekt"], 0),
-    ("Wie heiÃŸt der tiefste Graben der Erde?", ["Marianengraben", "Tongagraben", "Kurilengraben", "Philippinengraben"], 0),
-    ("Welcher Kaiser krÃ¶nte sich 1804 selbst?", ["Napoleon Bonaparte", "Karl der GroÃŸe", "Julius Caesar", "Franz II."], 0),
+    ("Was ist der Hauptbestandteil der Erdatmosphäre?", ["Sauerstoff", "Kohlendioxid", "Stickstoff", "Argon"], 2),
+    ("Wie lautet Avogadros Zahl (gerundet)?", ["6,022 × 10²³", "3,14 × 10¹⁵", "9,81 × 10⁶", "1,38 × 10⁻²³"], 0),
+    ("Welche Frequenz hat das menschliche Hörvermögen maximal?", ["10 kHz", "15 kHz", "20 kHz", "25 kHz"], 2),
+    ("Was beschreibt das Pauli-Prinzip?", ["Gravitationskraft", "Elektronenbesetzung", "Lichtbrechung", "Wärmeausdehnung"], 1),
+    ("Welcher physikalische Effekt beschreibt die Frequenzänderung bei Bewegung?", ["Doppler-Effekt", "Fotoelektrischer Effekt", "Meißner-Effekt", "Stark-Effekt"], 0),
+    ("Wie heißt der tiefste Graben der Erde?", ["Marianengraben", "Tongagraben", "Kurilengraben", "Philippinengraben"], 0),
+    ("Welcher Kaiser krönte sich 1804 selbst?", ["Napoleon Bonaparte", "Karl der Große", "Julius Caesar", "Franz II."], 0),
     ("Wie lautet die Hauptstadt von Australien?", ["Canberra", "Sydney", "Melbourne", "Brisbane"], 0),
-    ("Welche WÃ¤hrung hatte Spanien vor dem Euro?", ["Peseta", "Lira", "Franc", "Escudo"], 0),
+    ("Welche Währung hatte Spanien vor dem Euro?", ["Peseta", "Lira", "Franc", "Escudo"], 0),
     ("In welchem Jahr sank die Titanic?", ["1912", "1905", "1918", "1920"], 0),
-    ("Wie heiÃŸt das proteinhaltige MolekÃ¼l, das Sauerstoff im Blut transportiert?", ["HÃ¤moglobin", "Myoglobin", "Kollagen", "Insulin"], 0),
-    ("Wer ist der SchÃ¶pfer der Oper 'Die ZauberflÃ¶te'?", ["Wolfgang Amadeus Mozart", "Ludwig van Beethoven", "Johann Sebastian Bach", "Richard Wagner"], 0),
-    ("Welcher Planet unseres Sonnensystems hat die hÃ¶chste OberflÃ¤chentemperatur?", ["Venus", "Merkur", "Mars", "Jupiter"], 0),
+    ("Wie heißt das proteinhaltige Molekül, das Sauerstoff im Blut transportiert?", ["Hämoglobin", "Myoglobin", "Kollagen", "Insulin"], 0),
+    ("Wer ist der Schöpfer der Oper 'Die Zauberflöte'?", ["Wolfgang Amadeus Mozart", "Ludwig van Beethoven", "Johann Sebastian Bach", "Richard Wagner"], 0),
+    ("Welcher Planet unseres Sonnensystems hat die höchste Oberflächentemperatur?", ["Venus", "Merkur", "Mars", "Jupiter"], 0),
     ("Was ist die Hauptstadt von Kanada?", ["Ottawa", "Toronto", "Vancouver", "Montreal"], 0),
 ]
 
@@ -2848,61 +2885,61 @@ def _number_question(prompt: str, correct: int, spread: int = 3) -> tuple:
 
 
 EXTRA_TOPIC_QUESTIONS = [
-    ("Welches Instrument hat Tasten, Saiten und HÃ¤mmer?", "Klavier", ["Geige", "Trompete", "FlÃ¶te"]),
+    ("Welches Instrument hat Tasten, Saiten und Hämmer?", "Klavier", ["Geige", "Trompete", "Flöte"]),
     ("Welche Musikrichtung ist eng mit Jamaika verbunden?", "Reggae", ["Tango", "Polka", "Oper"]),
     ("Wer gilt als 'King of Pop'?", "Michael Jackson", ["Elvis Presley", "Freddie Mercury", "Prince"]),
-    ("Welche Band verÃ¶ffentlichte das Album 'Abbey Road'?", "The Beatles", ["Queen", "ABBA", "U2"]),
+    ("Welche Band veröffentlichte das Album 'Abbey Road'?", "The Beatles", ["Queen", "ABBA", "U2"]),
     ("Wie nennt man den Dirigentenstab?", "Taktstock", ["Bogen", "Plektrum", "Kapodaster"]),
     ("Welcher Vogel kann besonders gut Laute nachahmen?", "Papagei", ["Pinguin", "Adler", "Storch"]),
-    ("Welcher Baum verliert im Herbst typischerweise seine BlÃ¤tter?", "Ahorn", ["Tanne", "Kiefer", "Fichte"]),
+    ("Welcher Baum verliert im Herbst typischerweise seine Blätter?", "Ahorn", ["Tanne", "Kiefer", "Fichte"]),
     ("Was ist ein Biotop?", "Lebensraum", ["Gesteinsart", "Wetterlage", "Sternbild"]),
-    ("Welches Tier baut DÃ¤mme in FlÃ¼ssen?", "Biber", ["Fuchs", "Igel", "Reh"]),
-    ("Welche Pflanze ist bekannt fÃ¼r ihre Sonnenblumenkerne?", "Sonnenblume", ["Rose", "Tulpe", "Orchidee"]),
-    ("Welches Organ filtert Blut im menschlichen KÃ¶rper?", "Niere", ["Lunge", "Magen", "Haut"]),
-    ("Welche BlutkÃ¶rperchen transportieren Sauerstoff?", "rote BlutkÃ¶rperchen", ["weiÃŸe BlutkÃ¶rperchen", "BlutplÃ¤ttchen", "Nervenzellen"]),
+    ("Welches Tier baut Dämme in Flüssen?", "Biber", ["Fuchs", "Igel", "Reh"]),
+    ("Welche Pflanze ist bekannt für ihre Sonnenblumenkerne?", "Sonnenblume", ["Rose", "Tulpe", "Orchidee"]),
+    ("Welches Organ filtert Blut im menschlichen Körper?", "Niere", ["Lunge", "Magen", "Haut"]),
+    ("Welche Blutkörperchen transportieren Sauerstoff?", "rote Blutkörperchen", ["weiße Blutkörperchen", "Blutplättchen", "Nervenzellen"]),
     ("Welche Sportart nutzt einen Puck?", "Eishockey", ["Basketball", "Tennis", "Rugby"]),
-    ("Wie heiÃŸt der wichtigste Filmpreis in Hollywood?", "Oscar", ["Grammy", "Emmy", "Tony"]),
-    ("Welches Land ist fÃ¼r Sushi bekannt?", "Japan", ["Mexiko", "Italien", "Norwegen"]),
+    ("Wie heißt der wichtigste Filmpreis in Hollywood?", "Oscar", ["Grammy", "Emmy", "Tony"]),
+    ("Welches Land ist für Sushi bekannt?", "Japan", ["Mexiko", "Italien", "Norwegen"]),
     ("Welche Stadt nennt man auch 'Big Apple'?", "New York", ["London", "Berlin", "Madrid"]),
-    ("Was ist ein Vulkan?", "Ã–ffnung der Erdkruste", ["Wolkenart", "MeeresstrÃ¶mung", "WÃ¼stenform"]),
-    ("Welche Schicht schÃ¼tzt die Erde vor viel UV-Strahlung?", "Ozonschicht", ["Erdkern", "TroposphÃ¤re", "Magnetit"]),
+    ("Was ist ein Vulkan?", "Öffnung der Erdkruste", ["Wolkenart", "Meeresströmung", "Wüstenform"]),
+    ("Welche Schicht schützt die Erde vor viel UV-Strahlung?", "Ozonschicht", ["Erdkern", "Troposphäre", "Magnetit"]),
     ("Was entsteht aus einer Raupe?", "Schmetterling", ["Frosch", "Libelle", "Biene"]),
-    ("Welcher Planet ist fÃ¼r seine Ringe bekannt?", "Saturn", ["Mars", "Merkur", "Venus"]),
-    ("Wie nennt man eine Gruppe von Sternen mit Muster?", "Sternbild", ["Krater", "Kontinent", "MolekÃ¼l"]),
-    ("Welche Farbe entsteht aus Gelb und Blau?", "GrÃ¼n", ["Lila", "Orange", "Rot"]),
+    ("Welcher Planet ist für seine Ringe bekannt?", "Saturn", ["Mars", "Merkur", "Venus"]),
+    ("Wie nennt man eine Gruppe von Sternen mit Muster?", "Sternbild", ["Krater", "Kontinent", "Molekül"]),
+    ("Welche Farbe entsteht aus Gelb und Blau?", "Grün", ["Lila", "Orange", "Rot"]),
     ("Was ist ein Aquarell?", "Wasserfarbenbild", ["Steinskulptur", "Holzschnitt", "Fotofilm"]),
     ("Wer schrieb 'Harry Potter'?", "J. K. Rowling", ["Astrid Lindgren", "Cornelia Funke", "Enid Blyton"]),
-    ("Wie heiÃŸt die Sprache der alten RÃ¶mer?", "Latein", ["Griechisch", "HebrÃ¤isch", "Keltisch"]),
-    ("Was ist ein Atlas?", "Kartensammlung", ["MessgerÃ¤t", "Musikinstrument", "Sportart"]),
-    ("Welches GerÃ¤t misst die Temperatur?", "Thermometer", ["Barometer", "Kompass", "Mikroskop"]),
+    ("Wie heißt die Sprache der alten Römer?", "Latein", ["Griechisch", "Hebräisch", "Keltisch"]),
+    ("Was ist ein Atlas?", "Kartensammlung", ["Messgerät", "Musikinstrument", "Sportart"]),
+    ("Welches Gerät misst die Temperatur?", "Thermometer", ["Barometer", "Kompass", "Mikroskop"]),
     ("Was macht ein Kompass?", "Norden anzeigen", ["Temperatur messen", "Zeit stoppen", "Strom speichern"]),
     ("Welche Erfindung verbindet Computer weltweit?", "Internet", ["Mikrowelle", "Druckerpresse", "Taschenlampe"]),
-    ("Was ist ein Passwort-Manager?", "Programm zum Speichern von PasswÃ¶rtern", ["Musik-App", "Bildschirm", "Routerkabel"]),
-    ("Welche KÃ¼che ist fÃ¼r Tacos bekannt?", "mexikanische KÃ¼che", ["japanische KÃ¼che", "schwedische KÃ¼che", "griechische KÃ¼che"]),
-    ("Welches GewÃ¼rz fÃ¤rbt Speisen gelb?", "Kurkuma", ["Pfeffer", "Zimt", "Oregano"]),
+    ("Was ist ein Passwort-Manager?", "Programm zum Speichern von Passwörtern", ["Musik-App", "Bildschirm", "Routerkabel"]),
+    ("Welche Küche ist für Tacos bekannt?", "mexikanische Küche", ["japanische Küche", "schwedische Küche", "griechische Küche"]),
+    ("Welches Gewürz färbt Speisen gelb?", "Kurkuma", ["Pfeffer", "Zimt", "Oregano"]),
     ("Welche Naturerscheinung erzeugt Donner?", "Gewitter", ["Nebel", "Frost", "Ebbe"]),
     ("Was ist Ebbe?", "niedriger Wasserstand", ["starker Wind", "Schneefall", "Vulkanausbruch"]),
     ("Welches Tier lebt sowohl im Wasser als auch an Land?", "Frosch", ["Hai", "Adler", "Kamel"]),
     ("Welche Pflanze liefert Kakaobohnen?", "Kakaobaum", ["Apfelbaum", "Olivenbaum", "Bambus"]),
-    ("Welches Land gewann die FuÃŸball-WM 2014?", "Deutschland", ["Brasilien", "Spanien", "Argentinien"]),
-    ("Welche Stadt ist fÃ¼r den Karneval in Venedig berÃ¼hmt?", "Venedig", ["Rom", "Mailand", "Neapel"]),
-    ("Welches Tier ist das grÃ¶ÃŸte SÃ¤ugetier?", "Blauwal", ["Elefant", "Giraffe", "Nashorn"]),
-    ("Was sammelt ein Philatelist?", "Briefmarken", ["MÃ¼nzen", "BÃ¼cher", "Schuhe"]),
-    ("Welche Sprache spricht man Ã¼berwiegend in Brasilien?", "Portugiesisch", ["Spanisch", "FranzÃ¶sisch", "Italienisch"]),
-    ("Welcher Kontinent ist der kleinste?", "Australien", ["Europa", "Antarktis", "SÃ¼damerika"]),
+    ("Welches Land gewann die Fußball-WM 2014?", "Deutschland", ["Brasilien", "Spanien", "Argentinien"]),
+    ("Welche Stadt ist für den Karneval in Venedig berühmt?", "Venedig", ["Rom", "Mailand", "Neapel"]),
+    ("Welches Tier ist das größte Säugetier?", "Blauwal", ["Elefant", "Giraffe", "Nashorn"]),
+    ("Was sammelt ein Philatelist?", "Briefmarken", ["Münzen", "Bücher", "Schuhe"]),
+    ("Welche Sprache spricht man überwiegend in Brasilien?", "Portugiesisch", ["Spanisch", "Französisch", "Italienisch"]),
+    ("Welcher Kontinent ist der kleinste?", "Australien", ["Europa", "Antarktis", "Südamerika"]),
     ("Was ist ein Bonsai?", "Miniaturbaum", ["Teesorte", "Kampfsport", "Reisgericht"]),
     ("Welche Epoche kam nach dem Mittelalter?", "Renaissance", ["Steinzeit", "Barock", "Romantik"]),
-    ("Welches GerÃ¤t vergrÃ¶ÃŸert sehr kleine Dinge?", "Mikroskop", ["Teleskop", "Barometer", "Scanner"]),
+    ("Welches Gerät vergrößert sehr kleine Dinge?", "Mikroskop", ["Teleskop", "Barometer", "Scanner"]),
     ("Was ist ein Podcast?", "Audiosendung", ["Suchmaschine", "Bildformat", "Kabeltyp"]),
-    ("Welche Farbe hat Chlorophyll hauptsÃ¤chlich?", "GrÃ¼n", ["Rot", "Blau", "Gelb"]),
-    ("Welcher Fluss flieÃŸt durch Paris?", "Seine", ["Themse", "Donau", "Elbe"]),
-    ("Welche Insel gehÃ¶rt zu Italien?", "Sizilien", ["Kreta", "Mallorca", "Zypern"]),
+    ("Welche Farbe hat Chlorophyll hauptsächlich?", "Grün", ["Rot", "Blau", "Gelb"]),
+    ("Welcher Fluss fließt durch Paris?", "Seine", ["Themse", "Donau", "Elbe"]),
+    ("Welche Insel gehört zu Italien?", "Sizilien", ["Kreta", "Mallorca", "Zypern"]),
     ("Was ist Origami?", "Papierfaltkunst", ["Tanzstil", "Suppengericht", "Holztechnik"]),
-    ("Welches Metall ist bei Raumtemperatur flÃ¼ssig?", "Quecksilber", ["Eisen", "Gold", "Kupfer"]),
-    ("Welche Wolkenform kÃ¼ndigt oft Gewitter an?", "Cumulonimbus", ["Cirrus", "Stratus", "Nebel"]),
-    ("Welches Land ist bekannt fÃ¼r Fjorde?", "Norwegen", ["Ungarn", "Ã„gypten", "Portugal"]),
-    ("Wie heiÃŸt das grÃ¶ÃŸte Korallenriff der Erde?", "Great Barrier Reef", ["Rotes Riff", "Atlantikriff", "Nordseeriff"]),
-    ("Was bedeutet Demokratie wÃ¶rtlich ungefÃ¤hr?", "Volksherrschaft", ["KÃ¶nigsherrschaft", "Geldherrschaft", "Stadtrecht"]),
+    ("Welches Metall ist bei Raumtemperatur flüssig?", "Quecksilber", ["Eisen", "Gold", "Kupfer"]),
+    ("Welche Wolkenform kündigt oft Gewitter an?", "Cumulonimbus", ["Cirrus", "Stratus", "Nebel"]),
+    ("Welches Land ist bekannt für Fjorde?", "Norwegen", ["Ungarn", "Ägypten", "Portugal"]),
+    ("Wie heißt das größte Korallenriff der Erde?", "Great Barrier Reef", ["Rotes Riff", "Atlantikriff", "Nordseeriff"]),
+    ("Was bedeutet Demokratie wörtlich ungefähr?", "Volksherrschaft", ["Königsherrschaft", "Geldherrschaft", "Stadtrecht"]),
     ("Welches Instrument spielt man mit einem Bogen?", "Geige", ["Trompete", "Klavier", "Schlagzeug"]),
 ]
 
@@ -2918,15 +2955,15 @@ def is_math_question(question: tuple) -> bool:
         "was ist ",
         "wieviel",
         "wie viel",
-        "lÃ¶se",
+        "löse",
         " x ",
         " + ",
         " - ",
         "%",
         "quadrat",
         "drittel",
-        "hÃ¤lfte",
-        "grÃ¶ÃŸer",
+        "hälfte",
+        "größer",
         "primzahl",
     ]
     return any(marker in prompt for marker in math_markers)
@@ -2955,8 +2992,8 @@ def _young_question(level_idx: int, variant: int) -> tuple:
         a = b * (level % 9 + 2)
         return _number_question(f"Was ist {a} : {b}?", a // b, 2)
     if kind == 4:
-        colors = [("Blau und Gelb", "GrÃ¼n", ["Rot", "Lila", "Braun"]),
-                  ("Rot und Gelb", "Orange", ["GrÃ¼n", "Blau", "WeiÃŸ"]),
+        colors = [("Blau und Gelb", "Grün", ["Rot", "Lila", "Braun"]),
+                  ("Rot und Gelb", "Orange", ["Grün", "Blau", "Weiß"]),
                   ("Rot und Blau", "Lila", ["Gelb", "Orange", "Schwarz"])]
         mix, correct, wrongs = colors[(level + n) % len(colors)]
         return _make_question(f"Welche Farbe entsteht aus {mix}?", correct, wrongs)
@@ -2979,63 +3016,63 @@ def _young_question(level_idx: int, variant: int) -> tuple:
                  ("Welche Form hat ein Ball meistens?", "rund", ["eckig", "flach", "spitz"])]
         return _make_question(*facts[(level + n) % len(facts)])
     if kind == 8:
-        capitals = [("Deutschland", "Berlin", ["MÃ¼nchen", "Hamburg", "KÃ¶ln"]),
+        capitals = [("Deutschland", "Berlin", ["München", "Hamburg", "Köln"]),
                     ("Frankreich", "Paris", ["Lyon", "Rom", "Madrid"]),
                     ("Italien", "Rom", ["Mailand", "Paris", "Athen"]),
                     ("Spanien", "Madrid", ["Barcelona", "Lissabon", "Sevilla"])]
         country, correct, wrongs = capitals[(level + n) % len(capitals)]
-        return _make_question(f"Wie heiÃŸt die Hauptstadt von {country}?", correct, wrongs)
+        return _make_question(f"Wie heißt die Hauptstadt von {country}?", correct, wrongs)
     if kind == 9:
         nature = [("Was braucht eine Pflanze zum Wachsen?", "Licht", ["Steine", "Plastik", "Sand allein"]),
                   ("Welches Tier lebt im Wasser?", "Fisch", ["Hase", "Adler", "Schnecke"]),
-                  ("Was fÃ¤llt im Winter manchmal vom Himmel?", "Schnee", ["Sand", "BlÃ¤tter", "Staub"]),
+                  ("Was fällt im Winter manchmal vom Himmel?", "Schnee", ["Sand", "Blätter", "Staub"]),
                   ("Welcher Stern scheint am Tag?", "Sonne", ["Mond", "Mars", "Venus"])]
         return _make_question(*nature[(level + n) % len(nature)])
     if kind == 10:
-        body = [("Womit hÃ¶rt man?", "Ohren", ["Augen", "Nase", "Knie"]),
-                ("Womit sieht man?", "Augen", ["Ohren", "Finger", "ZÃ¤hne"]),
-                ("Was schÃ¼tzt den Kopf?", "Helm", ["Schal", "Socke", "Handschuh"]),
-                ("Womit riecht man?", "Nase", ["Mund", "Hand", "FuÃŸ"])]
+        body = [("Womit hört man?", "Ohren", ["Augen", "Nase", "Knie"]),
+                ("Womit sieht man?", "Augen", ["Ohren", "Finger", "Zähne"]),
+                ("Was schützt den Kopf?", "Helm", ["Schal", "Socke", "Handschuh"]),
+                ("Womit riecht man?", "Nase", ["Mund", "Hand", "Fuß"])]
         return _make_question(*body[(level + n) % len(body)])
     if kind == 11:
         language = [("Was reimt sich auf Haus?", "Maus", ["Baum", "Sonne", "Tisch"]),
-                    ("Was ist ein anderes Wort fÃ¼r schnell?", "flott", ["leise", "kalt", "rund"]),
+                    ("Was ist ein anderes Wort für schnell?", "flott", ["leise", "kalt", "rund"]),
                     ("Welches Wort ist ein Tier?", "Fuchs", ["Stuhl", "Lampe", "Wolke"]),
                     ("Was ist das Gegenteil von laut?", "leise", ["hell", "warm", "spitz"])]
         return _make_question(*language[(level + n) % len(language)])
     if kind == 12:
-        safety = [("Bei welcher Farbe bleibt man an der Ampel stehen?", "Rot", ["GrÃ¼n", "Blau", "Gelb"]),
-                  ("Wo lÃ¤uft man sicher Ã¼ber die StraÃŸe?", "Zebrastreifen", ["Wiese", "Parkplatz", "Bahnsteig"]),
-                  ("Wen ruft man bei Feuer?", "Feuerwehr", ["BÃ¤cker", "Bibliothek", "Kino"]),
-                  ("Was trÃ¤gt man im Auto zur Sicherheit?", "Gurt", ["MÃ¼tze", "Rucksack", "Schal"])]
+        safety = [("Bei welcher Farbe bleibt man an der Ampel stehen?", "Rot", ["Grün", "Blau", "Gelb"]),
+                  ("Wo läuft man sicher über die Straße?", "Zebrastreifen", ["Wiese", "Parkplatz", "Bahnsteig"]),
+                  ("Wen ruft man bei Feuer?", "Feuerwehr", ["Bäcker", "Bibliothek", "Kino"]),
+                  ("Was trägt man im Auto zur Sicherheit?", "Gurt", ["Mütze", "Rucksack", "Schal"])]
         return _make_question(*safety[(level + n) % len(safety)])
     if kind == 13:
         food = [("Aus welcher Frucht macht man Apfelsaft?", "Apfel", ["Birne", "Banane", "Kirsche"]),
-                ("Welche Mahlzeit isst man oft morgens?", "FrÃ¼hstÃ¼ck", ["Abendbrot", "Mittagessen", "Nachtisch"]),
-                ("Was ist meistens kalt und sÃ¼ÃŸ?", "Eis", ["Suppe", "Brot", "Reis"]),
+                ("Welche Mahlzeit isst man oft morgens?", "Frühstück", ["Abendbrot", "Mittagessen", "Nachtisch"]),
+                ("Was ist meistens kalt und süß?", "Eis", ["Suppe", "Brot", "Reis"]),
                 ("Aus welchem Getreide macht man oft Brot?", "Weizen", ["Kakao", "Kaffee", "Pfeffer"])]
         return _make_question(*food[(level + n) % len(food)])
     if kind == 14:
-        music = [("Womit macht man Musik?", "Instrument", ["Lineal", "Teller", "SchlÃ¼ssel"]),
-                 ("Welches Instrument hat Tasten?", "Klavier", ["Trommel", "FlÃ¶te", "Gitarre"]),
-                 ("Wie nennt man jemanden, der singt?", "SÃ¤nger", ["Maler", "Fahrer", "BÃ¤cker"]),
-                 ("Was hÃ¶rt man mit den Ohren?", "Musik", ["Farbe", "Duft", "Licht"])]
+        music = [("Womit macht man Musik?", "Instrument", ["Lineal", "Teller", "Schlüssel"]),
+                 ("Welches Instrument hat Tasten?", "Klavier", ["Trommel", "Flöte", "Gitarre"]),
+                 ("Wie nennt man jemanden, der singt?", "Sänger", ["Maler", "Fahrer", "Bäcker"]),
+                 ("Was hört man mit den Ohren?", "Musik", ["Farbe", "Duft", "Licht"])]
         return _make_question(*music[(level + n) % len(music)])
     if kind == 15:
         tech = [("Womit telefoniert man oft?", "Handy", ["Toaster", "Buch", "Stift"]),
                 ("Was macht eine Kamera?", "Fotos", ["Kaffee", "Schuhe", "Wasser"]),
                 ("Womit schreibt man am Computer?", "Tastatur", ["Gabel", "Kamm", "Ball"]),
-                ("Was braucht eine Fernbedienung meistens?", "Batterien", ["BlÃ¤tter", "Sand", "Milch"])]
+                ("Was braucht eine Fernbedienung meistens?", "Batterien", ["Blätter", "Sand", "Milch"])]
         return _make_question(*tech[(level + n) % len(tech)])
     if kind == 16:
-        seasons = [("Wann blÃ¼hen viele Blumen?", "FrÃ¼hling", ["Winter", "Nacht", "Herbst"]),
+        seasons = [("Wann blühen viele Blumen?", "Frühling", ["Winter", "Nacht", "Herbst"]),
                    ("Wann ist es oft sehr warm?", "Sommer", ["Winter", "Montag", "Morgen"]),
-                   ("Wann fallen viele BlÃ¤tter?", "Herbst", ["Sommer", "FrÃ¼hling", "Mittag"]),
-                   ("Wann baut man oft einen Schneemann?", "Winter", ["Sommer", "Herbst", "FrÃ¼hling"])]
+                   ("Wann fallen viele Blätter?", "Herbst", ["Sommer", "Frühling", "Mittag"]),
+                   ("Wann baut man oft einen Schneemann?", "Winter", ["Sommer", "Herbst", "Frühling"])]
         return _make_question(*seasons[(level + n) % len(seasons)])
     if kind == 17:
         logic = [("Was passt nicht dazu: Apfel, Banane, Auto, Birne?", "Auto", ["Apfel", "Banane", "Birne"]),
-                 ("Was ist grÃ¶ÃŸer?", "Elefant", ["Maus", "Ameise", "Frosch"]),
+                 ("Was ist größer?", "Elefant", ["Maus", "Ameise", "Frosch"]),
                  ("Was ist leichter?", "Feder", ["Stein", "Auto", "Schrank"]),
                  ("Was kann fliegen?", "Flugzeug", ["Fahrrad", "Boot", "Zug"])]
         return _make_question(*logic[(level + n) % len(logic)])
@@ -3046,7 +3083,7 @@ def _young_question(level_idx: int, variant: int) -> tuple:
                  ("Was ist die Sonne?", "Stern", ["Planet", "Wolke", "Insel"])]
         return _make_question(*space[(level + n) % len(space)])
     value = (level * 10) + (n % 10)
-    return _number_question(f"Welche Zahl ist um 1 grÃ¶ÃŸer als {value}?", value + 1, 2)
+    return _number_question(f"Welche Zahl ist um 1 größer als {value}?", value + 1, 2)
 
 
 def _mid_question(level_idx: int, variant: int) -> tuple:
@@ -3075,14 +3112,14 @@ def _mid_question(level_idx: int, variant: int) -> tuple:
         countries = [("Japan", "Tokio", ["Seoul", "Peking", "Bangkok"]),
                      ("Kanada", "Ottawa", ["Toronto", "Vancouver", "Montreal"]),
                      ("Australien", "Canberra", ["Sydney", "Melbourne", "Perth"]),
-                     ("Ã–sterreich", "Wien", ["Graz", "Salzburg", "Linz"]),
+                     ("Österreich", "Wien", ["Graz", "Salzburg", "Linz"]),
                      ("Polen", "Warschau", ["Krakau", "Danzig", "Posen"])]
         country, correct, wrongs = countries[(level + n) % len(countries)]
         return _make_question(f"Was ist die Hauptstadt von {country}?", correct, wrongs)
     if kind == 5:
         science = [("Welches chemische Symbol hat Wasserstoff?", "H", ["O", "He", "N"]),
                    ("Welches chemische Symbol hat Sauerstoff?", "O", ["Au", "Ag", "C"]),
-                   ("Wie nennt man den roten Blutfarbstoff?", "HÃ¤moglobin", ["Insulin", "Kollagen", "Keratin"]),
+                   ("Wie nennt man den roten Blutfarbstoff?", "Hämoglobin", ["Insulin", "Kollagen", "Keratin"]),
                    ("Welches Organ pumpt Blut?", "Herz", ["Leber", "Lunge", "Niere"])]
         return _make_question(*science[(level + n) % len(science)])
     if kind == 6:
@@ -3091,78 +3128,78 @@ def _mid_question(level_idx: int, variant: int) -> tuple:
                    ("In welchem Jahr sank die Titanic?", "1912", ["1905", "1918", "1920"])]
         return _make_question(*history[(level + n) % len(history)])
     if kind == 7:
-        geo = [("Welcher Fluss flieÃŸt durch Dresden?", "Elbe", ["Rhein", "Donau", "Main"]),
-               ("Welches Meer liegt nÃ¶rdlich von Deutschland?", "Nordsee", ["Mittelmeer", "Schwarzes Meer", "Rotes Meer"]),
-               ("Wie viele BundeslÃ¤nder hat Deutschland?", "16", ["12", "14", "18"])]
+        geo = [("Welcher Fluss fließt durch Dresden?", "Elbe", ["Rhein", "Donau", "Main"]),
+               ("Welches Meer liegt nördlich von Deutschland?", "Nordsee", ["Mittelmeer", "Schwarzes Meer", "Rotes Meer"]),
+               ("Wie viele Bundesländer hat Deutschland?", "16", ["12", "14", "18"])]
         return _make_question(*geo[(level + n) % len(geo)])
     if kind == 8:
         a = n % 20 + 6
         correct = a * a
         return _number_question(f"Was ist {a} zum Quadrat?", correct, a)
     if kind == 9:
-        fractions = [(1, 2, "die HÃ¤lfte"), (1, 4, "ein Viertel"), (3, 4, "drei Viertel")]
+        fractions = [(1, 2, "die Hälfte"), (1, 4, "ein Viertel"), (3, 4, "drei Viertel")]
         numerator, denominator, label = fractions[(level + n) % len(fractions)]
         amount = denominator * (n % 20 + 5)
         correct = amount * numerator // denominator
         return _number_question(f"Wie viel ist {label} von {amount}?", correct, 4)
     if kind == 10:
         media = [("Was ist ein Podcast?", "Audiosendung", ["Suchmaschine", "Bildschirm", "Passwort"]),
-                 ("Was ist ein Browser?", "Programm fÃ¼rs Internet", ["Kabel", "Drucker", "Lautsprecher"]),
+                 ("Was ist ein Browser?", "Programm fürs Internet", ["Kabel", "Drucker", "Lautsprecher"]),
                  ("Was ist ein Screenshot?", "Bild vom Bildschirm", ["Tonaufnahme", "Textfehler", "Passwort"]),
                  ("Was bedeutet WLAN?", "drahtloses Netzwerk", ["Stromkabel", "Druckauftrag", "Lautsprecherbox"])]
         return _make_question(*media[(level + n) % len(media)])
     if kind == 11:
         environment = [("Was ist Recycling?", "Wiederverwertung", ["Verbrennen", "Wegwerfen", "Vergraben"]),
-                       ("Welche Energiequelle ist erneuerbar?", "Sonne", ["Kohle", "ErdÃ¶l", "Benzin"]),
+                       ("Welche Energiequelle ist erneuerbar?", "Sonne", ["Kohle", "Erdöl", "Benzin"]),
                        ("Was entsteht bei Photosynthese unter anderem?", "Sauerstoff", ["Plastik", "Salz", "Sand"]),
-                       ("Was spart Wasser?", "kurz duschen", ["Hahn laufen lassen", "Badewanne Ã¼berfÃ¼llen", "Auto tÃ¤glich waschen"])]
+                       ("Was spart Wasser?", "kurz duschen", ["Hahn laufen lassen", "Badewanne überfüllen", "Auto täglich waschen"])]
         return _make_question(*environment[(level + n) % len(environment)])
     if kind == 12:
         language = [("Was ist ein Verb?", "Tunwort", ["Namenwort", "Eigenschaftswort", "Artikel"]),
                     ("Was ist ein Adjektiv?", "Eigenschaftswort", ["Tunwort", "Zahlwort", "Satzzeichen"]),
                     ("Welches Satzzeichen steht oft am Ende einer Frage?", "Fragezeichen", ["Komma", "Doppelpunkt", "Ausrufezeichen"]),
-                    ("Was ist ein Synonym?", "Ã¤hnliches Wort", ["Gegenteil", "Reim", "AbkÃ¼rzung"])]
+                    ("Was ist ein Synonym?", "ähnliches Wort", ["Gegenteil", "Reim", "Abkürzung"])]
         return _make_question(*language[(level + n) % len(language)])
     if kind == 13:
-        sports = [("Wie viele Spieler hat eine FuÃŸballmannschaft auf dem Feld?", "11", ["7", "9", "13"]),
-                  ("Welche Sportart nutzt einen SchlÃ¤ger und Federball?", "Badminton", ["Handball", "Rudern", "Boxen"]),
-                  ("Wie heiÃŸt der Start im Sprint?", "Startblock", ["Sprungbrett", "Torlinie", "Mittelkreis"]),
-                  ("Welche Farbe hat die Tour-de-France-Spitzenwertung?", "gelb", ["rot", "blau", "grÃ¼n"])]
+        sports = [("Wie viele Spieler hat eine Fußballmannschaft auf dem Feld?", "11", ["7", "9", "13"]),
+                  ("Welche Sportart nutzt einen Schläger und Federball?", "Badminton", ["Handball", "Rudern", "Boxen"]),
+                  ("Wie heißt der Start im Sprint?", "Startblock", ["Sprungbrett", "Torlinie", "Mittelkreis"]),
+                  ("Welche Farbe hat die Tour-de-France-Spitzenwertung?", "gelb", ["rot", "blau", "grün"])]
         return _make_question(*sports[(level + n) % len(sports)])
     if kind == 14:
-        art = [("Welche Farbe erhÃ¤lt man aus Rot und Blau?", "Lila", ["GrÃ¼n", "Orange", "Braun"]),
+        art = [("Welche Farbe erhält man aus Rot und Blau?", "Lila", ["Grün", "Orange", "Braun"]),
                ("Was ist eine Skulptur?", "dreidimensionales Kunstwerk", ["Gedicht", "Melodie", "Landkarte"]),
-               ("Wer schrieb viele MÃ¤rchen mit seinem Bruder Wilhelm?", "Jacob Grimm", ["Goethe", "Einstein", "Mozart"]),
-               ("Was ist ein Takt in der Musik?", "rhythmische Einheit", ["Farbe", "BÃ¼hnenbild", "Instrumentenkoffer"])]
+               ("Wer schrieb viele Märchen mit seinem Bruder Wilhelm?", "Jacob Grimm", ["Goethe", "Einstein", "Mozart"]),
+               ("Was ist ein Takt in der Musik?", "rhythmische Einheit", ["Farbe", "Bühnenbild", "Instrumentenkoffer"])]
         return _make_question(*art[(level + n) % len(art)])
     if kind == 15:
-        health = [("Was stÃ¤rkt die Ausdauer?", "regelmÃ¤ÃŸige Bewegung", ["nur SÃ¼ÃŸigkeiten", "wenig Schlaf", "kein Trinken"]),
-                  ("Welcher Stoff ist wichtig fÃ¼r Knochen?", "Calcium", ["Helium", "Benzin", "Plastik"]),
-                  ("Was transportiert Sauerstoff im Blut?", "rote BlutkÃ¶rperchen", ["Haare", "NÃ¤gel", "ZÃ¤hne"]),
-                  ("Was sollte man vor dem Essen oft tun?", "HÃ¤nde waschen", ["Schuhe binden", "Musik hÃ¶ren", "Fenster schlieÃŸen"])]
+        health = [("Was stärkt die Ausdauer?", "regelmäßige Bewegung", ["nur Süßigkeiten", "wenig Schlaf", "kein Trinken"]),
+                  ("Welcher Stoff ist wichtig für Knochen?", "Calcium", ["Helium", "Benzin", "Plastik"]),
+                  ("Was transportiert Sauerstoff im Blut?", "rote Blutkörperchen", ["Haare", "Nägel", "Zähne"]),
+                  ("Was sollte man vor dem Essen oft tun?", "Hände waschen", ["Schuhe binden", "Musik hören", "Fenster schließen"])]
         return _make_question(*health[(level + n) % len(health)])
     if kind == 16:
-        economy = [("Was ist ein Budget?", "geplanter Geldrahmen", ["Wetterkarte", "SportgerÃ¤t", "MusikstÃ¼ck"]),
-                   ("Was bedeutet sparen?", "Geld zurÃ¼cklegen", ["alles ausgeben", "Geld zerreiÃŸen", "Preise erhÃ¶hen"]),
+        economy = [("Was ist ein Budget?", "geplanter Geldrahmen", ["Wetterkarte", "Sportgerät", "Musikstück"]),
+                   ("Was bedeutet sparen?", "Geld zurücklegen", ["alles ausgeben", "Geld zerreißen", "Preise erhöhen"]),
                    ("Was ist ein Rabatt?", "Preisnachlass", ["Steuer", "Zins", "Miete"]),
-                   ("WofÃ¼r steht IBAN?", "Kontonummer", ["Passwort", "Schulnote", "WLAN-Name"])]
+                   ("Wofür steht IBAN?", "Kontonummer", ["Passwort", "Schulnote", "WLAN-Name"])]
         return _make_question(*economy[(level + n) % len(economy)])
     if kind == 17:
-        logic = [("Alle BlÃ¼ten sind Pflanzen. Eine Rose ist eine BlÃ¼te. Was ist eine Rose?", "Pflanze", ["Tier", "Stein", "Maschine"]),
-                 ("Was kommt in der Reihe 2, 4, 8, 16 als NÃ¤chstes?", "32", ["24", "30", "36"]),
+        logic = [("Alle Blüten sind Pflanzen. Eine Rose ist eine Blüte. Was ist eine Rose?", "Pflanze", ["Tier", "Stein", "Maschine"]),
+                 ("Was kommt in der Reihe 2, 4, 8, 16 als Nächstes?", "32", ["24", "30", "36"]),
                  ("Welches Wort passt nicht: Geige, Trommel, Gitarre, Fahrrad?", "Fahrrad", ["Geige", "Trommel", "Gitarre"]),
-                 ("Was ist wahrscheinlicher: MÃ¼nze Kopf oder WÃ¼rfel 6?", "Kopf", ["WÃ¼rfel 6", "gleich", "unmÃ¶glich"])]
+                 ("Was ist wahrscheinlicher: Münze Kopf oder Würfel 6?", "Kopf", ["Würfel 6", "gleich", "unmöglich"])]
         return _make_question(*logic[(level + n) % len(logic)])
     if kind == 18:
-        astronomy = [("Welcher Planet ist der Sonne am nÃ¤chsten?", "Merkur", ["Venus", "Mars", "Jupiter"]),
-                     ("Wie heiÃŸt unsere Galaxie?", "MilchstraÃŸe", ["Andromeda", "Orion", "Polarstern"]),
-                     ("Was ist ein Satellit?", "Begleiter im Orbit", ["MeeresstrÃ¶mung", "Vulkanart", "Wolkenform"]),
+        astronomy = [("Welcher Planet ist der Sonne am nächsten?", "Merkur", ["Venus", "Mars", "Jupiter"]),
+                     ("Wie heißt unsere Galaxie?", "Milchstraße", ["Andromeda", "Orion", "Polarstern"]),
+                     ("Was ist ein Satellit?", "Begleiter im Orbit", ["Meeresströmung", "Vulkanart", "Wolkenform"]),
                      ("Warum gibt es Tag und Nacht?", "Erdrotation", ["Jahreszeiten", "Mondlicht", "Sonnenfinsternis"])]
         return _make_question(*astronomy[(level + n) % len(astronomy)])
-    science_people = [("Wer entwickelte die RelativitÃ¤tstheorie?", "Einstein", ["Newton", "Darwin", "Curie"]),
-                      ("WofÃ¼r ist Marie Curie bekannt?", "RadioaktivitÃ¤t", ["Dampfmaschine", "Internet", "Buchdruck"]),
+    science_people = [("Wer entwickelte die Relativitätstheorie?", "Einstein", ["Newton", "Darwin", "Curie"]),
+                      ("Wofür ist Marie Curie bekannt?", "Radioaktivität", ["Dampfmaschine", "Internet", "Buchdruck"]),
                       ("Wer formulierte Gesetze zur Bewegung?", "Newton", ["Mozart", "Kolumbus", "Kant"]),
-                      ("Was erforschte Charles Darwin?", "Evolution", ["ElektrizitÃ¤t", "Oper", "Architektur"])]
+                      ("Was erforschte Charles Darwin?", "Evolution", ["Elektrizität", "Oper", "Architektur"])]
     return _make_question(*science_people[(level + n) % len(science_people)])
 
 
@@ -3184,16 +3221,16 @@ def _hard_question(level_idx: int, variant: int) -> tuple:
     if kind == 2:
         x = level + n % 12
         result = 3 * x + 7
-        return _number_question(f"LÃ¶se: 3x + 7 = {result}. Wie groÃŸ ist x?", x, 2)
+        return _number_question(f"Löse: 3x + 7 = {result}. Wie groß ist x?", x, 2)
     if kind == 3:
         speed = (level + 4) * 10
         time_hours = n % 5 + 1
-        return _number_question(f"Ein Zug fÃ¤hrt {speed} km/h. Wie weit fÃ¤hrt er in {time_hours} h?", speed * time_hours, 20)
+        return _number_question(f"Ein Zug fährt {speed} km/h. Wie weit fährt er in {time_hours} h?", speed * time_hours, 20)
     if kind == 4:
         physics = [("Welche Einheit misst elektrische Spannung?", "Volt", ["Watt", "Ampere", "Newton"]),
                    ("Welche Einheit misst Kraft?", "Newton", ["Pascal", "Joule", "Volt"]),
-                   ("Was beschreibt der Doppler-Effekt?", "FrequenzÃ¤nderung", ["Massenverlust", "Ladungstrennung", "WÃ¤rmeleitung"]),
-                   ("Was ist die Lichtgeschwindigkeit ungefÃ¤hr?", "300.000 km/s", ["30.000 km/s", "3.000 km/s", "150.000 km/s"])]
+                   ("Was beschreibt der Doppler-Effekt?", "Frequenzänderung", ["Massenverlust", "Ladungstrennung", "Wärmeleitung"]),
+                   ("Was ist die Lichtgeschwindigkeit ungefähr?", "300.000 km/s", ["30.000 km/s", "3.000 km/s", "150.000 km/s"])]
         return _make_question(*physics[(level + n) % len(physics)])
     if kind == 5:
         chemistry = [("Welche Formel hat Wasser?", "H2O", ["CO2", "NaCl", "O2"]),
@@ -3203,81 +3240,81 @@ def _hard_question(level_idx: int, variant: int) -> tuple:
         return _make_question(*chemistry[(level + n) % len(chemistry)])
     if kind == 6:
         culture = [("Wer schrieb 'Faust'?", "Goethe", ["Schiller", "Kafka", "Heine"]),
-                   ("Wer komponierte 'Die ZauberflÃ¶te'?", "Mozart", ["Beethoven", "Bach", "Wagner"]),
+                   ("Wer komponierte 'Die Zauberflöte'?", "Mozart", ["Beethoven", "Bach", "Wagner"]),
                    ("Wer malte die Mona Lisa?", "Leonardo da Vinci", ["Michelangelo", "Raffael", "Picasso"])]
         return _make_question(*culture[(level + n) % len(culture)])
     if kind == 7:
-        advanced = [("Wie heiÃŸt der tiefste bekannte Meeresgraben?", "Marianengraben", ["Tongagraben", "Kermadecgraben", "Atacamagraben"]),
-                    ("Welche WÃ¤hrung hatte Spanien vor dem Euro?", "Peseta", ["Lira", "Franc", "Escudo"]),
+        advanced = [("Wie heißt der tiefste bekannte Meeresgraben?", "Marianengraben", ["Tongagraben", "Kermadecgraben", "Atacamagraben"]),
+                    ("Welche Währung hatte Spanien vor dem Euro?", "Peseta", ["Lira", "Franc", "Escudo"]),
                     ("Was ist ein Lichtjahr?", "Entfernung", ["Zeit", "Masse", "Temperatur"])]
         return _make_question(*advanced[(level + n) % len(advanced)])
     if kind == 8:
         a = n % 9 + 2
         b = level % 7 + 2
         correct = a ** 2 + b ** 2
-        return _number_question(f"Was ist {a}Â² + {b}Â²?", correct, 5)
+        return _number_question(f"Was ist {a}² + {b}²?", correct, 5)
     if kind == 9:
         value = (level + n % 15) * 6
         correct = value // 3 + level
         return _number_question(f"Was ist ein Drittel von {value} plus {level}?", correct, 4)
     if kind == 10:
         computing = [("Was ist ein Algorithmus?", "Handlungsanweisung", ["Computerbauteil", "Bildschirmtyp", "Passwortliste"]),
-                     ("WofÃ¼r steht HTML?", "HyperText Markup Language", ["High Tech Machine Logic", "Home Tool Mail Link", "Hyper Transfer Main Line"]),
-                     ("Was ist Open Source?", "Ã¶ffentlich einsehbarer Quellcode", ["verschlÃ¼sseltes WLAN", "kaputter Server", "privates Passwort"]),
-                     ("Was beschreibt eine IP-Adresse?", "Netzwerkadresse", ["BildauflÃ¶sung", "Akkustand", "DateigrÃ¶ÃŸe"])]
+                     ("Wofür steht HTML?", "HyperText Markup Language", ["High Tech Machine Logic", "Home Tool Mail Link", "Hyper Transfer Main Line"]),
+                     ("Was ist Open Source?", "öffentlich einsehbarer Quellcode", ["verschlüsseltes WLAN", "kaputter Server", "privates Passwort"]),
+                     ("Was beschreibt eine IP-Adresse?", "Netzwerkadresse", ["Bildauflösung", "Akkustand", "Dateigröße"])]
         return _make_question(*computing[(level + n) % len(computing)])
     if kind == 11:
         politics = [("Wie nennt man die Gewaltenteilung in drei Bereiche?", "Legislative, Exekutive, Judikative", ["Bund, Land, Stadt", "Import, Export, Zoll", "These, Antithese, Synthese"]),
-                    ("Welches Organ beschlieÃŸt in Deutschland Bundesgesetze maÃŸgeblich?", "Bundestag", ["Bundesbank", "Bundeswehr", "Bundesliga"]),
+                    ("Welches Organ beschließt in Deutschland Bundesgesetze maßgeblich?", "Bundestag", ["Bundesbank", "Bundeswehr", "Bundesliga"]),
                     ("Was ist eine Verfassung?", "Grundordnung eines Staates", ["Steuerbescheid", "Reisepass", "Wahlplakat"]),
-                    ("Was bedeutet FÃ¶deralismus?", "Aufteilung zwischen Bund und LÃ¤ndern", ["Herrschaft einer Stadt", "reine Direktwahl", "Abschaffung von Parlamenten"])]
+                    ("Was bedeutet Föderalismus?", "Aufteilung zwischen Bund und Ländern", ["Herrschaft einer Stadt", "reine Direktwahl", "Abschaffung von Parlamenten"])]
         return _make_question(*politics[(level + n) % len(politics)])
     if kind == 12:
         literature = [("Welcher Roman beginnt mit Gregor Samsas Verwandlung?", "Die Verwandlung", ["Der Prozess", "Faust", "Effi Briest"]),
                       ("Wer schrieb 'Der Prozess'?", "Franz Kafka", ["Thomas Mann", "Bertolt Brecht", "Hermann Hesse"]),
-                      ("Was ist ein Sonett?", "Gedichtform", ["TheaterbÃ¼hne", "Romanfigur", "Musikinstrument"]),
-                      ("Wer schrieb 'Der Steppenwolf'?", "Hermann Hesse", ["GÃ¼nter Grass", "Goethe", "Schiller"])]
+                      ("Was ist ein Sonett?", "Gedichtform", ["Theaterbühne", "Romanfigur", "Musikinstrument"]),
+                      ("Wer schrieb 'Der Steppenwolf'?", "Hermann Hesse", ["Günter Grass", "Goethe", "Schiller"])]
         return _make_question(*literature[(level + n) % len(literature)])
     if kind == 13:
-        biology = [("Welche Zellbestandteile enthalten DNA bei Eukaryoten hauptsÃ¤chlich?", "Zellkern", ["Ribosomen", "Zellwand", "Vakuole"]),
+        biology = [("Welche Zellbestandteile enthalten DNA bei Eukaryoten hauptsächlich?", "Zellkern", ["Ribosomen", "Zellwand", "Vakuole"]),
                    ("Was ist Osmose?", "Diffusion von Wasser", ["Zellteilung", "Photosynthese", "Proteinabbau"]),
-                   ("Wie heiÃŸt die Erbinformation?", "DNA", ["ATP", "RNAse", "Insulin"]),
+                   ("Wie heißt die Erbinformation?", "DNA", ["ATP", "RNAse", "Insulin"]),
                    ("Was produzieren Chloroplasten mithilfe von Licht?", "Glucose", ["Harnstoff", "Eisen", "Kochsalz"])]
         return _make_question(*biology[(level + n) % len(biology)])
     if kind == 14:
         philosophy = [("Wer gilt als Autor der Ideenlehre?", "Platon", ["Aristoteles", "Kant", "Nietzsche"]),
-                      ("Was fragt die Ethik?", "Was soll ich tun?", ["Wie schnell ist Licht?", "Wie malt man Ã–l?", "Wie kocht man Reis?"]),
+                      ("Was fragt die Ethik?", "Was soll ich tun?", ["Wie schnell ist Licht?", "Wie malt man Öl?", "Wie kocht man Reis?"]),
                       ("Wer schrieb 'Kritik der reinen Vernunft'?", "Immanuel Kant", ["Hegel", "Descartes", "Sokrates"]),
                       ("Was bedeutet Empirie?", "Erkenntnis durch Erfahrung", ["Glaubenssatz", "Rechenfehler", "Sprachmelodie"])]
         return _make_question(*philosophy[(level + n) % len(philosophy)])
     if kind == 15:
-        geography = [("Welche Meerenge trennt Europa und Afrika bei Gibraltar?", "StraÃŸe von Gibraltar", ["Bosporus", "Suezkanal", "BeringstraÃŸe"]),
-                     ("Welcher Fluss ist der lÃ¤ngste Afrikas?", "Nil", ["Kongo", "Niger", "Sambesi"]),
+        geography = [("Welche Meerenge trennt Europa und Afrika bei Gibraltar?", "Straße von Gibraltar", ["Bosporus", "Suezkanal", "Beringstraße"]),
+                     ("Welcher Fluss ist der längste Afrikas?", "Nil", ["Kongo", "Niger", "Sambesi"]),
                      ("Welche Hauptstadt liegt am Tiber?", "Rom", ["Paris", "Prag", "Wien"]),
                      ("Welches Gebirge trennt Europa und Asien traditionell?", "Ural", ["Alpen", "Anden", "Atlas"])]
         return _make_question(*geography[(level + n) % len(geography)])
     if kind == 16:
-        economics = [("Was misst das Bruttoinlandsprodukt?", "Wert aller produzierten GÃ¼ter und Dienstleistungen", ["Staatsverschuldung allein", "Einwohnerzahl", "Inflation allein"]),
+        economics = [("Was misst das Bruttoinlandsprodukt?", "Wert aller produzierten Güter und Dienstleistungen", ["Staatsverschuldung allein", "Einwohnerzahl", "Inflation allein"]),
                      ("Was beschreibt Inflation?", "allgemeiner Preisanstieg", ["Lohnsenkung", "Exportverbot", "Zinsfreiheit"]),
-                     ("Was ist OpportunitÃ¤tskosten?", "Wert der besten Alternative", ["Mietvertrag", "Steuerart", "Bankkarte"]),
+                     ("Was ist Opportunitätskosten?", "Wert der besten Alternative", ["Mietvertrag", "Steuerart", "Bankkarte"]),
                      ("Was bedeutet Diversifikation?", "Risikostreuung", ["Monopolbildung", "Preisbindung", "Bargeldverbot"])]
         return _make_question(*economics[(level + n) % len(economics)])
     if kind == 17:
-        language = [("Welche Sprache gehÃ¶rt zu den romanischen Sprachen?", "Spanisch", ["Deutsch", "Russisch", "Arabisch"]),
+        language = [("Welche Sprache gehört zu den romanischen Sprachen?", "Spanisch", ["Deutsch", "Russisch", "Arabisch"]),
                     ("Was ist Etymologie?", "Wortherkunftslehre", ["Satzmelodie", "Drucktechnik", "Zahlenkunde"]),
-                    ("Was ist ein Oxymoron?", "widersprÃ¼chliche Wortverbindung", ["Reimform", "Satzzeichen", "Dialekt"]),
-                    ("Was bezeichnet Syntax?", "Satzbau", ["LautstÃ¤rke", "Wortherkunft", "Schriftfarbe"])]
+                    ("Was ist ein Oxymoron?", "widersprüchliche Wortverbindung", ["Reimform", "Satzzeichen", "Dialekt"]),
+                    ("Was bezeichnet Syntax?", "Satzbau", ["Lautstärke", "Wortherkunft", "Schriftfarbe"])]
         return _make_question(*language[(level + n) % len(language)])
     if kind == 18:
-        logic = [("Wenn alle A B sind und alle B C sind, was gilt fÃ¼r A?", "Alle A sind C", ["Kein A ist C", "Einige C sind nie B", "Alle C sind A"]),
+        logic = [("Wenn alle A B sind und alle B C sind, was gilt für A?", "Alle A sind C", ["Kein A ist C", "Einige C sind nie B", "Alle C sind A"]),
                  ("Was ist die Negation von 'alle' in der Logik?", "mindestens einer nicht", ["keiner immer", "alle nicht", "genau einer"]),
                  ("Welche Zahl folgt: 3, 6, 12, 24?", "48", ["36", "42", "54"]),
-                 ("Was ist ein Trugschluss?", "scheinbar gÃ¼ltiges falsches Argument", ["korrekter Beweis", "MessgerÃ¤t", "WÃ¶rterbuch"])]
+                 ("Was ist ein Trugschluss?", "scheinbar gültiges falsches Argument", ["korrekter Beweis", "Messgerät", "Wörterbuch"])]
         return _make_question(*logic[(level + n) % len(logic)])
-    modern_history = [("Was markiert der 9. November 1989?", "Fall der Berliner Mauer", ["Beginn des Euro", "Ende des Ersten Weltkriegs", "GrÃ¼ndung der UNO"]),
-                      ("Wann wurde die UNO gegrÃ¼ndet?", "1945", ["1919", "1933", "1989"]),
-                      ("Was war die Renaissance?", "kulturelle Wiederbelebung der Antike", ["Industriekrise", "MeeresstrÃ¶mung", "Programmiersprache"]),
-                      ("Welche Revolution begann 1789?", "FranzÃ¶sische Revolution", ["Russische Revolution", "Industrielle Revolution", "Digitale Revolution"])]
+    modern_history = [("Was markiert der 9. November 1989?", "Fall der Berliner Mauer", ["Beginn des Euro", "Ende des Ersten Weltkriegs", "Gründung der UNO"]),
+                      ("Wann wurde die UNO gegründet?", "1945", ["1919", "1933", "1989"]),
+                      ("Was war die Renaissance?", "kulturelle Wiederbelebung der Antike", ["Industriekrise", "Meeresströmung", "Programmiersprache"]),
+                      ("Welche Revolution begann 1789?", "Französische Revolution", ["Russische Revolution", "Industrielle Revolution", "Digitale Revolution"])]
     return _make_question(*modern_history[(level + n) % len(modern_history)])
 
 
@@ -3519,7 +3556,7 @@ def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
         content=ft.Column(
             [
                 ft.Row([
-                    ft.Text("ðŸ‘‘", size=18 if compact else 20),
+                    ft.Text("👑", size=18 if compact else 20),
                     ft.Text("PREISSTUFEN", size=13 if compact else 14, weight="bold", color="#FFD700"),
                 ], alignment=ft.MainAxisAlignment.CENTER),
                 ft.Divider(color="#9B59B6", thickness=1),
@@ -3545,10 +3582,10 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     email = state.get("current_user_email")
     if email and email in db["users"]:
         username = db["users"][email].get("name", email)
-        greeting = f"Hallo, {username}! ðŸ‘‹"
+        greeting = f"Hallo, {username}! 👋"
         logged_in = True
     else:
-        greeting = "Hallo, Gast! ðŸ‘‹"
+        greeting = "Hallo, Gast! 👋"
         username = "Gast"
         logged_in = False
     saved_game = get_saved_game_for_state(state) if logged_in else None
@@ -3583,7 +3620,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         # Icon Circle
         icon_ctrl = ft.Container(
             content=ft.Text(
-                "ðŸ”’" if locked else icon_name,
+                "🔒" if locked else icon_name,
                 color=accent_color,
                 size=24 if is_tall else 20
             ),
@@ -3605,7 +3642,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                         ft.Text(desc, size=13, color="#8B9A90")
                     ], spacing=2, tight=True),
                     ft.Container(expand=True),
-                    ft.Text("â–¶", color="white", size=22)
+                    ft.Text("▶", color="white", size=22)
                 ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, expand=True)
             
@@ -3619,7 +3656,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                     ft.Text(title, size=16, weight="bold", color="white"),
                     ft.Text(desc, size=11, color="#8F949D" if not locked else "#E06B6B")
                 ], spacing=2, tight=True, expand=True),
-                ft.Text("â–¶" if not locked else "ðŸ”’", color="#4A505A" if locked else "white", size=18)
+                ft.Text("▶" if not locked else "🔒", color="#4A505A" if locked else "white", size=18)
             ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
             
         # The main card Container
@@ -3664,6 +3701,8 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                 
         card.on_hover = on_hover
         return card
+
+    background_media = _build_looping_menu_background(page)
 
     # Ambient glows (simplified without gradients)
     glow_left = ft.Container(
@@ -3715,10 +3754,10 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             ft.Container(height=8),
             # Title
             ft.Text("WER WIRD", size=24, weight="bold", color="white"),
-            ft.Text("MILLIONÃ„R?", size=38, weight="w900", color="#10B981"),
+            ft.Text("MILLIONÄR?", size=38, weight="w900", color="#10B981"),
             ft.Container(height=4),
             # Subtitle
-            ft.Text("Teste dein Wissen. Werde MillionÃ¤r.", size=13, color="#8B9A90")
+            ft.Text("Teste dein Wissen. Werde Millionär.", size=13, color="#8B9A90")
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
         width=600,
         padding=ft.Padding(32, 28, 32, 28),
@@ -3736,7 +3775,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     # Greeting badge in center
     greeting_badge = ft.Container(
         content=ft.Row([
-            ft.Text("ðŸ‘‹", size=15),
+            ft.Text("👋", size=15),
             ft.Text("Hallo, ", color="white", size=13, weight="w500"),
             ft.Text(username, color="#10B981", size=13, weight="bold")
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=4, tight=True),
@@ -3755,7 +3794,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     card_start = create_hover_card(
         title="Spiel starten",
         desc="Dein Wissen. Dein Spiel.",
-        icon_name="â–¶",
+        icon_name="▶",
         color_hex="#10B981",
         bg_hex="#0A150F",
         glow_hex="#10B981",
@@ -3768,7 +3807,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     card_settings = create_hover_card(
         title="Einstellungen",
         desc="Anpassen & konfigurieren",
-        icon_name="âš™ï¸",
+        icon_name="⚙️",
         color_hex="#A78BFA",
         bg_hex="#130D22",
         glow_hex="#8B5CF6",
@@ -3781,7 +3820,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         card_shop = create_hover_card(
             title="Shop",
             desc="Power-Ups & Extras",
-            icon_name="ðŸ›’",
+            icon_name="🛒",
             color_hex="#60A5FA",
             bg_hex="#0D1527",
             glow_hex="#3B82F6",
@@ -3793,7 +3832,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         card_shop = create_hover_card(
             title="Anmelden",
             desc="Profil verbinden",
-            icon_name="ðŸ”‘",
+            icon_name="🔑",
             color_hex="#60A5FA",
             bg_hex="#0D1527",
             glow_hex="#3B82F6",
@@ -3805,7 +3844,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     card_daily = create_hover_card(
         title="Daily Challenge",
         desc="Jeden Tag neu" if logged_in else "Anmelden zum Spielen",
-        icon_name="ðŸ“…",
+        icon_name="📅",
         color_hex="#FDBA74",
         bg_hex="#1E110A",
         glow_hex="#F97316",
@@ -3818,7 +3857,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     card_achievements = create_hover_card(
         title="Erfolge",
         desc="Deine Meilensteine" if logged_in else "Anmelden zum Freischalten",
-        icon_name="ðŸ†",
+        icon_name="🏆",
         color_hex="#FDE047",
         bg_hex="#1A180B",
         glow_hex="#FBBF24",
@@ -3843,7 +3882,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     # Footer Bar
     footer_bar = ft.Container(
         content=ft.Row([
-            ft.Text("ðŸ†", color="#10B981", size=18),
+            ft.Text("🏆", color="#10B981", size=18),
             ft.VerticalDivider(width=1, color="#1F2A22", thickness=1),
             ft.Text("Wissen ist Macht.", color="white", size=12, weight="w500"),
             ft.Text("Bist du bereit?", color="#10B981", size=12, weight="bold"),
@@ -3867,6 +3906,8 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14)
     
     stack = ft.Stack([
+        background_media,
+        ft.Container(expand=True, bgcolor="#020403", opacity=0.68),
         # Ambient glows behind
         ft.Container(
             content=glow_left,
@@ -3905,7 +3946,6 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     
     return ft.Container(
         expand=True,
-        bgcolor="#030504",
         content=stack,
         alignment=ft.Alignment(0, 0)
     )
@@ -3962,7 +4002,7 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
             ft.Text(summary, size=13, color=theme_txt(theme, "secondary"), text_align="center"),
             ft.Container(height=4),
             _game_menu_button(
-                "â–¶  Altes Spiel fortsetzen",
+                "▶  Altes Spiel fortsetzen",
                 lambda e: resume_saved_game(e.page, state, saved),
                 theme["success"],
             ),
@@ -3970,7 +4010,7 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
 
     buttons.append(
         _game_menu_button(
-            "ðŸŽ²  Neues Spiel starten",
+            "🎲  Neues Spiel starten",
             lambda e: show_age_selection(e.page, state),
             theme["accent"],
         )
@@ -3978,7 +4018,7 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
     if logged_in:
         buttons.append(
             _game_menu_button(
-                "âœï¸  Eigene Spiele erstellen",
+                "✏️  Eigene Spiele erstellen",
                 lambda e: show_custom_quiz_hub(e.page, state),
                 theme["accent_2"],
             )
@@ -4015,7 +4055,7 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
                     width=400,
                 ),
                 ft.TextButton(
-                    "ZurÃ¼ck",
+                    "Zurück",
                     on_click=lambda e: open_main_menu(e.page, state),
                     style=ft.ButtonStyle(color="white"),
                 ),
@@ -4070,7 +4110,7 @@ def show_custom_quiz_hub(page: ft.Page, state: dict):
                             height=36,
                         ),
                         _game_menu_button(
-                            "LÃ¶schen",
+                            "Löschen",
                             lambda e, qid=quiz["id"]: confirm_delete_custom_quiz(e.page, state, qid),
                             theme["danger"],
                             width=120,
@@ -4115,12 +4155,12 @@ def show_custom_quiz_hub(page: ft.Page, state: dict):
                 ),
                 ft.Container(height=8),
                 _game_menu_button(
-                    "âž•  Neues Spiel anlegen",
+                    "➕  Neues Spiel anlegen",
                     lambda e: show_custom_quiz_editor(e.page, state, None),
                     theme["success"],
                 ),
                 ft.TextButton(
-                    "â† ZurÃ¼ck",
+                    "← Zurück",
                     on_click=lambda e: show_game_start_menu(e.page, state, get_saved_game_for_state(state)),
                     style=ft.ButtonStyle(color="white"),
                 ),
@@ -4143,11 +4183,11 @@ def confirm_delete_custom_quiz(page: ft.Page, state: dict, quiz_id: str):
         show_custom_quiz_hub(page, state)
 
     dlg = ft.AlertDialog(
-        title=ft.Text("Spiel lÃ¶schen?"),
-        content=ft.Text(f'"{title}" wirklich lÃ¶schen?', color=theme_txt(theme, "secondary")),
+        title=ft.Text("Spiel löschen?"),
+        content=ft.Text(f'"{title}" wirklich löschen?', color=theme_txt(theme, "secondary")),
         actions=[
             ft.TextButton("Abbrechen", on_click=lambda e: close_page_dialog(page, dlg)),
-            ft.TextButton("LÃ¶schen", on_click=do_delete),
+            ft.TextButton("Löschen", on_click=do_delete),
         ],
     )
     open_page_dialog(page, dlg)
@@ -4259,7 +4299,7 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
     for idx, q in enumerate(questions_list):
         preview = str(q.get("question", ""))[:50]
         if len(str(q.get("question", ""))) > 50:
-            preview += "â€¦"
+            preview += "…"
         correct_letter = ANSWER_LETTERS[int(q.get("correct_idx", 0))]
         prize = custom_quiz_prize_for_number(idx + 1, planned_total)
         question_items.append(
@@ -4267,10 +4307,10 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                 content=ft.Column([
                     ft.Row([
                         ft.Text(
-                            f"Frage {idx + 1} Â· {prize}",
+                            f"Frage {idx + 1} · {prize}",
                             size=12, weight="bold", color=theme["gold"],
                         ),
-                        ft.Text(f"âœ“ {correct_letter}", size=12, color=theme["success"], weight="bold"),
+                        ft.Text(f"✓ {correct_letter}", size=12, color=theme["success"], weight="bold"),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Text(preview, size=13, color=theme_txt(theme, "primary")),
                     ft.Row([
@@ -4337,12 +4377,12 @@ def show_custom_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                 ),
                 save_status,
                 ft.Row([
-                    _game_menu_button("âž• Frage", add_question, theme["accent"]),
-                    _game_menu_button("âœ… Fertig", save_finished, theme["success"]),
-                    _game_menu_button("â–¶ Spielen", play_now, theme["gold"]),
+                    _game_menu_button("➕ Frage", add_question, theme["accent"]),
+                    _game_menu_button("✅ Fertig", save_finished, theme["success"]),
+                    _game_menu_button("▶ Spielen", play_now, theme["gold"]),
                 ], alignment=ft.MainAxisAlignment.CENTER, spacing=12, wrap=True),
                 ft.TextButton(
-                    "â† ZurÃ¼ck zur Liste",
+                    "← Zurück zur Liste",
                     on_click=go_back_to_hub,
                     style=ft.ButtonStyle(color="white"),
                 ),
@@ -4430,7 +4470,7 @@ def show_custom_question_editor(page: ft.Page, state: dict, question_index: int 
             page.update()
             return
         if len(filled) < MIN_CUSTOM_ANSWERS:
-            page.snack_bar = ft.SnackBar(content=ft.Text("Mindestens zwei Antworten ausfÃ¼llen."))
+            page.snack_bar = ft.SnackBar(content=ft.Text("Mindestens zwei Antworten ausfüllen."))
             page.snack_bar.open = True
             page.update()
             return
@@ -4493,8 +4533,8 @@ def show_custom_question_editor(page: ft.Page, state: dict, question_index: int 
                 correct_dropdown,
                 ft.Container(height=8),
                 ft.Row([
-                    _game_menu_button("ðŸ’¾ Frage speichern", save_question, theme["success"]),
-                    _game_menu_button("â† ZurÃ¼ck", back_to_editor, theme["accent"]),
+                    _game_menu_button("💾 Frage speichern", save_question, theme["success"]),
+                    _game_menu_button("← Zurück", back_to_editor, theme["accent"]),
                 ], alignment=ft.MainAxisAlignment.CENTER, spacing=12),
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -4522,7 +4562,7 @@ def show_age_selection(page: ft.Page, state: dict):
     state["time_pressure_enabled"] = True
     state["question_time_sec"] = QUESTION_TIME_SEC
     state.update({
-        "money": "0 â‚¬",
+        "money": "0 €",
         "questions_answered": 0,
         "correct": 0,
         "jokers_used": 0,
@@ -4559,15 +4599,15 @@ def show_age_selection(page: ft.Page, state: dict):
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("WÃ¤hle deine Altersgruppe", size=26, weight="bold",
+                ft.Text("Wähle deine Altersgruppe", size=26, weight="bold",
                         color="white", text_align="center"),
                 ft.Container(height=10),
-                _age_button("ðŸŒŸ  6 â€“ 10 Jahre", "young", "#2ECC71", choose_age),
-                _age_button("ðŸ”¥  11 â€“ 16 Jahre", "mid", "#F4A460", choose_age),
-                _age_button("âš¡  Ab 16 Jahre", "old", "#E91E8C", choose_age),
+                _age_button("🌟  6 – 10 Jahre", "young", "#2ECC71", choose_age),
+                _age_button("🔥  11 – 16 Jahre", "mid", "#F4A460", choose_age),
+                _age_button("⚡  Ab 16 Jahre", "old", "#E91E8C", choose_age),
                 ft.Container(height=10),
                 ft.TextButton(
-                    "â† ZurÃ¼ck",
+                    "← Zurück",
                     on_click=lambda e: show_game_start_menu(
                         e.page, state, get_saved_game_for_state(state)
                     ),
@@ -4622,7 +4662,7 @@ def _neon_solid_panel(content: ft.Control, theme: dict, expand: bool = True, com
 
 
 def _duel_open_card(content: ft.Control, theme: dict, border_color: str | None = None) -> ft.Container:
-    """Compact duel card â€” never uses expand (avoids empty gray blocks in web)."""
+    """Compact duel card — never uses expand (avoids empty gray blocks in web)."""
     return ft.Container(
         content=content,
         bgcolor=theme["panel"],
@@ -4717,7 +4757,7 @@ def _start_question_timer(page: ft.Page, state: dict):
             phone_until = float(state.get("phone_until") or 0)
             friend_until = float(state.get("friend_until") or 0)
 
-            # Joker-Countdowns laufen unabhÃ¤ngig vom Frage-Timer
+            # Joker-Countdowns laufen unabhängig vom Frage-Timer
             if phone_until > now or friend_until > now:
                 sync_timer_display(page, state)
                 await asyncio.sleep(0.3)
@@ -4725,7 +4765,7 @@ def _start_question_timer(page: ft.Page, state: dict):
 
             time_pressure_enabled_now = bool(state.get("time_pressure_enabled", True))
             if not time_pressure_enabled_now:
-                # Zeitdruck aus: keine Auto-"FALSCH"-AuslÃ¶sung.
+                # Zeitdruck aus: keine Auto-"FALSCH"-Auslösung.
                 sync_timer_display(page, state)
                 await asyncio.sleep(0.6)
                 continue
@@ -4898,7 +4938,7 @@ def render_game_screen(page: ft.Page, state: dict):
     sec = max(0, int(state.get("time_left", question_time_sec))) if time_pressure_enabled else question_time_sec
 
     timer_text = ft.Text(
-        "âˆž" if not time_pressure_enabled else str(sec),
+        "∞" if not time_pressure_enabled else str(sec),
         size=16, weight="bold",
         color="#FFFFFF" if is_nexus else (
             theme_txt(theme, "primary") if not time_pressure_enabled
@@ -4917,7 +4957,7 @@ def render_game_screen(page: ft.Page, state: dict):
     )
     state["_timer_ui"] = {"text": timer_text, "bar": timer_bar}
 
-    # â”€â”€ background â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── background ─────────────────────────────────────────────────────────────
     bg_image = theme.get("game_bg") if themed else None
     overlay_color = "#00000000" if is_nexus else (
         "#00000099" if not theme.get("is_light") else "#00000055"
@@ -4936,9 +4976,9 @@ def render_game_screen(page: ft.Page, state: dict):
 
     modal = state.get("_modal_overlay")
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    #  NEON NEXUS â€” absolute zone layout on top of background image
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ══════════════════════════════════════════════════════════════════════════
+    #  NEON NEXUS — absolute zone layout on top of background image
+    # ══════════════════════════════════════════════════════════════════════════
     if is_nexus:
         nq_w = int(page_w * zones["question"]["w"])
         na_w = int(page_w * zones["answers"]["w"])
@@ -4973,7 +5013,7 @@ def render_game_screen(page: ft.Page, state: dict):
         )
         nexus_exit_btn = ft.Container(
             content=ft.Row([
-                ft.Text("ðŸšª", size=14),
+                ft.Text("🚪", size=14),
                 ft.Text("Pause", size=13, weight="bold", color=theme["danger"]),
             ], spacing=6, alignment=ft.MainAxisAlignment.CENTER),
             on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
@@ -4985,7 +5025,7 @@ def render_game_screen(page: ft.Page, state: dict):
                 ft.Row([
                     ft.Text(f"Frage {q_num} von {total_q}", size=13,
                             color=theme_txt(theme, "secondary"), weight="bold"),
-                    ft.Text(f"â—† {state.get('money', '0 â‚¬')}", size=14,
+                    ft.Text(f"◆ {state.get('money', '0 €')}", size=14,
                             color="#D946EF", weight="bold"),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=nf_w - 24),
                 theme,
@@ -5021,15 +5061,15 @@ def render_game_screen(page: ft.Page, state: dict):
         page.update()
         return
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    #  CLASSIC â€” clean flow layout (Column/Row), no absolute positioning
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ══════════════════════════════════════════════════════════════════════════
+    #  CLASSIC — clean flow layout (Column/Row), no absolute positioning
+    # ══════════════════════════════════════════════════════════════════════════
     ladder_panel = build_money_ladder(state, compact=is_mobile)
 
     # Pause / exit button
     exit_btn = ft.Container(
         content=ft.Row([
-            ft.Text("ðŸšª", size=12),
+            ft.Text("🚪", size=12),
             ft.Text("Pause", size=12, weight="bold", color="white"),
         ], spacing=5, tight=True),
         on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
@@ -5086,7 +5126,7 @@ def render_game_screen(page: ft.Page, state: dict):
         content=ft.Row([
             ft.Text(f"Frage {q_num} von {total_q}", size=13,
                     color=theme_txt(theme, "secondary"), weight="bold"),
-            ft.Text(f"â—† {state.get('money', '0 â‚¬')}", size=14,
+            ft.Text(f"◆ {state.get('money', '0 €')}", size=14,
                     color=theme["gold"], weight="bold"),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         bgcolor=theme.get("question_bg", "#FFFFFF"),
@@ -5095,7 +5135,7 @@ def render_game_screen(page: ft.Page, state: dict):
         border=ft.border.Border.all(2, theme["border"]),
     )
 
-    # Joker bar â€” always its own row, never overlaps timer or question
+    # Joker bar — always its own row, never overlaps timer or question
     has_jokers = len(state.get("selected_jokers", [])) > 0
     joker_bar = ft.Container(
         content=build_game_joker_bar(page, state, theme, ctx),
@@ -5160,8 +5200,8 @@ def show_next_question(page: ft.Page, state: dict):
     if state.get("_last_spoken_q_idx") != q_idx:
         state["_last_spoken_q_idx"] = q_idx
         question, _, _ = state["questions"][q_idx]
-        money = state.get("money", "0 â‚¬")
-        text = f"Frage {q_idx + 1} fÃ¼r {money}. {question}"
+        money = state.get("money", "0 €")
+        text = f"Frage {q_idx + 1} für {money}. {question}"
         play_tts(page, text)
 
     render_game_screen(page, state)
@@ -5173,9 +5213,9 @@ def show_exit_confirmation(page: ft.Page, state: dict):
     logged_in = email and email in db["users"]
 
     if logged_in:
-        info_text = "MÃ¶chtest du das aktuelle Spiel wirklich beenden? Dein Fortschritt wird gespeichert und du kannst das Spiel jederzeit im HauptmenÃ¼ fortsetzen."
+        info_text = "Möchtest du das aktuelle Spiel wirklich beenden? Dein Fortschritt wird gespeichert und du kannst das Spiel jederzeit im Hauptmenü fortsetzen."
     else:
-        info_text = "MÃ¶chtest du das aktuelle Spiel wirklich beenden?\n\nâš ï¸ Da du als Gast spielst, wird dein Spielstand nicht gespeichert und dein Fortschritt geht verloren!"
+        info_text = "Möchtest du das aktuelle Spiel wirklich beenden?\n\n⚠️ Da du als Gast spielst, wird dein Spielstand nicht gespeichert und dein Fortschritt geht verloren!"
 
     def on_confirm_exit(e):
         if logged_in:
@@ -5183,7 +5223,7 @@ def show_exit_confirmation(page: ft.Page, state: dict):
             db_current = load_db()
             if email in db_current["users"]:
                 db_current["users"][email]["saved_game"] = {
-                    "money": state.get("money", "0 â‚¬"),
+                    "money": state.get("money", "0 €"),
                     "questions_answered": state.get("questions_answered", 0),
                     "correct": state.get("correct", 0),
                     "jokers_used": state.get("jokers_used", 0),
@@ -5275,13 +5315,13 @@ def _show_correct_screen(page: ft.Page, state: dict):
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("âœ…", size=80),
+                ft.Text("✅", size=80),
                 ft.Text("RICHTIG!", size=48, weight="black", color="white"),
                 ft.Text(f"Du gewinnst: {state.get('money', '?')}",
                         size=22, color="#FFD700", weight="bold"),
                 ft.Container(height=20),
                 ft.Container(
-                    content=ft.Text("âž¡  NÃ¤chste Frage", size=18, weight="bold", color="white"),
+                    content=ft.Text("➡  Nächste Frage", size=18, weight="bold", color="white"),
                     on_click=next_q,
                     bgcolor="#27AE60",
                     border_radius=50,
@@ -5304,7 +5344,7 @@ def _show_wrong_screen(page: ft.Page, state: dict):
     # Update persistent stats
     correct = state.get("correct", 0)
     answered = state.get("questions_answered", 0)
-    money = state.get("money", "0 â‚¬")
+    money = state.get("money", "0 €")
     money_idx = -1
     if money in MONEY_LEVELS:
         money_idx = MONEY_LEVELS.index(money)
@@ -5334,7 +5374,7 @@ def _show_wrong_screen(page: ft.Page, state: dict):
             prev_total = stats.get("daily_avg_correct", 0) * (stats["daily_games_played"] - 1)
             stats["daily_avg_correct"] = (prev_total + correct) / stats["daily_games_played"]
             
-            best_res = stats.get("daily_best_result", "0 â‚¬")
+            best_res = stats.get("daily_best_result", "0 €")
             best_idx = MONEY_LEVELS.index(best_res) if best_res in MONEY_LEVELS else -1
             if money_idx > best_idx:
                 stats["daily_best_result"] = money
@@ -5351,13 +5391,13 @@ def _show_wrong_screen(page: ft.Page, state: dict):
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("âŒ", size=80),
+                ft.Text("❌", size=80),
                 ft.Text("FALSCH!", size=48, weight="black", color="white"),
-                ft.Text(f"Dein Gewinn: {state.get('money', '0 â‚¬')}",
+                ft.Text(f"Dein Gewinn: {state.get('money', '0 €')}",
                         size=22, color="#FFD700", weight="bold"),
                 ft.Container(height=20),
                 ft.Container(
-                    content=ft.Text("ðŸ   ZurÃ¼ck zum MenÃ¼", size=18, weight="bold", color="white"),
+                    content=ft.Text("🏠  Zurück zum Menü", size=18, weight="bold", color="white"),
                     on_click=lambda e: open_main_menu(e.page, state),
                     bgcolor="#C0392B",
                     border_radius=50,
@@ -5385,9 +5425,9 @@ def _check_and_show_achievements(page: ft.Page, state: dict, money: str, won: bo
             unlocked.append("purist")
             newly_unlocked.append("Purist")
             
-        if "millionaire" not in unlocked and money == "1.000.000 â‚¬":
+        if "millionaire" not in unlocked and money == "1.000.000 €":
             unlocked.append("millionaire")
-            newly_unlocked.append("MillionÃ¤r")
+            newly_unlocked.append("Millionär")
             
         if "marathon" not in unlocked and stats.get("games_played", 0) >= 10:
             unlocked.append("marathon")
@@ -5396,7 +5436,7 @@ def _check_and_show_achievements(page: ft.Page, state: dict, money: str, won: bo
         if newly_unlocked:
             save_db(db)
             ach_text = ", ".join(newly_unlocked)
-            page.snack_bar = ft.SnackBar(content=ft.Text(f"ðŸ† Neue Erfolge freigeschaltet: {ach_text}!", size=16), bgcolor="green")
+            page.snack_bar = ft.SnackBar(content=ft.Text(f"🏆 Neue Erfolge freigeschaltet: {ach_text}!", size=16), bgcolor="green")
             page.snack_bar.open = True
 
 def _show_win_screen(page: ft.Page, state: dict):
@@ -5407,7 +5447,7 @@ def _show_win_screen(page: ft.Page, state: dict):
     # Update persistent stats
     correct = state.get("correct", 0)
     answered = state.get("questions_answered", 0)
-    money = state.get("money", "0 â‚¬")
+    money = state.get("money", "0 €")
     money_idx = -1
     if money in MONEY_LEVELS:
         money_idx = MONEY_LEVELS.index(money)
@@ -5439,7 +5479,7 @@ def _show_win_screen(page: ft.Page, state: dict):
             prev_total = stats_d.get("daily_avg_correct", 0) * (stats_d["daily_games_played"] - 1)
             stats_d["daily_avg_correct"] = (prev_total + correct) / stats_d["daily_games_played"]
             
-            best_res = stats_d.get("daily_best_result", "0 â‚¬")
+            best_res = stats_d.get("daily_best_result", "0 €")
             best_idx = MONEY_LEVELS.index(best_res) if best_res in MONEY_LEVELS else -1
             if money_idx > best_idx:
                 stats_d["daily_best_result"] = money
@@ -5456,14 +5496,14 @@ def _show_win_screen(page: ft.Page, state: dict):
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("ðŸŽ‰", size=80),
-                ft.Text("GLÃœCKWUNSCH!", size=36, weight="black", color="#2C1654"),
+                ft.Text("🎉", size=80),
+                ft.Text("GLÜCKWUNSCH!", size=36, weight="black", color="#2C1654"),
                 ft.Text("Du hast alle Fragen beantwortet!", size=20, color="#2C1654"),
                 ft.Text(f"Gewinn: {state.get('money', '?')}",
                         size=28, weight="bold", color="#2C1654"),
                 ft.Container(height=20),
                 ft.Container(
-                    content=ft.Text("ðŸ   ZurÃ¼ck zum MenÃ¼", size=18, weight="bold", color="white"),
+                    content=ft.Text("🏠  Zurück zum Menü", size=18, weight="bold", color="white"),
                     on_click=lambda e: open_main_menu(e.page, state),
                     bgcolor="#2C1654",
                     border_radius=50,
@@ -5490,7 +5530,7 @@ def show_legacy_email_code_login_view(page: ft.Page, state: dict):
     )
     
     code_input = ft.TextField(
-        label="6-stelliger BestÃ¤tigungscode",
+        label="6-stelliger Bestätigungscode",
         width=300,
         bgcolor="#1A0A30",
         border_color="#9B59B6",
@@ -5523,7 +5563,7 @@ def show_legacy_email_code_login_view(page: ft.Page, state: dict):
     def on_request_code(e):
         email = email_input.value.strip()
         if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
-            status_text.value = "âš ï¸ Bitte eine gÃ¼ltige E-Mail eingeben."
+            status_text.value = "⚠️ Bitte eine gültige E-Mail eingeben."
             status_text.color = "red"
             page.update()
             return
@@ -5563,7 +5603,7 @@ def show_legacy_email_code_login_view(page: ft.Page, state: dict):
             content=ft.Column([
                 ft.Text("E-Mail gesendet!", weight="bold", color="#FFD700"),
                 ft.Text("Bitte pruefe dein Postfach und gib den 6-stelligen Code ein.", size=14, color="white", text_align="center"),
-                ft.Text("(Code ist 10 Minuten gÃ¼ltig)", size=12, color="#E0D0F0"),
+                ft.Text("(Code ist 10 Minuten gültig)", size=12, color="#E0D0F0"),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             padding=16,
             bgcolor="#2C1654",
@@ -5578,26 +5618,26 @@ def show_legacy_email_code_login_view(page: ft.Page, state: dict):
         submit_btn.visible = True
         request_btn.disabled = False
         request_btn.content.value = "Neuen Code anfordern"
-        status_text.value = "âœ“ Code gesendet! Bitte unten eingeben."
+        status_text.value = "✓ Code gesendet! Bitte unten eingeben."
         status_text.color = "#2ECC71"
         page.update()
         
     def on_login(e):
         entered_code = code_input.value.strip()
         if not entered_code:
-            status_text.value = "âš ï¸ Bitte gib den Code ein."
+            status_text.value = "⚠️ Bitte gib den Code ein."
             status_text.color = "red"
             page.update()
             return
             
         if time.time() - verification_data["time"] > 600:
-            status_text.value = "âŒ Code abgelaufen! Bitte neuen anfordern."
+            status_text.value = "❌ Code abgelaufen! Bitte neuen anfordern."
             status_text.color = "red"
             page.update()
             return
             
         if entered_code != verification_data["code"]:
-            status_text.value = "âŒ Falscher Code. Bitte erneut eingeben."
+            status_text.value = "❌ Falscher Code. Bitte erneut eingeben."
             status_text.color = "red"
             page.update()
             return
@@ -5614,7 +5654,7 @@ def show_legacy_email_code_login_view(page: ft.Page, state: dict):
                     "games_played": 0,
                     "correct_answers": 0,
                     "questions_answered": 0,
-                    "highest_money": "0 â‚¬",
+                    "highest_money": "0 €",
                     "highest_money_level": -1
                 }
             }
@@ -5654,7 +5694,7 @@ def show_legacy_email_code_login_view(page: ft.Page, state: dict):
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("ðŸ”‘ Anmelden", size=30, weight="bold", color="white"),
+                ft.Text("🔑 Anmelden", size=30, weight="bold", color="white"),
                 ft.Container(height=10),
                 ft.Container(
                     content=ft.Column([
@@ -5674,7 +5714,7 @@ def show_legacy_email_code_login_view(page: ft.Page, state: dict):
                 ),
                 ft.Container(height=10),
                 ft.TextButton(
-                    "â† ZurÃ¼ck",
+                    "← Zurück",
                     on_click=lambda e: show_stats(e.page, state),
                     style=ft.ButtonStyle(color="white"),
                 )
@@ -5902,7 +5942,7 @@ def show_settings_view(page: ft.Page, state: dict):
             ] + ([
                 ft.Container(height=4),
                 ft.Container(
-                    content=ft.Text("ðŸšª Abmelden", size=16, weight="bold", color="white"),
+                    content=ft.Text("🚪 Abmelden", size=16, weight="bold", color="white"),
                     on_click=lambda e: page.run_task(_do_logout, page, state),
                     bgcolor=theme["danger"],
                     border_radius=30,
@@ -5919,7 +5959,7 @@ def show_settings_view(page: ft.Page, state: dict):
             width=360,
         ),
         ft.TextButton(
-            "ZurÃ¼ck",
+            "Zurück",
             on_click=lambda e: open_main_menu(e.page, state),
             style=ft.ButtonStyle(color="white"),
         ),
@@ -5988,7 +6028,7 @@ def show_design_view(page: ft.Page, state: dict):
                         ),
                     ),
                     ft.Text(value["label"], size=15, weight="bold", color="white" if value["panel"] != "#FFFFFF" else "#102030"),
-                    ft.Text("Aktiv" if selected else "AuswÃ¤hlen", size=12, color=value["gold"] if selected else "#CCCCCC"),
+                    ft.Text("Aktiv" if selected else "Auswählen", size=12, color=value["gold"] if selected else "#CCCCCC"),
                 ], spacing=8),
                 on_click=choose_theme(key),
                 bgcolor=value["panel"],
@@ -6029,7 +6069,7 @@ def show_design_view(page: ft.Page, state: dict):
                     width=390,
                 ),
                 ft.TextButton(
-                    "ZurÃ¼ck",
+                    "Zurück",
                     on_click=lambda e: show_settings_view(e.page, state),
                     style=ft.ButtonStyle(color="white"),
                 ),
@@ -6040,7 +6080,7 @@ def show_design_view(page: ft.Page, state: dict):
     page.update()
 
 def _medal(rank: int) -> str:
-    return ["ðŸ¥‡", "ðŸ¥ˆ", "ðŸ¥‰"][rank - 1] if rank <= 3 else f"{rank}."
+    return ["🥇", "🥈", "🥉"][rank - 1] if rank <= 3 else f"{rank}."
 
 
 
@@ -6158,19 +6198,19 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
     if active_duel:
         status = active_duel.get("status")
         if status == "pending_accept" and active_duel.get("opponent_email") == email:
-            duel_hint = "Neue Herausforderung â€“ annehmen oder ablehnen im Tab â€žDuelleâ€œ."
+            duel_hint = "Neue Herausforderung – annehmen oder ablehnen im Tab „Duelle“."
         elif active_duel.get("challenger_email") == email and status == "pending":
-            duel_hint = "Duell fortsetzen â€“ du hast die Herausforderung noch nicht beendet."
+            duel_hint = "Duell fortsetzen – du hast die Herausforderung noch nicht beendet."
             can_resume = True
         elif active_duel.get("challenger_email") == email and status == "pending_accept":
             duel_hint = "Warte auf Annahme deiner Herausforderung."
         elif active_duel.get("challenger_email") == email:
-            duel_hint = "Es lÃ¤uft bereits ein Duell mit diesem Freund."
+            duel_hint = "Es läuft bereits ein Duell mit diesem Freund."
         elif status == "challenger_done" and active_duel.get("opponent_email") == email:
-            duel_hint = "Deine Runde â€“ jetzt antworten!"
+            duel_hint = "Deine Runde – jetzt antworten!"
             can_play_opponent = True
         else:
-            duel_hint = "Offenes Duell â€“ siehe Tab â€žDuelleâ€œ."
+            duel_hint = "Offenes Duell – siehe Tab „Duelle“."
 
     dlg_ref = [None]  # mutable container so close_dlg can reference dlg before it's defined
 
@@ -6196,7 +6236,7 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
                 state["friends_tab"] = 2
                 show_friends_view(
                     page, state,
-                    status_message=duel_hint or "Es lÃ¤uft bereits ein Duell mit diesem Freund.",
+                    status_message=duel_hint or "Es läuft bereits ein Duell mit diesem Freund.",
                 )
             return
         send_duel_challenge(page, state, friend_email)
@@ -6236,27 +6276,27 @@ def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
                     ),
                     ft.Column([
                         ft.Text(friend_name, size=18, weight="bold", color="white"),
-                        ft.Text(f"â° {last_active_str}", size=12, color="#AAAAAA"),
-                        ft.Text(f"ðŸŽ¨ {friend_theme.get('label', friend_theme_name)}", size=12, color=friend_theme["gold"]),
+                        ft.Text(f"⏰ {last_active_str}", size=12, color="#AAAAAA"),
+                        ft.Text(f"🎨 {friend_theme.get('label', friend_theme_name)}", size=12, color=friend_theme["gold"]),
                     ], spacing=2, expand=True),
                 ], spacing=10),
                 ft.Divider(color=theme["border"], height=1),
-                ft.Text("Was mÃ¶chtest du tun?", size=13, color="#CCCCCC"),
+                ft.Text("Was möchtest du tun?", size=13, color="#CCCCCC"),
                 ft.Text(duel_hint, size=12, color=theme["gold"], visible=bool(duel_hint)),
-                menu_button("ðŸ“Š Statistik ansehen", theme["accent"], on_stats),
+                menu_button("📊 Statistik ansehen", theme["accent"], on_stats),
                 menu_button(
-                    "âš”ï¸ Deine Runde spielen" if can_play_opponent else (
-                        "âš”ï¸ Duell fortsetzen" if can_resume else "âš”ï¸ Herausfordern"
+                    "⚔️ Deine Runde spielen" if can_play_opponent else (
+                        "⚔️ Duell fortsetzen" if can_resume else "⚔️ Herausfordern"
                     ),
                     theme["gold"],
                     on_challenge,
                     disabled=bool(active_duel and not can_resume and not can_play_opponent),
                 ),
-                menu_button("âŒ Freund entfernen", theme["danger"], on_remove),
+                menu_button("❌ Freund entfernen", theme["danger"], on_remove),
                 ft.Container(height=10),
                 ft.Container(
                     content=ft.Text(
-                        "SchlieÃŸen",
+                        "Schließen",
                         size=14,
                         color="#CCCCCC",
                         weight=ft.FontWeight.BOLD,
@@ -6382,7 +6422,7 @@ def send_duel_challenge(page: ft.Page, state: dict, opponent_email: str):
     client = get_firestore_client()
     if client is None:
         page.snack_bar = ft.SnackBar(
-            content=ft.Text("Duelle benÃ¶tigen eine Firebase-Verbindung.", color="white"),
+            content=ft.Text("Duelle benötigen eine Firebase-Verbindung.", color="white"),
             bgcolor=theme["danger"], open=True,
         )
         page.update()
@@ -6391,14 +6431,14 @@ def send_duel_challenge(page: ft.Page, state: dict, opponent_email: str):
     if get_active_duel_with_friend(email, opponent_email):
         show_friends_view(
             page, state,
-            status_message="Mit diesem Freund lÃ¤uft bereits ein Duell. Beende es zuerst.",
+            status_message="Mit diesem Freund läuft bereits ein Duell. Beende es zuerst.",
         )
         return
 
     age = state.get("player_age", "mid")
     duel_questions = build_duel_questions(age, 15)
     if not duel_questions:
-        show_friends_view(page, state, status_message="Keine Duell-Fragen verfÃ¼gbar.")
+        show_friends_view(page, state, status_message="Keine Duell-Fragen verfügbar.")
         return
 
     duel_id = f"duel_{int(time.time())}_{random.randint(1000,9999)}"
@@ -6464,7 +6504,7 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
     if not questions:
         show_friends_view(
             page, state,
-            status_message="Keine Fragen im Duell â€“ bitte neue Herausforderung senden.",
+            status_message="Keine Fragen im Duell – bitte neue Herausforderung senden.",
         )
         return
 
@@ -6512,10 +6552,10 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
         correct_ans = q["correct"]
         if chosen == correct_ans:
             duel_state["correct"] += 1
-            feedback_text.value = "âœ… Richtig!"
+            feedback_text.value = "✅ Richtig!"
             feedback_text.color = theme["success"]
         else:
-            feedback_text.value = f"âŒ Falsch! Richtig: {correct_ans}"
+            feedback_text.value = f"❌ Falsch! Richtig: {correct_ans}"
             feedback_text.color = theme["danger"]
         duel_state["idx"] += 1
         page.update()
@@ -6556,11 +6596,11 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
                             "winner_email": winner,
                         })
                         if score > challenger_score:
-                            result_text += f"\nðŸ† Du gewinnst das Duell!"
+                            result_text += f"\n🏆 Du gewinnst das Duell!"
                         elif score == challenger_score:
-                            result_text += f"\nðŸ¤ Unentschieden!"
+                            result_text += f"\n🤝 Unentschieden!"
                         else:
-                            result_text += f"\nðŸ˜” Dein Gegner gewinnt mit {challenger_score} Punkten."
+                            result_text += f"\n😔 Dein Gegner gewinnt mit {challenger_score} Punkten."
             except Exception as ex:
                 print(f"Duel update error: {ex}")
 
@@ -6572,10 +6612,10 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
                 gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=theme["gradient"]),
                 alignment=ft.Alignment(0, 0),
                 content=ft.Column([
-                    ft.Text("âš”ï¸ Duell beendet!", size=30, weight="bold", color="white"),
+                    ft.Text("⚔️ Duell beendet!", size=30, weight="bold", color="white"),
                     ft.Text(result_text, size=16, color=theme["gold"], text_align=ft.TextAlign.CENTER),
                     ft.Container(
-                        content=ft.Text("ZurÃ¼ck zu Freunden", size=15, weight="bold", color="white"),
+                        content=ft.Text("Zurück zu Freunden", size=15, weight="bold", color="white"),
                         on_click=lambda e: show_friends_view(page, state),
                         bgcolor=theme["accent"],
                         border_radius=30,
@@ -6597,7 +6637,7 @@ def show_duel_play_view(page: ft.Page, state: dict, duel: dict, role: str):
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
                 ft.Row([
-                    ft.Text(f"âš”ï¸ Duell vs. {opponent_name}", size=20 if is_mobile else 22, weight="bold", color="white", expand=True),
+                    ft.Text(f"⚔️ Duell vs. {opponent_name}", size=20 if is_mobile else 22, weight="bold", color="white", expand=True),
                     _duel_cancel_button(page, state, theme, duel),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 progress_text,
@@ -6668,7 +6708,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
             border_radius=12,
         )
         if qr_data
-        else ft.Text("QR-Code benÃ¶tigt qrcode-Paket.", size=12, color="#CCCCCC", text_align="center")
+        else ft.Text("QR-Code benötigt qrcode-Paket.", size=12, color="#CCCCCC", text_align="center")
     )
 
     # ---- Tab 1: Freunde & Anfragen ----
@@ -6679,14 +6719,14 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         incoming_controls.append(
             ft.Container(
                 content=ft.Row([
-                    ft.Text(f"ðŸ‘¤ {name}", color="white", expand=True, size=14),
+                    ft.Text(f"👤 {name}", color="white", expand=True, size=14),
                     ft.TextButton(
-                        "âœ… Annehmen",
+                        "✅ Annehmen",
                         on_click=lambda e, req=requester_email: (respond_friend_request(state, req, True), show_friends_view(e.page, state)),
                         style=ft.ButtonStyle(color=theme["success"]),
                     ),
                     ft.TextButton(
-                        "âŒ Ablehnen",
+                        "❌ Ablehnen",
                         on_click=lambda e, req=requester_email: (respond_friend_request(state, req, False), show_friends_view(e.page, state)),
                         style=ft.ButtonStyle(color=theme["danger"]),
                     ),
@@ -6727,7 +6767,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
                         ft.Text(friend.get("name", f_email), size=15, color="white", weight="bold"),
                         ft.Text(last_active_str, size=11, color="#AAAAAA"),
                     ], spacing=2, expand=True),
-                    ft.Text("ðŸ‘¤ Profil", size=12, color=theme["gold"]),
+                    ft.Text("👤 Profil", size=12, color=theme["gold"]),
                 ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 on_click=lambda e, fe=f_email: show_friend_profile_popup(page, state, fe),
                 ink=True,
@@ -6742,7 +6782,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         friend_controls.append(ft.Text("Noch keine Freunde. Scanne einen QR-Code!", size=12, color="#CCCCCC"))
 
     tab_friends = ft.Column([
-        ft.Text("ðŸ”— Dein Freundescode", size=15, weight="bold", color=theme["gold"]),
+        ft.Text("🔗 Dein Freundescode", size=15, weight="bold", color=theme["gold"]),
         ft.Row([ft.Text(friend_code, size=20, weight="bold", color="white", selectable=True)], alignment=ft.MainAxisAlignment.CENTER),
         qr_control,
         code_input,
@@ -6758,10 +6798,10 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         ),
         status_text,
         ft.Divider(color=theme["border"]),
-        ft.Text("ðŸ“¬ Offene Anfragen", size=15, weight="bold", color=theme["gold"]),
+        ft.Text("📬 Offene Anfragen", size=15, weight="bold", color=theme["gold"]),
         *incoming_controls,
         ft.Divider(color=theme["border"]),
-        ft.Text("ðŸ‘¥ Deine Freunde", size=15, weight="bold", color=theme["gold"]),
+        ft.Text("👥 Deine Freunde", size=15, weight="bold", color=theme["gold"]),
         *friend_controls,
     ], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
@@ -6820,7 +6860,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         ranking_rows.append(ft.Text("Noch keine Daten diese Woche.", size=13, color="#CCCCCC"))
 
     tab_ranking = ft.Column([
-        ft.Text("ðŸ† Wochenranking", size=18, weight="bold", color=theme["gold"]),
+        ft.Text("🏆 Wochenranking", size=18, weight="bold", color=theme["gold"]),
         ft.Text(f"Woche: {week_key}", size=12, color="#AAAAAA"),
         ft.Divider(color=theme["border"]),
         *ranking_rows,
@@ -6869,18 +6909,18 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         open_duel_controls.append(
             _duel_open_card(
                 ft.Column([
-                    ft.Text(f"ðŸ“© Herausforderung von {challenger_name}", size=13, color="white", weight="bold"),
-                    ft.Text("15 Fragen â€“ erst nach Annahme spielt dein Freund.", size=11, color="#AAAAAA"),
+                    ft.Text(f"📩 Herausforderung von {challenger_name}", size=13, color="white", weight="bold"),
+                    ft.Text("15 Fragen – erst nach Annahme spielt dein Freund.", size=11, color="#AAAAAA"),
                     ft.Row([
                         ft.Container(
-                            content=ft.Text("âœ… Annehmen", size=13, color="white", weight="bold"),
+                            content=ft.Text("✅ Annehmen", size=13, color="white", weight="bold"),
                             on_click=lambda e, duel=d: accept_duel_challenge(page, state, duel),
                             bgcolor=theme["success"],
                             border_radius=20,
                             padding=ft.Padding(14, 6, 14, 6),
                         ),
                         ft.Container(
-                            content=ft.Text("âŒ Ablehnen", size=13, color="white", weight="bold"),
+                            content=ft.Text("❌ Ablehnen", size=13, color="white", weight="bold"),
                             on_click=lambda e, duel=d: decline_duel_challenge(page, state, duel),
                             bgcolor=theme["danger"],
                             border_radius=20,
@@ -6896,7 +6936,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
     for d in opponent_waiting_duels:
         challenger_name = d.get("challenger_name", d.get("challenger_email", "?"))
         wait_rows = [
-            ft.Text(f"â³ {challenger_name} spielt noch", size=13, color="white", weight="bold"),
+            ft.Text(f"⏳ {challenger_name} spielt noch", size=13, color="white", weight="bold"),
             ft.Text("Warte, bis dein Freund die Runde beendet hat.", size=11, color="#AAAAAA"),
         ]
         if d.get("challenger_email") == email:
@@ -6910,7 +6950,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         open_duel_controls.append(
             _duel_open_card(
                 ft.Column([
-                    ft.Text(f"âš”ï¸ Deine Runde vs. {challenger_name}", size=13, color="white", weight="bold"),
+                    ft.Text(f"⚔️ Deine Runde vs. {challenger_name}", size=13, color="white", weight="bold"),
                     ft.Text(f"Gegner: {d.get('challenger_score', '?')} Punkte", size=11, color="#AAAAAA"),
                     ft.Row([
                         ft.Container(
@@ -6934,8 +6974,8 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         open_duel_controls.append(
             _duel_open_card(
                 ft.Column([
-                    ft.Text(f"âš”ï¸ Dein Duell vs. {opp_name}", size=13, color="white", weight="bold"),
-                    ft.Text("Angenommen â€“ tippe auf Spielen und starte deine 15 Fragen.", size=11, color="#AAAAAA"),
+                    ft.Text(f"⚔️ Dein Duell vs. {opp_name}", size=13, color="white", weight="bold"),
+                    ft.Text("Angenommen – tippe auf Spielen und starte deine 15 Fragen.", size=11, color="#AAAAAA"),
                     ft.Row([
                         ft.Container(
                             content=ft.Text("Spielen", size=13, color="white", weight="bold"),
@@ -6958,8 +6998,8 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         open_duel_controls.append(
             _duel_open_card(
                 ft.Column([
-                    ft.Text(f"â³ Warte auf {opp_name}", size=13, color="white", weight="bold"),
-                    ft.Text("Herausforderung gesendet â€“ noch nicht angenommen.", size=11, color="#AAAAAA"),
+                    ft.Text(f"⏳ Warte auf {opp_name}", size=13, color="white", weight="bold"),
+                    ft.Text("Herausforderung gesendet – noch nicht angenommen.", size=11, color="#AAAAAA"),
                     ft.Row([_duel_cancel_button(page, state, theme, d)], spacing=8),
                 ], spacing=6, tight=True),
                 theme,
@@ -6974,7 +7014,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         winner_email = d.get("winner_email", "")
         i_won = winner_email == email
         draw = d.get("challenger_score") == d.get("opponent_score")
-        result_icon = "ðŸ¤" if draw else ("ðŸ†" if i_won else "ðŸ˜”")
+        result_icon = "🤝" if draw else ("🏆" if i_won else "😔")
         result_color = theme["gold"] if draw else (theme["success"] if i_won else theme["danger"])
         other = d.get("opponent_email") if d.get("challenger_email") == email else d.get("challenger_email")
         other_name = db.get("users", {}).get(other or "", {}).get("name", other or "?")
@@ -6986,7 +7026,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
                     ft.Text(result_icon, size=22, width=32),
                     ft.Column([
                         ft.Text(f"vs. {other_name}", size=13, color="white"),
-                        ft.Text(f"Du: {d.get(my_score_key, '?')} Â· Gegner: {d.get(opp_score_key, '?')}", size=11, color="#AAAAAA"),
+                        ft.Text(f"Du: {d.get(my_score_key, '?')} · Gegner: {d.get(opp_score_key, '?')}", size=11, color="#AAAAAA"),
                     ], spacing=2, expand=True),
                 ]),
                 bgcolor=theme["panel"],
@@ -7000,18 +7040,18 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
         finished_duel_controls.append(ft.Text("Noch keine abgeschlossenen Duelle.", size=12, color="#CCCCCC"))
 
     tab_duels = ft.Column([
-        ft.Text("âš”ï¸ Offene Herausforderungen", size=15, weight="bold", color=theme["gold"]),
+        ft.Text("⚔️ Offene Herausforderungen", size=15, weight="bold", color=theme["gold"]),
         ft.Column(open_duel_controls, spacing=0, tight=True),
         ft.Divider(height=1, color=theme["border"]),
-        ft.Text("ðŸ“œ Letzte Duelle", size=15, weight="bold", color=theme["gold"]),
+        ft.Text("📜 Letzte Duelle", size=15, weight="bold", color=theme["gold"]),
         ft.Column(finished_duel_controls, spacing=0, tight=True),
         ft.Divider(height=1, color=theme["border"]),
-        ft.Text("â„¹ï¸ Freund antippen â†’ Herausfordern Â· Annahme im Tab oben", size=11, color="#888888", text_align=ft.TextAlign.CENTER),
+        ft.Text("ℹ️ Freund antippen → Herausfordern · Annahme im Tab oben", size=11, color="#888888", text_align=ft.TextAlign.CENTER),
     ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
 
     # ---- Tab Bar ----
     tab_contents = [tab_friends, tab_ranking, tab_duels]
-    tab_labels = ["ðŸ‘¥ Freunde", "ðŸ† Ranking", "âš”ï¸ Duelle"]
+    tab_labels = ["👥 Freunde", "🏆 Ranking", "⚔️ Duelle"]
     selected_tab = state.get("friends_tab", 0)
 
     content_container = ft.Container(
@@ -7059,7 +7099,7 @@ def show_friends_view(page: ft.Page, state: dict, status_message: str = ""):
                 ft.Row(tab_buttons, alignment=ft.MainAxisAlignment.CENTER, spacing=8),
                 content_container,
                 ft.TextButton(
-                    "â† ZurÃ¼ck",
+                    "← Zurück",
                     on_click=lambda e: show_settings_view(e.page, state),
                     style=ft.ButtonStyle(color="white"),
                 ),
@@ -7104,8 +7144,8 @@ def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
             ("Siege / Niederlagen", f"{stats.get('games_won', 0)} / {stats.get('games_lost', 0)}"),
             ("Winrate", _pct(stats.get("games_won", 0), games)),
             ("Trefferquote", _pct(stats.get("correct_answers", 0), stats.get("questions_answered", 0))),
-            ("Rekord", stats.get("highest_money", "0 â‚¬")),
-            ("HÃ¶chste Frage", _level_label(stats.get("highest_money_level", -1))),
+            ("Rekord", stats.get("highest_money", "0 €")),
+            ("Höchste Frage", _level_label(stats.get("highest_money_level", -1))),
             ("Beste Siegesserie", str(stats.get("best_streak", 0))),
         ],
         theme,
@@ -7127,7 +7167,7 @@ def show_friend_stats_view(page: ft.Page, state: dict, friend_email: str):
                 ft.Text("Freundesstatistik", size=30, weight="bold", color="white"),
                 card,
                 ft.TextButton(
-                    "ZurÃ¼ck",
+                    "Zurück",
                     on_click=lambda e: show_friends_view(e.page, state),
                     style=ft.ButtonStyle(color="white"),
                 ),
@@ -7180,7 +7220,7 @@ def show_edit_profile_view(page: ft.Page, state: dict):
     def on_save(e):
         new_name = name_input.value.strip()
         if not new_name:
-            status_text.value = "âš ï¸ Name darf nicht leer sein."
+            status_text.value = "⚠️ Name darf nicht leer sein."
             status_text.color = "red"
             page.update()
             return
@@ -7193,7 +7233,7 @@ def show_edit_profile_view(page: ft.Page, state: dict):
             db["users"][email]["settings"]["theme"] = selected_theme
             save_db(db)
             state["theme"] = selected_theme
-            status_text.value = "âœ“ Erfolgreich gespeichert!"
+            status_text.value = "✓ Erfolgreich gespeichert!"
             status_text.color = "#2ECC71"
             page.update()
             
@@ -7213,7 +7253,7 @@ def show_edit_profile_view(page: ft.Page, state: dict):
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("âœï¸ Profil bearbeiten", size=30, weight="bold", color="white"),
+                ft.Text("✏️ Profil bearbeiten", size=30, weight="bold", color="white"),
                 ft.Container(height=10),
                 ft.Container(
                     content=ft.Column([
@@ -7240,12 +7280,12 @@ def show_edit_profile_view(page: ft.Page, state: dict):
                 ft.Container(height=10),
                 ft.Row([
                     ft.TextButton(
-                        "â† ZurÃ¼ck",
+                        "← Zurück",
                         on_click=lambda e: open_main_menu(e.page, state),
                         style=ft.ButtonStyle(color="white"),
                     ),
                     ft.TextButton(
-                        "ðŸšª Abmelden",
+                        "🚪 Abmelden",
                         on_click=lambda e: page.run_task(_do_logout, page, state),
                         style=ft.ButtonStyle(color="#FF6B6B"),
                     ),
@@ -7270,17 +7310,17 @@ def show_stats_legacy(page: ft.Page, state: dict):
     g_games = g_stats.get("games_played", 0)
     g_correct = g_stats.get("correct_answers", 0)
     g_answered = g_stats.get("questions_answered", 0)
-    g_money = g_stats.get("highest_money", "0 â‚¬")
+    g_money = g_stats.get("highest_money", "0 €")
     g_rate = f"{int(g_correct / g_answered * 100)}%" if g_answered > 0 else "0%"
     
     global_card = ft.Container(
         content=ft.Column([
-            ft.Text("ðŸŒ Globale Statistik", size=18, weight="bold", color=theme["gold"]),
+            ft.Text("🌍 Globale Statistik", size=18, weight="bold", color=theme["gold"]),
             ft.Divider(color=theme["border"], thickness=1),
-            _stat_row("ðŸŽ® Spiele gesamt", str(g_games)),
-            _stat_row("ðŸ“ Beantwortete Fragen", str(g_answered)),
-            _stat_row("âœ… Richtige Antworten", f"{g_correct} ({g_rate})"),
-            _stat_row("ðŸ† HÃ¶chster Gewinn", g_money),
+            _stat_row("🎮 Spiele gesamt", str(g_games)),
+            _stat_row("📝 Beantwortete Fragen", str(g_answered)),
+            _stat_row("✅ Richtige Antworten", f"{g_correct} ({g_rate})"),
+            _stat_row("🏆 Höchster Gewinn", g_money),
         ], spacing=12),
         bgcolor=theme["panel"],
         border_radius=16,
@@ -7297,18 +7337,18 @@ def show_stats_legacy(page: ft.Page, state: dict):
         u_games = u_stats.get("games_played", 0)
         u_correct = u_stats.get("correct_answers", 0)
         u_answered = u_stats.get("questions_answered", 0)
-        u_money = u_stats.get("highest_money", "0 â‚¬")
+        u_money = u_stats.get("highest_money", "0 €")
         u_rate = f"{int(u_correct / u_answered * 100)}%" if u_answered > 0 else "0%"
         
         personal_card = ft.Container(
             content=ft.Column([
-                ft.Text(f"ðŸ‘¤ Statistik: {u_name}", size=18, weight="bold", color="#2ECC71"),
+                ft.Text(f"👤 Statistik: {u_name}", size=18, weight="bold", color="#2ECC71"),
                 ft.Text(email, size=11, color="#E0D0F0"),
                 ft.Divider(color="#2ECC71", thickness=1),
-                _stat_row("ðŸŽ® Deine Spiele", str(u_games)),
-                _stat_row("ðŸ“ Beantwortete Fragen", str(u_answered)),
-                _stat_row("âœ… Richtige Antworten", f"{u_correct} ({u_rate})"),
-                _stat_row("ðŸ† Dein Rekord", u_money),
+                _stat_row("🎮 Deine Spiele", str(u_games)),
+                _stat_row("📝 Beantwortete Fragen", str(u_answered)),
+                _stat_row("✅ Richtige Antworten", f"{u_correct} ({u_rate})"),
+                _stat_row("🏆 Dein Rekord", u_money),
             ], spacing=12),
             bgcolor=theme["panel"],
             border_radius=16,
@@ -7319,17 +7359,17 @@ def show_stats_legacy(page: ft.Page, state: dict):
     else:
         personal_card = ft.Container(
             content=ft.Column([
-                ft.Text("ðŸ‘¤ PersÃ¶nliche Statistik", size=18, weight="bold", color="#CCCCCC"),
+                ft.Text("👤 Persönliche Statistik", size=18, weight="bold", color="#CCCCCC"),
                 ft.Divider(color="#CCCCCC", thickness=1),
                 ft.Text(
-                    "Melde dich im HauptmenÃ¼ an, um deine persÃ¶nlichen Statistiken dauerhaft zu sichern!",
+                    "Melde dich im Hauptmenü an, um deine persönlichen Statistiken dauerhaft zu sichern!",
                     size=13,
                     color="#CCCCCC",
                     text_align="center",
                 ),
                 ft.Container(height=10),
                 ft.Container(
-                    content=ft.Text("ðŸ”‘ Anmelden", size=16, weight="bold", color="white"),
+                    content=ft.Text("🔑 Anmelden", size=16, weight="bold", color="white"),
                     on_click=lambda e: show_login_view(e.page, state),
                     bgcolor=theme["accent"],
                     visible=False,
@@ -7367,12 +7407,12 @@ def show_stats_legacy(page: ft.Page, state: dict):
             ),
             alignment=ft.Alignment(0, 0),
             content=ft.Column([
-                ft.Text("ðŸ“Š Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
+                ft.Text("📊 Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
                 ft.Container(height=10),
                 stats_cards,
                 ft.Container(height=20),
                 ft.Container(
-                    content=ft.Text("â† ZurÃ¼ck", size=16, weight="bold", color="white"),
+                    content=ft.Text("← Zurück", size=16, weight="bold", color="white"),
                     on_click=lambda e: open_main_menu(e.page, state),
                     bgcolor=theme["accent"],
                     border_radius=50,
@@ -7433,7 +7473,7 @@ def _recent_games_card(history: list[dict], theme: dict, width=None) -> ft.Contr
         rows = [
             _stat_row(
                 f"{_format_history_date(game.get('played_at', ''))} - {'Sieg' if game.get('won') else 'Aus'}",
-                f"{game.get('money', '0 â‚¬')} - {game.get('correct_answers', 0)}/{game.get('questions_answered', 0)}",
+                f"{game.get('money', '0 €')} - {game.get('correct_answers', 0)}/{game.get('questions_answered', 0)}",
             )
             for game in recent
         ]
@@ -7469,8 +7509,8 @@ def show_stats(page: ft.Page, state: dict):
             ("Spiele gesamt", str(g_stats.get("games_played", 0))),
             ("Siege / Niederlagen", f"{g_stats.get('games_won', 0)} / {g_stats.get('games_lost', 0)}"),
             ("Trefferquote", _pct(g_stats.get("correct_answers", 0), g_stats.get("questions_answered", 0))),
-            ("HÃ¶chster Gewinn", g_stats.get("highest_money", "0 â‚¬")),
-            ("HÃ¶chste Frage", _level_label(g_stats.get("highest_money_level", -1))),
+            ("Höchster Gewinn", g_stats.get("highest_money", "0 €")),
+            ("Höchste Frage", _level_label(g_stats.get("highest_money_level", -1))),
             ("Durchschnitt", _avg_level_label(g_stats)),
         ],
         theme,
@@ -7496,8 +7536,8 @@ def show_stats(page: ft.Page, state: dict):
                     ("Deine Spiele", str(games)),
                     ("Siege / Niederlagen", f"{u_stats.get('games_won', 0)} / {u_stats.get('games_lost', 0)}"),
                     ("Winrate", _pct(u_stats.get("games_won", 0), games)),
-                    ("Dein Rekord", u_stats.get("highest_money", "0 â‚¬")),
-                    ("HÃ¶chste Frage", _level_label(u_stats.get("highest_money_level", -1))),
+                    ("Dein Rekord", u_stats.get("highest_money", "0 €")),
+                    ("Höchste Frage", _level_label(u_stats.get("highest_money_level", -1))),
                 ],
                 theme,
                 theme["success"],
@@ -7537,10 +7577,10 @@ def show_stats(page: ft.Page, state: dict):
             global_card,
             ft.Container(
                 content=ft.Column([
-                    ft.Text("PersÃ¶nliche Statistik", size=18, weight="bold", color="#CCCCCC"),
+                    ft.Text("Persönliche Statistik", size=18, weight="bold", color="#CCCCCC"),
                     ft.Divider(color="#CCCCCC", thickness=1),
                     ft.Text(
-                        "Melde dich im HauptmenÃ¼ an, um deine persÃ¶nlichen Statistiken dauerhaft zu sichern!",
+                        "Melde dich im Hauptmenü an, um deine persönlichen Statistiken dauerhaft zu sichern!",
                         size=13,
                         color="#CCCCCC",
                         text_align="center",
@@ -7579,7 +7619,7 @@ def show_stats(page: ft.Page, state: dict):
                 stats_cards,
                 ft.Container(height=20),
                 ft.Container(
-                    content=ft.Text("ZurÃ¼ck", size=16, weight="bold", color="white"),
+                    content=ft.Text("Zurück", size=16, weight="bold", color="white"),
                     on_click=lambda e: open_main_menu(e.page, state),
                     bgcolor=theme["accent"],
                     border_radius=50,
@@ -7619,7 +7659,7 @@ def show_shop_screen(page: ft.Page, state: dict):
         original_bgcolor = btn.bgcolor
         original_color = btn.color
         
-        btn.text = "Nicht genÃ¼gend Geld"
+        btn.text = "Nicht genügend Geld"
         btn.bgcolor = "red"
         btn.color = "white"
         btn.update()
@@ -7678,11 +7718,11 @@ def show_shop_screen(page: ft.Page, state: dict):
             is_unlocked = t["id"] in unlocked_themes
             is_equipped = current_theme == t["id"]
             if is_equipped:
-                btn = ft.ElevatedButton("AusgerÃ¼stet", disabled=True, color="green")
+                btn = ft.ElevatedButton("Ausgerüstet", disabled=True, color="green")
             elif is_unlocked:
-                btn = ft.ElevatedButton("AusrÃ¼sten", on_click=lambda e, tid=t["id"]: on_equip_theme(e, tid))
+                btn = ft.ElevatedButton("Ausrüsten", on_click=lambda e, tid=t["id"]: on_equip_theme(e, tid))
             else:
-                btn = ft.ElevatedButton(f"{t['price']} â‚¬ Kaufen", on_click=lambda e, itm=t: page.run_task(on_buy_theme, e, itm))
+                btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: page.run_task(on_buy_theme, e, itm))
             
             theme_cards.append(ft.Container(
                 content=ft.Row([ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")), btn], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -7694,11 +7734,11 @@ def show_shop_screen(page: ft.Page, state: dict):
             is_unlocked = t["id"] in unlocked_titles
             is_equipped = current_title == t["id"]
             if is_equipped:
-                btn = ft.ElevatedButton("AusgerÃ¼stet", disabled=True, color="green")
+                btn = ft.ElevatedButton("Ausgerüstet", disabled=True, color="green")
             elif is_unlocked:
-                btn = ft.ElevatedButton("AusrÃ¼sten", on_click=lambda e, tid=t["id"]: on_equip_title(e, tid))
+                btn = ft.ElevatedButton("Ausrüsten", on_click=lambda e, tid=t["id"]: on_equip_title(e, tid))
             else:
-                btn = ft.ElevatedButton(f"{t['price']} â‚¬ Kaufen", on_click=lambda e, itm=t: page.run_task(on_buy_title, e, itm))
+                btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: page.run_task(on_buy_title, e, itm))
             
             title_cards.append(ft.Container(
                 content=ft.Row([ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")), btn], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -7718,15 +7758,15 @@ def show_shop_screen(page: ft.Page, state: dict):
                     padding=20,
                     content=ft.Column([
                         ft.Row([
-                            ft.TextButton("â† ZurÃ¼ck", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
+                            ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
                             ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
                         ]),
-                        ft.Text(f"Kontostand: {wallet} â‚¬", size=20, weight="bold", color=theme["gold"]),
+                        ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
                         ft.Divider(color=theme["border"]),
-                        ft.Text("ðŸŽ¨ Designs", size=20, weight="bold", color="white"),
+                        ft.Text("🎨 Designs", size=20, weight="bold", color="white"),
                         ft.Column(theme_cards, scroll=ft.ScrollMode.AUTO, height=200),
                         ft.Divider(color=theme["border"]),
-                        ft.Text("ðŸ·ï¸ Titel", size=20, weight="bold", color="white"),
+                        ft.Text("🏷️ Titel", size=20, weight="bold", color="white"),
                         ft.Column(title_cards, scroll=ft.ScrollMode.AUTO, height=200),
                     ])
                 )
@@ -7749,7 +7789,7 @@ def show_achievements_screen(page: ft.Page, state: dict):
     # Hardcoded achievements for now (can be expanded)
     achievements = [
         {"id": "purist", "name": "Purist", "desc": "Ein Spiel gewinnen, ohne Joker zu nutzen."},
-        {"id": "millionaire", "name": "MillionÃ¤r", "desc": "Die Million gewinnen."},
+        {"id": "millionaire", "name": "Millionär", "desc": "Die Million gewinnen."},
         {"id": "marathon", "name": "Marathon", "desc": "10 Spiele insgesamt gespielt."},
     ]
     unlocked = user.get("unlocked_achievements", [])
@@ -7757,7 +7797,7 @@ def show_achievements_screen(page: ft.Page, state: dict):
     cards = []
     for a in achievements:
         is_unlocked = a["id"] in unlocked
-        icon = "ðŸ†" if is_unlocked else "ðŸ”’"
+        icon = "🏆" if is_unlocked else "🔒"
         color = theme["gold"] if is_unlocked else "gray"
         
         cards.append(ft.Container(
@@ -7784,7 +7824,7 @@ def show_achievements_screen(page: ft.Page, state: dict):
                 padding=20,
                 content=ft.Column([
                     ft.Row([
-                        ft.TextButton("â† ZurÃ¼ck", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
+                        ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
                         ft.Text("Erfolge", size=24, weight="bold", color="white"),
                     ]),
                     ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
@@ -7829,7 +7869,7 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
 
         # 3. Configure daily state directly
         state.update({
-            "money": "0 â‚¬",
+            "money": "0 €",
             "questions_answered": 0,
             "correct": 0,
             "jokers_used": 0,
@@ -7878,7 +7918,7 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
                 padding=20,
                 content=ft.Column([
                     ft.Row([
-                        ft.TextButton("â† ZurÃ¼ck", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
+                        ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
                         ft.Text("Daily Challenge", size=24, weight="bold", color="white"),
                     ]),
                     ft.Text("Spiele jeden Tag die exakt gleichen 15 Fragen wie alle anderen Spieler!", color="white"),
@@ -7886,9 +7926,9 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
                     btn,
                     ft.Container(height=20),
                     ft.Text("Deine Daily Stats:", size=18, weight="bold", color=theme["gold"]),
-                    ft.Text(f"ðŸ”¥ Aktueller Streak: {stats.get('daily_current_streak', 0)} Tage", color="white"),
-                    ft.Text(f"ðŸ‘‘ Bester Streak: {stats.get('daily_best_streak', 0)} Tage", color="white"),
-                    ft.Text(f"ðŸ’° Bestes Ergebnis: {stats.get('daily_best_result', '0 â‚¬')}", color="white"),
+                    ft.Text(f"🔥 Aktueller Streak: {stats.get('daily_current_streak', 0)} Tage", color="white"),
+                    ft.Text(f"👑 Bester Streak: {stats.get('daily_best_streak', 0)} Tage", color="white"),
+                    ft.Text(f"💰 Bestes Ergebnis: {stats.get('daily_best_result', '0 €')}", color="white"),
                 ])
             )
         )
@@ -7898,7 +7938,7 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
 
 def main(page: ft.Page):
     app_state = {
-        "money": "0 â‚¬",
+        "money": "0 €",
         "questions_answered": 0,
         "correct": 0,
         "jokers_used": 0,
@@ -7906,7 +7946,7 @@ def main(page: ft.Page):
         "current_user_uid": None,
     }
 
-    page.title = "Wer wird MillionÃ¤r?"
+    page.title = "Wer wird Millionär?"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = "#2C1654"
     page.padding = 0
@@ -7948,7 +7988,7 @@ def main(page: ft.Page):
 
     # Show main menu immediately so the page is not blank while init runs.
     # We mark app_state so that restore_remembered_login can signal whether
-    # it already handled navigation (logged-in) â€” in that case we skip the
+    # it already handled navigation (logged-in) — in that case we skip the
     # second on_route_change that would overwrite the authenticated screen.
     app_state["_init_nav_done"] = False
 
@@ -7971,4 +8011,3 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.run(main, assets_dir="assets")
-
