@@ -4079,6 +4079,62 @@ def _avatar_preview_text(user: dict, theme: dict) -> str:
     return f"{scene}\n{base} {top} {pants} {shoes} {accessory}"
 
 
+def _avatar_piece_color(item_id: str, theme: dict, fallback: str) -> str:
+    item_id = str(item_id or "")
+    item_id_l = item_id.lower()
+    if "royal" in item_id_l or "crown" in item_id_l or "chain" in item_id_l:
+        return "#F2C94C"
+    if "neon" in item_id_l or "glasses" in item_id_l:
+        return "#22D3EE"
+    if "ocean" in item_id_l or "diver" in item_id_l:
+        return "#38BDF8"
+    if "dark" in item_id_l:
+        return "#334155"
+    return fallback
+
+
+def build_avatar_figure(user: dict, theme: dict, size: int = 110) -> ft.Control:
+    ensure_avatar_defaults(user)
+    equipped = user["avatar"]["equipped"]
+    base_skin = "#E7C8A0"
+    top_color = _avatar_piece_color(equipped.get("top", ""), theme, theme.get("accent", "#10B981"))
+    pants_color = _avatar_piece_color(equipped.get("pants", ""), theme, "#334155")
+    shoes_color = _avatar_piece_color(equipped.get("shoes", ""), theme, "#111827")
+    acc_color = _avatar_piece_color(equipped.get("accessory", ""), theme, theme.get("gold", "#F59E0B"))
+
+    head = ft.Container(width=int(size * 0.30), height=int(size * 0.30), bgcolor=base_skin, border_radius=999, border=ft.border.Border.all(1, "#1F2937"))
+    torso = ft.Container(width=int(size * 0.34), height=int(size * 0.30), bgcolor=top_color, border_radius=8, border=ft.border.Border.all(1, "#1F2937"))
+    legs = ft.Row(
+        [
+            ft.Container(width=int(size * 0.14), height=int(size * 0.26), bgcolor=pants_color, border_radius=6),
+            ft.Container(width=int(size * 0.14), height=int(size * 0.26), bgcolor=pants_color, border_radius=6),
+        ],
+        spacing=4,
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
+    shoes = ft.Row(
+        [
+            ft.Container(width=int(size * 0.16), height=int(size * 0.07), bgcolor=shoes_color, border_radius=5),
+            ft.Container(width=int(size * 0.16), height=int(size * 0.07), bgcolor=shoes_color, border_radius=5),
+        ],
+        spacing=4,
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
+    accessory = ft.Container(
+        width=int(size * 0.18),
+        height=int(size * 0.05),
+        bgcolor=acc_color if equipped.get("accessory") != "acc_none" else "#00000000",
+        border_radius=8,
+    )
+    return ft.Column(
+        [head, accessory, torso, legs, shoes],
+        spacing=2,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        alignment=ft.MainAxisAlignment.CENTER,
+        tight=True,
+    )
+
+
 def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
     db = load_db()
     email = state.get("current_user_email")
@@ -4120,7 +4176,8 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
         save_db(db)
 
     wallet_text = ft.Text("", size=16, weight="bold", color=theme["gold"])
-    preview_text = ft.Text("", size=18, color=ui["text"], text_align=ft.TextAlign.CENTER)
+    preview_text = ft.Text("", size=13, color=ui["text"], text_align=ft.TextAlign.CENTER)
+    preview_figure = ft.Container(alignment=ft.Alignment(0, 0))
     gender_row = ft.Row(spacing=8, alignment=ft.MainAxisAlignment.CENTER)
     item_list = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, height=320)
     slot_dropdown = ft.Dropdown(
@@ -4139,6 +4196,7 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
         ensure_avatar_defaults(user)
         wallet_text.value = f"Guthaben: {int(user.get('stats', {}).get('wallet_balance', 0))} €"
         preview_text.value = _avatar_preview_text(user, theme)
+        preview_figure.content = build_avatar_figure(user, theme, size=118)
 
         gender_buttons = []
         for g_key, g_label in AVATAR_GENDER_OPTIONS:
@@ -4233,7 +4291,14 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
                                     ft.Container(
-                                        content=preview_text,
+                                        content=ft.Column(
+                                            [
+                                                preview_figure,
+                                                preview_text,
+                                            ],
+                                            spacing=6,
+                                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                        ),
                                         border_radius=14,
                                         border=ft.border.Border.all(1.5, ui["card_border"]),
                                         bgcolor=ui["card_bg"],
@@ -4433,30 +4498,30 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
 
     # Profile actions at top right
     if logged_in and email in db.get("users", {}):
-        user_info = db["users"][email]
-        ensure_avatar_defaults(user_info)
-        avatar_box = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text(
-                        _avatar_preview_text(user_info, theme),
-                        size=11,
-                        text_align=ft.TextAlign.CENTER,
-                        color=menu_card_icon,
-                    ),
-                    ft.Text(f"Hallo, {username}", size=12, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                ],
-                spacing=4,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            bgcolor="#07110DCC",
-            border=ft.border.Border.all(1.5, menu_card_border),
-            border_radius=14,
-            padding=ft.Padding(10, 8, 10, 8),
-            on_click=lambda e: show_avatar_wardrobe(e.page, state, back_to_main=True),
-            shadow=ft.BoxShadow(blur_radius=16, color="#44000000"),
-        )
-        header_actions = ft.Row([avatar_box], spacing=8)
+        try:
+            user_info = db["users"][email]
+            ensure_avatar_defaults(user_info)
+            avatar_box = ft.Container(
+                content=ft.Column(
+                    [
+                        build_avatar_figure(user_info, theme, size=86),
+                        ft.Text(avatar_scene(_theme_key_from_theme(theme) or "classic"), size=10, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                        ft.Text(f"Hallo, {username}", size=12, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                    ],
+                    spacing=4,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                bgcolor="#07110DCC",
+                border=ft.border.Border.all(1.8, menu_card_border),
+                border_radius=14,
+                padding=ft.Padding(10, 8, 10, 8),
+                on_click=lambda e: show_avatar_wardrobe(e.page, state, back_to_main=True),
+                shadow=ft.BoxShadow(blur_radius=16, color="#44000000"),
+                tooltip="Avatar öffnen",
+            )
+            header_actions = ft.Row([avatar_box], spacing=8)
+        except Exception:
+            header_actions = ft.Row([])
     else:
         header_actions = ft.Row([])
 
@@ -4816,7 +4881,6 @@ def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
                 ],
                 expand=True,
             ),
-            page=page,
         )
     )
     page.update()
@@ -8521,6 +8585,7 @@ def show_shop_screen(page: ft.Page, state: dict):
         owned_avatar = set(user["avatar"].get("owned_items", []))
         equipped_avatar = user["avatar"].get("equipped", {})
 
+        card_w = 430 if _page_size(page)[0] > 980 else 330
         theme_cards = []
         for t in SHOP_CATALOG["themes"]:
             is_unlocked = t["id"] in unlocked_themes
@@ -8533,8 +8598,15 @@ def show_shop_screen(page: ft.Page, state: dict):
                 btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: page.run_task(on_buy_theme, e, itm))
             
             theme_cards.append(ft.Container(
-                content=ft.Row([ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")), btn], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                padding=10, border_radius=8, bgcolor=theme["panel"], border=ft.border.Border.all(1, theme["border"])
+                content=ft.Column(
+                    [
+                        ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")),
+                        ft.Row([ft.Text(f"Preis: {t['price']} €", size=12, color=theme_txt(theme, "secondary")), ft.Container(expand=True), btn]),
+                    ],
+                    spacing=6,
+                ),
+                width=card_w,
+                padding=10, border_radius=10, bgcolor=theme["panel"], border=ft.border.Border.all(1, theme["border"])
             ))
 
         title_cards = []
@@ -8549,8 +8621,15 @@ def show_shop_screen(page: ft.Page, state: dict):
                 btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: page.run_task(on_buy_title, e, itm))
             
             title_cards.append(ft.Container(
-                content=ft.Row([ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")), btn], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                padding=10, border_radius=8, bgcolor=theme["panel"], border=ft.border.Border.all(1, theme["border"])
+                content=ft.Column(
+                    [
+                        ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")),
+                        ft.Row([ft.Text(f"Preis: {t['price']} €", size=12, color=theme_txt(theme, "secondary")), ft.Container(expand=True), btn]),
+                    ],
+                    spacing=6,
+                ),
+                width=card_w,
+                padding=10, border_radius=10, bgcolor=theme["panel"], border=ft.border.Border.all(1, theme["border"])
             ))
 
         avatar_cards = []
@@ -8565,19 +8644,30 @@ def show_shop_screen(page: ft.Page, state: dict):
                 btn = ft.ElevatedButton(f"{item['price']} € Kaufen", on_click=lambda e, it=item: page.run_task(on_buy_avatar_item, e, it))
             avatar_cards.append(
                 ft.Container(
-                    content=ft.Row(
+                    content=ft.Column(
                         [
-                            ft.Text(f"{item.get('icon', '•')} {item['name']} ({item['slot']})", size=15, weight="bold", color=theme_txt(theme, "primary"), expand=True),
-                            btn,
+                            ft.Text(f"{item.get('icon', '•')} {item['name']}", size=15, weight="bold", color=theme_txt(theme, "primary")),
+                            ft.Row(
+                                [
+                                    ft.Text(f"Slot: {item['slot']} · Preis: {item['price']} €", size=12, color=theme_txt(theme, "secondary")),
+                                    ft.Container(expand=True),
+                                    btn,
+                                ]
+                            ),
                         ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        spacing=6,
                     ),
+                    width=card_w,
                     padding=10,
                     border_radius=8,
                     bgcolor=theme["panel"],
                     border=ft.border.Border.all(1, theme["border"]),
                 )
             )
+
+        themes_wrap = ft.Row(theme_cards, wrap=True, spacing=10, run_spacing=10, alignment=ft.MainAxisAlignment.CENTER)
+        titles_wrap = ft.Row(title_cards, wrap=True, spacing=10, run_spacing=10, alignment=ft.MainAxisAlignment.CENTER)
+        avatar_wrap = ft.Row(avatar_cards, wrap=True, spacing=10, run_spacing=10, alignment=ft.MainAxisAlignment.CENTER)
 
         page.controls.clear()
         page.add(
@@ -8588,30 +8678,39 @@ def show_shop_screen(page: ft.Page, state: dict):
                         _themed_screen_background(page, theme, "#0000008f"),
                         ft.Container(
                             expand=True,
-                            padding=20,
-                            content=ft.Column([
-                                ft.Row([
-                                    ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
-                                    ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
-                                ]),
-                                ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
-                                ft.Divider(color=theme["border"]),
-                                ft.Text("🎨 Designs", size=20, weight="bold", color="white"),
-                                ft.Column(theme_cards, scroll=ft.ScrollMode.AUTO, height=200),
-                                ft.Divider(color=theme["border"]),
-                                ft.Text("🏷️ Titel", size=20, weight="bold", color="white"),
-                                ft.Column(title_cards, scroll=ft.ScrollMode.AUTO, height=200),
-                                ft.Divider(color=theme["border"]),
-                                ft.Row(
-                                    [
-                                        ft.Text("🧍 Avatar-Items", size=20, weight="bold", color="white"),
+                            alignment=ft.Alignment(0, 0),
+                            padding=14,
+                            content=ft.Container(
+                                width=min(980, int(_page_size(page)[0] - 24)),
+                                border_radius=16,
+                                bgcolor="#060d09f0",
+                                border=ft.border.Border.all(2, theme["border"]),
+                                padding=16,
+                                content=ft.Column([
+                                    ft.Row([
+                                        ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
+                                        ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
                                         ft.Container(expand=True),
-                                        _theme_action_button("Garderobe", theme, lambda e: show_avatar_wardrobe(e.page, state, back_to_main=False), width=160),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Column(avatar_cards, scroll=ft.ScrollMode.AUTO, height=220),
-                            ])
+                                        ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
+                                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                                    ft.Divider(color=theme["border"]),
+                                    ft.Text("🎨 Designs", size=20, weight="bold", color="white"),
+                                    themes_wrap,
+                                    ft.Divider(color=theme["border"]),
+                                    ft.Text("🏷️ Titel", size=20, weight="bold", color="white"),
+                                    titles_wrap,
+                                    ft.Divider(color=theme["border"]),
+                                    ft.Row(
+                                        [
+                                            ft.Text("🧍 Avatar-Items", size=20, weight="bold", color="white"),
+                                            ft.Container(expand=True),
+                                            _theme_action_button("Garderobe", theme, lambda e: show_avatar_wardrobe(e.page, state, back_to_main=False), width=160),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    avatar_wrap,
+                                ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=10),
+                            ),
                         ),
                     ],
                     expand=True,
