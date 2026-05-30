@@ -418,17 +418,22 @@ SHOP_CATALOG = {
         {"id": "top_neon", "slot": "top", "name": "Neon Jacket", "icon": "🧥", "price": 3500},
         {"id": "top_royal", "slot": "top", "name": "Royal Cape", "icon": "🎽", "price": 12000},
         {"id": "top_ocean", "slot": "top", "name": "Ocean Suit", "icon": "🫧", "price": 9000},
+        {"id": "top_hacker", "slot": "top", "name": "Matrix Hoodie", "icon": "💻", "price": 8000},
+        {"id": "top_gold_blazer", "slot": "top", "name": "Gold Blazer", "icon": "🧥", "price": 18000},
         {"id": "pants_basic", "slot": "pants", "name": "Basic Pants", "icon": "👖", "price": 0},
         {"id": "pants_dark", "slot": "pants", "name": "Dark Pants", "icon": "🩳", "price": 2500},
         {"id": "pants_neon", "slot": "pants", "name": "Neon Nexus Pants", "icon": "🥋", "price": 4200},
         {"id": "pants_royal", "slot": "pants", "name": "Royal Pants", "icon": "👘", "price": 9000},
+        {"id": "pants_ocean", "slot": "pants", "name": "Ocean Cargo", "icon": "🌊", "price": 7600},
         {"id": "shoes_basic", "slot": "shoes", "name": "Basic Shoes", "icon": "👟", "price": 0},
         {"id": "shoes_lux", "slot": "shoes", "name": "Luxury Shoes", "icon": "🥾", "price": 6500},
         {"id": "shoes_ocean", "slot": "shoes", "name": "Diver Boots", "icon": "🩴", "price": 7000},
+        {"id": "shoes_neon", "slot": "shoes", "name": "Neon Runner", "icon": "⚡", "price": 7200},
         {"id": "acc_none", "slot": "accessory", "name": "Kein Accessoire", "icon": "➖", "price": 0},
         {"id": "acc_glasses", "slot": "accessory", "name": "Matrix Brille", "icon": "🕶️", "price": 4500},
         {"id": "acc_chain", "slot": "accessory", "name": "Goldkette", "icon": "📿", "price": 11000},
         {"id": "acc_crown", "slot": "accessory", "name": "Krone", "icon": "👑", "price": 30000},
+        {"id": "acc_headset", "slot": "accessory", "name": "Gaming Headset", "icon": "🎧", "price": 6500},
     ],
 }
 
@@ -1190,6 +1195,7 @@ def _resolve_avatar_base_image(gender: str) -> str | None:
         return items
 
     assets_files = collect("assets")
+    avatar_files = collect(os.path.join("assets", "avatar"))
     root_files = collect(".")
     alias = "avatar_female_base.png" if gender == "female" else "avatar_male_base.png"
     alias_path = os.path.join("assets", alias)
@@ -1206,6 +1212,14 @@ def _resolve_avatar_base_image(gender: str) -> str | None:
                 except Exception:
                     return name
                 return alias if os.path.exists(alias_path) else name
+        for name, nstem in avatar_files:
+            if nstem == nt or nstem.startswith(nt):
+                src = os.path.join("assets", "avatar", name)
+                try:
+                    shutil.copy2(src, alias_path)
+                except Exception:
+                    return src
+                return alias if os.path.exists(alias_path) else src
         for name, nstem in root_files:
             if nstem == nt or nstem.startswith(nt):
                 src = name
@@ -1215,29 +1229,6 @@ def _resolve_avatar_base_image(gender: str) -> str | None:
                     return name
                 return alias if os.path.exists(alias_path) else name
     return None
-
-
-def _avatar_top_box(gender: str, top_id: str) -> tuple[int, int, int, int]:
-    key = (top_id or "").lower()
-    if gender == "female":
-        if "jacket" in key or "cape" in key:
-            return (44, 82, 284, 322)
-        if "ocean" in key or "lang" in key:
-            return (54, 92, 274, 306)
-        return (74, 94, 254, 278)
-    if "jacket" in key or "cape" in key:
-        return (40, 78, 288, 330)
-    if "ocean" in key or "lang" in key:
-        return (48, 88, 280, 312)
-    return (70, 90, 258, 284)
-
-
-def _avatar_pants_box(gender: str, pants_id: str) -> tuple[int, int, int, int]:
-    key = (pants_id or "").lower()
-    short = ("short" in key) or ("rock" in key)
-    if gender == "female":
-        return (88, 232, 240, 338) if short else (84, 224, 244, 486)
-    return (90, 236, 240, 344) if short else (80, 226, 248, 486)
 
 
 def _avatar_image_source(asset_name: str | None) -> str | bytes | None:
@@ -1255,191 +1246,6 @@ def _avatar_image_source(asset_name: str | None) -> str | bytes | None:
             except Exception:
                 return asset_name
     return asset_name
-
-
-_AVATAR_OVERLAY_CACHE: dict[tuple[str, str, str, str, float], bytes] = {}
-
-
-def _clean_avatar_overlay(path: str, item_id: str, gender: str, slot: str) -> bytes | None:
-    if not path or not os.path.exists(path) or Image is None:
-        return None
-    try:
-        mtime = os.path.getmtime(path)
-    except Exception:
-        mtime = 0.0
-    cache_key = (path, item_id or "", gender or "", slot or "", float(mtime))
-    cached = _AVATAR_OVERLAY_CACHE.get(cache_key)
-    if cached:
-        return cached
-    try:
-        src = Image.open(path).convert("RGBA")
-        w, h = src.size
-        pixels = src.load()
-
-        # Robust background removal:
-        # remove only regions connected to image borders that are visually
-        # similar to the border background, while preserving dark jacket areas.
-        corner_samples: list[tuple[int, int, int]] = []
-        sample_pts = [
-            (0, 0),
-            (w - 1, 0),
-            (0, h - 1),
-            (w - 1, h - 1),
-            (w // 2, 0),
-            (w // 2, h - 1),
-            (0, h // 2),
-            (w - 1, h // 2),
-        ]
-        for sx, sy in sample_pts:
-            r, g, b, a = pixels[max(0, min(w - 1, sx)), max(0, min(h - 1, sy))]
-            if a > 0:
-                corner_samples.append((r, g, b))
-        if not corner_samples:
-            corner_samples = [(0, 0, 0)]
-        bg_r = sum(c[0] for c in corner_samples) / len(corner_samples)
-        bg_g = sum(c[1] for c in corner_samples) / len(corner_samples)
-        bg_b = sum(c[2] for c in corner_samples) / len(corner_samples)
-
-        def near_bg(r: int, g: int, b: int, a: int) -> bool:
-            if a < 8:
-                return True
-            dr = abs(r - bg_r)
-            dg = abs(g - bg_g)
-            db = abs(b - bg_b)
-            return (dr + dg + db) <= 95
-
-        from collections import deque
-        visited = bytearray(w * h)
-        q = deque()
-
-        def push(px: int, py: int):
-            idx = py * w + px
-            if visited[idx]:
-                return
-            visited[idx] = 1
-            q.append((px, py))
-
-        for x in range(w):
-            push(x, 0)
-            push(x, h - 1)
-        for y in range(h):
-            push(0, y)
-            push(w - 1, y)
-
-        while q:
-            x, y = q.popleft()
-            r, g, b, a = pixels[x, y]
-            if not near_bg(r, g, b, a):
-                continue
-            pixels[x, y] = (0, 0, 0, 0)
-            if x > 0:
-                push(x - 1, y)
-            if x < w - 1:
-                push(x + 1, y)
-            if y > 0:
-                push(x, y - 1)
-            if y < h - 1:
-                push(x, y + 1)
-
-        # soften remaining near-transparent pixels for cleaner edges
-        for y in range(h):
-            for x in range(w):
-                r, g, b, a = pixels[x, y]
-                if a < 20:
-                    pixels[x, y] = (0, 0, 0, 0)
-        bbox = src.getbbox()
-        if not bbox:
-            return None
-        cutout = src.crop(bbox)
-        canvas_w, canvas_h = 328, 492
-        if slot == "pants":
-            lx, ty, rx, by = _avatar_pants_box(gender, item_id)
-        else:
-            lx, ty, rx, by = _avatar_top_box(gender, item_id)
-        slot_w = max(12, rx - lx)
-        slot_h = max(12, by - ty)
-        fit_ratio = min(slot_w / max(cutout.width, 1), slot_h / max(cutout.height, 1))
-        scaled_w = max(1, int(cutout.width * fit_ratio))
-        scaled_h = max(1, int(cutout.height * fit_ratio))
-        cutout = cutout.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
-        overlay = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-        paste_x = lx + max(0, (slot_w - scaled_w) // 2)
-        paste_y = ty + max(0, (slot_h - scaled_h) // 2)
-        overlay.paste(cutout, (paste_x, paste_y), cutout)
-        out = io.BytesIO()
-        overlay.save(out, format="PNG")
-        data = out.getvalue()
-        _AVATAR_OVERLAY_CACHE[cache_key] = data
-        return data
-    except Exception:
-        return None
-
-
-def _avatar_collect(folder: str) -> list[tuple[str, str]]:
-    items: list[tuple[str, str]] = []
-    try:
-        for f in os.listdir(folder):
-            full = os.path.join(folder, f)
-            if not os.path.isfile(full):
-                continue
-            stem, ext = os.path.splitext(f)
-            if ext.lower() in (".png", ".webp", ".jpg", ".jpeg"):
-                norm_stem = unicodedata.normalize("NFKD", stem).encode("ascii", "ignore").decode("ascii")
-                norm_stem = re.sub(r"[^a-z0-9]+", "", norm_stem.lower())
-                items.append((f, norm_stem))
-    except Exception:
-        pass
-    return items
-
-
-def _resolve_avatar_top_overlay(top_id: str, gender: str) -> str | None:
-    top_id_norm = str(top_id or "").lower()
-    if "neon" in top_id_norm:
-        top_key = "top_neon"
-    elif "basic" in top_id_norm or "shirt" in top_id_norm or "tshirt" in top_id_norm:
-        top_key = "top_basic"
-    else:
-        top_key = top_id
-
-    tokens_by_top = {
-        "top_basic": ["avatartshirtweiss", "avatartshirtweis", "avatartshirtwei", "avatartshirtwhite", "tshirtweiss", "tshirtwei", "tshirt"],
-        "top_neon": ["avatarneonjacket", "neonjacket"],
-    }
-    token_list = tokens_by_top.get(top_key, [])
-    if not token_list:
-        return None
-    folder = os.path.join("assets", "avatar", "oberteil")
-    files = _avatar_collect(folder)
-    for token in token_list:
-        for fname, nstem in files:
-            if nstem == token or nstem.startswith(token):
-                return os.path.join(folder, fname)
-    return None
-
-
-def _resolve_avatar_pants_overlay(pants_id: str, gender: str) -> str | None:
-    pants_id_norm = str(pants_id or "").lower()
-    if "neon" in pants_id_norm:
-        pants_key = "pants_neon"
-    elif "basic" in pants_id_norm or "dark" in pants_id_norm or "royal" in pants_id_norm:
-        pants_key = "pants_basic"
-    else:
-        pants_key = "pants_basic"
-
-    tokens_by_pants = {
-        "pants_basic": ["hosestandart", "hosestandard", "avatarhose", "jeans", "pantsbasic", "basicpants"],
-        "pants_neon": ["hoseneonnexus", "hosenneonnexus", "neonpants", "pantsneon"],
-    }
-    token_list = tokens_by_pants.get(pants_key, [])
-    if not token_list:
-        return None
-    folder = os.path.join("assets", "avatar", "unterteil")
-    files = _avatar_collect(folder)
-    for token in token_list:
-        for fname, nstem in files:
-            if nstem == token or nstem.startswith(token):
-                return os.path.join(folder, fname)
-    return None
 
 
 def uses_themed_game(theme: dict) -> bool:
@@ -4396,17 +4202,21 @@ def _avatar_outfit_style(user: dict, theme: dict) -> dict:
         "top_neon": {"main": "#0F172A", "line": "#D946EF", "sleeve": "#111827", "glow": "#22D3EE"},
         "top_royal": {"main": "#2B1B0E", "line": "#F2C94C", "sleeve": "#3B2A13", "glow": "#FFD700"},
         "top_ocean": {"main": "#0B2942", "line": "#38BDF8", "sleeve": "#123E61", "glow": "#22D3EE"},
+        "top_hacker": {"main": "#06140B", "line": "#22C55E", "sleeve": "#082313", "glow": "#86EFAC"},
+        "top_gold_blazer": {"main": "#3A2608", "line": "#FACC15", "sleeve": "#4A300A", "glow": "#FDE68A"},
     }
     pants_palette = {
         "pants_basic": {"main": "#1E3A8A", "line": "#2563EB"},
         "pants_dark": {"main": "#1F2937", "line": "#334155"},
         "pants_neon": {"main": "#0B1020", "line": "#22D3EE"},
         "pants_royal": {"main": "#3B2A13", "line": "#F2C94C"},
+        "pants_ocean": {"main": "#0F3B57", "line": "#38BDF8"},
     }
     shoes_palette = {
         "shoes_basic": {"main": "#111827", "line": "#6B7280"},
         "shoes_lux": {"main": "#2E1A0E", "line": "#F59E0B"},
         "shoes_ocean": {"main": "#0B2942", "line": "#38BDF8"},
+        "shoes_neon": {"main": "#090E1F", "line": "#22D3EE"},
     }
     # fallback colors adapt to current theme
     top = top_palette.get(top_id, {
@@ -4481,7 +4291,7 @@ def _avatar_open_base_image(base_name: str) -> Image.Image | None:
     return None
 
 
-def _avatar_compose_image(user: dict, theme: dict, canvas_w: int = 328, canvas_h: int = 492) -> bytes | None:
+def _avatar_compose_image(user: dict, theme: dict, canvas_w: int = 512, canvas_h: int = 768) -> bytes | None:
     if Image is None or ImageDraw is None:
         return None
     ensure_avatar_defaults(user)
@@ -4492,12 +4302,12 @@ def _avatar_compose_image(user: dict, theme: dict, canvas_w: int = 328, canvas_h
     pants_id = str(equipped.get("pants", "pants_basic"))
     shoes_id = str(equipped.get("shoes", "shoes_basic"))
     acc_id = str(equipped.get("accessory", "acc_none"))
-
+    canvas_w, canvas_h = 328, 492
     base_name = _resolve_avatar_base_image(gender)
     if not base_name:
         return None
-    base_path = os.path.join("assets", base_name) if not os.path.isabs(base_name) else base_name
     try:
+        base_path = os.path.join("assets", base_name) if not os.path.isabs(base_name) else base_name
         mtime = os.path.getmtime(base_path) if os.path.exists(base_path) else 0.0
     except Exception:
         mtime = 0.0
@@ -4509,139 +4319,132 @@ def _avatar_compose_image(user: dict, theme: dict, canvas_w: int = 328, canvas_h
     base = _avatar_open_base_image(base_name)
     if base is None:
         return None
-
+    base = base.resize((canvas_w, canvas_h), Image.Resampling.LANCZOS)
     canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    scale = min(canvas_w / max(base.width, 1), canvas_h / max(base.height, 1))
-    render_w = max(1, int(base.width * scale))
-    render_h = max(1, int(base.height * scale))
-    avatar = base.resize((render_w, render_h), Image.Resampling.LANCZOS)
-    offset_x = (canvas_w - render_w) // 2
-    offset_y = (canvas_h - render_h) // 2
-    canvas.paste(avatar, (offset_x, offset_y), avatar)
+    canvas.alpha_composite(base)
+    draw = ImageDraw.Draw(canvas, "RGBA")
 
-    layer = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer, "RGBA")
+    def rr(box, radius, fill, outline=None, width=1):
+        draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
 
-    top_box = _avatar_top_box(gender, top_id)
-    pants_box = _avatar_pants_box(gender, pants_id)
-    top_main = _avatar_hex_rgba(style["top"]["main"], 188)
-    top_line = _avatar_hex_rgba(style["top"]["line"], 120)
-    top_sleeve = _avatar_hex_rgba(style["top"]["sleeve"], 176)
-    pants_main = _avatar_hex_rgba(style["pants"]["main"], 198)
-    pants_line = _avatar_hex_rgba(style["pants"]["line"], 115)
-    shoes_main = _avatar_hex_rgba(style["shoes"]["main"], 208)
-    shoes_line = _avatar_hex_rgba(style["shoes"]["line"], 128)
+    def ellipse(box, fill, outline=None, width=1):
+        draw.ellipse(box, fill=fill, outline=outline, width=width)
 
-    cloth = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    cd = ImageDraw.Draw(cloth, "RGBA")
-    glow = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(glow, "RGBA")
+    def line(points, fill, width=1):
+        draw.line(points, fill=fill, width=width, joint="curve")
 
-    tx1, ty1, tx2, ty2 = top_box
-    torso_poly = [
-        (tx1 + 22, ty1 + 16),
-        (tx2 - 22, ty1 + 16),
-        (tx2 - 16, ty2 + 6),
-        (tx1 + 16, ty2 + 6),
-    ]
-    left_sleeve_poly = [
-        (tx1 + 20, ty1 + 20),
-        (tx1 - 10, ty1 + 34),
-        (tx1 - 4, ty2 - 30),
-        (tx1 + 24, ty2 - 16),
-    ]
-    right_sleeve_poly = [
-        (tx2 - 20, ty1 + 20),
-        (tx2 + 10, ty1 + 34),
-        (tx2 + 4, ty2 - 30),
-        (tx2 - 24, ty2 - 16),
-    ]
-    cd.polygon(torso_poly, fill=top_main)
-    cd.polygon(left_sleeve_poly, fill=top_sleeve)
-    cd.polygon(right_sleeve_poly, fill=top_sleeve)
+    def poly(points, fill, outline=None):
+        draw.polygon(points, fill=fill, outline=outline)
 
-    collar_x = (tx1 + tx2) // 2
-    cd.arc((collar_x - 30, ty1 + 10, collar_x + 30, ty1 + 40), 195, -15, fill=_avatar_tint(top_line, 1.0, 150), width=3)
-    cd.ellipse((tx1 + 30, ty1 + 20, tx2 - 30, ty1 + 90), fill=_avatar_tint(top_main, 1.22, 52))
-    cd.ellipse((tx1 + 34, ty2 - 18, tx2 - 34, ty2 + 40), fill=_avatar_tint(top_main, 0.82, 70))
+    is_female = gender == "female"
+    cx = canvas_w // 2
+    skin = _avatar_hex_rgba(style["skin"], 255)
+    top_main = _avatar_hex_rgba(style["top"]["main"], 255)
+    top_line = _avatar_hex_rgba(style["top"]["line"], 255)
+    top_sleeve = _avatar_hex_rgba(style["top"]["sleeve"], 255)
+    pants_main = _avatar_hex_rgba(style["pants"]["main"], 255)
+    pants_line = _avatar_hex_rgba(style["pants"]["line"], 255)
+    shoes_main = _avatar_hex_rgba(style["shoes"]["main"], 255)
+    shoes_line = _avatar_hex_rgba(style["shoes"]["line"], 255)
 
-    if "neon" in top_id:
-        neon_1 = _avatar_hex_rgba(style["top"]["line"], 155)
-        neon_2 = _avatar_hex_rgba(style["top"].get("glow") or "#22D3EE", 155)
-        gd.line((tx1 + 26, ty1 + 28, tx1 + 20, ty2 - 8), fill=neon_1, width=4)
-        gd.line((tx2 - 26, ty1 + 28, tx2 - 20, ty2 - 8), fill=neon_2, width=4)
-        gd.arc((tx1 + 10, ty1 + 12, tx2 - 10, ty1 + 64), 200, -20, fill=neon_2, width=3)
-    elif "royal" in top_id:
-        cd.rounded_rectangle((tx1 + 26, ty1 + 22, tx2 - 26, ty1 + 54), radius=9, fill=(90, 58, 18, 95))
-        cd.line((tx1 + 30, ty1 + 52, tx2 - 30, ty1 + 52), fill=_avatar_hex_rgba("#F2C94C", 155), width=2)
-    elif "ocean" in top_id:
-        wave = _avatar_hex_rgba("#7DD3FC", 90)
-        for wave_i in range(3):
-            wy = ty1 + 26 + wave_i * 18
-            cd.arc((tx1 + 26, wy, tx2 - 26, wy + 18), 180, 360, fill=wave, width=2)
+    if is_female:
+        shoulder = (96, 105, 232, 124)
+        torso = [(108, 103), (220, 103), (218, 244), (110, 244)]
+        waist = (105, 226, 223, 252)
+        left_sleeve = [(94, 109), (112, 107), (105, 174), (88, 172)]
+        right_sleeve = [(216, 107), (234, 109), (240, 172), (223, 174)]
+        pants_left = [(109, 236), (157, 236), (151, 482), (96, 482)]
+        pants_right = [(171, 236), (219, 236), (232, 482), (177, 482)]
+        shoe_left = (92, 462, 153, 491)
+        shoe_right = (175, 462, 236, 491)
+        face = (104, 22, 224, 110)
+    else:
+        shoulder = (88, 97, 240, 120)
+        torso = [(102, 95), (226, 95), (228, 258), (100, 258)]
+        waist = (100, 240, 228, 270)
+        left_sleeve = [(86, 102), (106, 100), (99, 178), (80, 176)]
+        right_sleeve = [(222, 100), (242, 102), (248, 176), (229, 178)]
+        pants_left = [(102, 240), (157, 240), (151, 486), (90, 486)]
+        pants_right = [(171, 240), (226, 240), (238, 486), (177, 486)]
+        shoe_left = (84, 462, 153, 491)
+        shoe_right = (175, 462, 244, 491)
+        face = (100, 18, 228, 108)
 
-    px1, py1, px2, py2 = pants_box
-    mid = (px1 + px2) // 2
-    gap = max(7, int((px2 - px1) * 0.07))
-    left_leg = [(px1 + 8, py1 + 4), (mid - gap, py1 + 2), (mid - gap - 7, py2 - 2), (px1 + 14, py2)]
-    right_leg = [(mid + gap, py1 + 2), (px2 - 8, py1 + 4), (px2 - 14, py2), (mid + gap + 7, py2 - 2)]
-    cd.polygon(left_leg, fill=pants_main)
-    cd.polygon(right_leg, fill=pants_main)
-    cd.rounded_rectangle((px1 + 8, py1 - 4, px2 - 8, py1 + 16), radius=8, fill=_avatar_tint(pants_main, 0.9, 210))
-    cd.ellipse((px1 + 14, py1 + 34, mid - gap - 2, py2 - 20), fill=_avatar_tint(pants_main, 1.15, 42))
-    cd.ellipse((mid + gap + 2, py1 + 34, px2 - 14, py2 - 20), fill=_avatar_tint(pants_main, 1.15, 42))
-    if "neon" in pants_id:
-        gd.line((px1 + 16, py1 + 20, px1 + 18, py2 - 20), fill=_avatar_hex_rgba("#D946EF", 150), width=3)
-        gd.line((px2 - 16, py1 + 20, px2 - 18, py2 - 20), fill=_avatar_hex_rgba("#22D3EE", 150), width=3)
+    if top_id in ("top_neon", "top_hacker"):
+        poly(torso, _avatar_tint(top_main, 0.85))
+        poly([(torso[0][0], torso[0][1]), (cx - 12, torso[0][1] + 8), (cx - 8, torso[2][1]), (torso[3][0], torso[3][1])], top_main)
+        poly([(cx + 12, torso[1][1] + 8), (torso[1][0], torso[1][1]), (torso[2][0], torso[2][1]), (cx + 8, torso[2][1])], top_main)
+        line([(cx, torso[0][1] + 18), (cx, torso[2][1] - 10)], top_line, 4)
+        line([(torso[0][0] + 18, torso[0][1] + 18), (torso[3][0] + 8, torso[3][1] - 18)], top_line, 3)
+        line([(torso[1][0] - 18, torso[1][1] + 18), (torso[2][0] - 8, torso[2][1] - 18)], _avatar_hex_rgba(style["top"].get("glow") or "#22D3EE"), 3)
+    elif top_id in ("top_royal", "top_gold_blazer"):
+        poly(torso, top_main)
+        poly([(torso[0][0], torso[0][1]), (cx - 5, torso[0][1] + 45), (cx - 10, torso[2][1]), (torso[3][0], torso[3][1])], _avatar_tint(top_main, 0.82))
+        poly([(torso[1][0], torso[1][1]), (cx + 5, torso[1][1] + 45), (cx + 10, torso[2][1]), (torso[2][0], torso[2][1])], _avatar_tint(top_main, 0.82))
+        line([(torso[0][0] + 14, torso[0][1] + 18), (torso[1][0] - 14, torso[1][1] + 18)], top_line, 3)
+        line([(cx, torso[0][1] + 44), (cx, torso[2][1] - 14)], top_line, 2)
+    elif top_id == "top_ocean":
+        poly(torso, top_main)
+        rr((torso[0][0] + 18, torso[0][1] + 16, torso[1][0] - 18, torso[0][1] + 72), 22, _avatar_tint(top_main, 1.15), top_line, 2)
+        for y in (272, 304, 336):
+            line([(torso[0][0] + 20, y), (torso[1][0] - 20, y)], _avatar_tint(top_line, 1.2, 150), 2)
+    else:
+        poly(torso, top_main)
+        rr((torso[0][0] + 24, torso[0][1] + 12, torso[1][0] - 24, torso[0][1] + 62), 26, _avatar_tint(top_main, 1.12), None)
+        for y in (266, 306, 346):
+            if y < torso[2][1] - 4:
+                line([(torso[0][0] + 26, y), (torso[1][0] - 26, y)], _avatar_tint(top_line, 1.0, 95), 2)
 
-    shoe_y = py2 - 6
-    shoe_h = max(18, int((py2 - py1) * 0.085))
-    left_shoe = (px1 + 2, shoe_y, mid - gap + 8, shoe_y + shoe_h)
-    right_shoe = (mid + gap - 8, shoe_y, px2 - 2, shoe_y + shoe_h)
-    cd.rounded_rectangle(left_shoe, radius=10, fill=shoes_main)
-    cd.rounded_rectangle(right_shoe, radius=10, fill=shoes_main)
-    cd.line((left_shoe[0] + 8, shoe_y + 6, left_shoe[2] - 8, shoe_y + 6), fill=shoes_line, width=2)
-    cd.line((right_shoe[0] + 8, shoe_y + 6, right_shoe[2] - 8, shoe_y + 6), fill=shoes_line, width=2)
-    cd.ellipse((left_shoe[0] + 4, shoe_y + 2, left_shoe[2] - 4, shoe_y + 11), fill=_avatar_tint(shoes_main, 1.18, 52))
-    cd.ellipse((right_shoe[0] + 4, shoe_y + 2, right_shoe[2] - 4, shoe_y + 11), fill=_avatar_tint(shoes_main, 1.18, 52))
+    long_sleeve = top_id in ("top_neon", "top_hacker", "top_royal", "top_ocean", "top_gold_blazer")
+    if long_sleeve:
+        left_sleeve = [(left_sleeve[0][0], left_sleeve[0][1]), (left_sleeve[1][0], left_sleeve[1][1]), (left_sleeve[2][0] - 3, left_sleeve[2][1] + 92), (left_sleeve[3][0] + 4, left_sleeve[3][1] + 92)]
+        right_sleeve = [(right_sleeve[0][0], right_sleeve[0][1]), (right_sleeve[1][0], right_sleeve[1][1]), (right_sleeve[2][0] - 4, right_sleeve[2][1] + 92), (right_sleeve[3][0] + 3, right_sleeve[3][1] + 92)]
+    poly(left_sleeve, top_sleeve, _avatar_tint(top_line, 1.0, 180))
+    poly(right_sleeve, top_sleeve, _avatar_tint(top_line, 1.0, 180))
+    line([(left_sleeve[0][0] + 8, left_sleeve[0][1] + 10), (left_sleeve[2][0] + 4, left_sleeve[2][1] - 10)], _avatar_tint(top_line, 1.05, 145), 2)
+    line([(right_sleeve[1][0] - 8, right_sleeve[1][1] + 10), (right_sleeve[2][0] - 4, right_sleeve[2][1] - 10)], _avatar_tint(top_line, 1.05, 145), 2)
+    rr(waist, 14, _avatar_tint(top_main, 0.82), _avatar_tint(top_line, 0.9), 2)
 
-    cloth = cloth.filter(ImageFilter.GaussianBlur(radius=0.8))
-    if "neon" in top_id or "neon" in pants_id:
-        glow = glow.filter(ImageFilter.GaussianBlur(radius=2.4))
-        layer = Image.alpha_composite(layer, glow)
-    layer = Image.alpha_composite(layer, cloth)
+    left_leg = pants_left
+    right_leg = pants_right
+    poly(left_leg, pants_main, pants_line)
+    poly(right_leg, pants_main, pants_line)
+    rr((left_leg[0][0] - 3, left_leg[0][1] - 10, right_leg[1][0] + 3, left_leg[0][1] + 24), 12, _avatar_tint(pants_main, 0.92), pants_line, 2)
+    line([(left_leg[1][0], left_leg[0][1] + 16), (left_leg[2][0], left_leg[2][1] - 24)], _avatar_tint(pants_line, 1.0, 140), 2)
+    line([(right_leg[0][0], right_leg[0][1] + 16), (right_leg[3][0], right_leg[3][1] - 24)], _avatar_tint(pants_line, 1.0, 140), 2)
+    if pants_id in ("pants_neon", "pants_ocean"):
+        line([(left_leg[0][0] + 12, left_leg[0][1] + 34), (left_leg[3][0] + 10, left_leg[3][1] - 26)], pants_line, 3)
+        line([(right_leg[1][0] - 12, right_leg[1][1] + 34), (right_leg[2][0] - 10, right_leg[2][1] - 26)], pants_line, 3)
 
-    if "glasses" in acc_id:
-        if gender == "female":
-            face = (108, 38, 220, 126)
-        elif gender == "diverse":
-            face = (102, 36, 226, 124)
-        else:
-            face = (102, 34, 226, 122)
-        gy = int((face[1] + face[3]) / 2)
-        draw.rounded_rectangle((face[0] + 24, gy - 11, face[0] + 66, gy + 11), radius=7, outline=_avatar_hex_rgba("#0F172A", 245), width=3)
-        draw.rounded_rectangle((face[2] - 66, gy - 11, face[2] - 24, gy + 11), radius=7, outline=_avatar_hex_rgba("#0F172A", 245), width=3)
-        draw.line((face[0] + 66, gy, face[2] - 66, gy), fill=_avatar_hex_rgba("#0F172A", 240), width=2)
-    elif "chain" in acc_id:
-        nx = (tx1 + tx2) // 2
-        draw.arc((nx - 28, ty1 + 14, nx + 28, ty1 + 54), 15, 165, fill=_avatar_hex_rgba("#F2C94C", 240), width=4)
-    elif "crown" in acc_id:
-        if gender == "female":
-            crown = (128, 8, 200, 42)
-        else:
-            crown = (124, 6, 204, 40)
-        draw.polygon([(crown[0], crown[3]), (crown[0] + 16, crown[1] + 10), (crown[0] + 32, crown[3]), (crown[0] + 48, crown[1] + 8), (crown[2], crown[3])], fill=_avatar_hex_rgba("#F2C94C", 235), outline=_avatar_hex_rgba("#B45309", 245))
-        draw.rounded_rectangle((crown[0], crown[3] - 6, crown[2], crown[3] + 6), radius=4, fill=_avatar_hex_rgba("#EAB308", 235))
+    rr(shoe_left, 15, shoes_main, shoes_line, 3)
+    rr(shoe_right, 15, shoes_main, shoes_line, 3)
+    line([(shoe_left[0] + 12, shoe_left[1] + 11), (shoe_left[2] - 12, shoe_left[1] + 11)], _avatar_tint(shoes_line, 1.18), 2)
+    line([(shoe_right[0] + 12, shoe_right[1] + 11), (shoe_right[2] - 12, shoe_right[1] + 11)], _avatar_tint(shoes_line, 1.18), 2)
 
-    shadow = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow, "RGBA")
-    sd.ellipse((100, 452, 228, 485), fill=(0, 0, 0, 85))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=5))
-    composed = Image.alpha_composite(canvas, shadow)
-    composed = Image.alpha_composite(composed, layer)
+    if acc_id == "acc_glasses":
+        y = face[1] + 48
+        rr((face[0] + 28, y, face[0] + 58, y + 16), 7, (0, 0, 0, 80), (10, 15, 25, 255), 2)
+        rr((face[2] - 58, y, face[2] - 28, y + 16), 7, (0, 0, 0, 80), (10, 15, 25, 255), 2)
+        line([(face[0] + 58, y + 8), (face[2] - 58, y + 8)], (10, 15, 25, 255), 2)
+    elif acc_id == "acc_chain":
+        draw.arc((cx - 32, torso[0][1] + 12, cx + 32, torso[0][1] + 62), 20, 160, fill=(242, 201, 76, 255), width=4)
+    elif acc_id == "acc_crown":
+        cy = max(4, face[1] - 16)
+        poly([(cx - 42, cy + 30), (cx - 26, cy + 2), (cx - 8, cy + 30), (cx + 10, cy), (cx + 28, cy + 30), (cx + 42, cy + 30), (cx + 38, cy + 48), (cx - 38, cy + 48)], (242, 201, 76, 245), (180, 83, 9, 255))
+    elif acc_id == "acc_headset":
+        draw.arc((face[0] + 4, face[1] + 12, face[2] - 4, face[3] + 28), 190, 350, fill=(16, 24, 39, 255), width=5)
+        rr((face[0] - 2, face[1] + 54, face[0] + 18, face[1] + 90), 7, (16, 24, 39, 255), top_line, 2)
+        rr((face[2] - 18, face[1] + 54, face[2] + 2, face[1] + 90), 7, (16, 24, 39, 255), top_line, 2)
+
+    # A soft studio pass keeps the generated character from looking flat.
+    highlight = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    hd = ImageDraw.Draw(highlight, "RGBA")
+    hd.ellipse((78, 42, 218, 420), fill=(255, 255, 255, 18))
+    hd.ellipse((170, 120, 290, 480), fill=(0, 0, 0, 12))
+    canvas = Image.alpha_composite(canvas, highlight.filter(ImageFilter.GaussianBlur(radius=8)))
 
     out = io.BytesIO()
-    composed.save(out, format="PNG")
+    canvas.save(out, format="PNG")
     data = out.getvalue()
     _AVATAR_COMPOSED_CACHE[cache_key] = data
     return data
@@ -4649,7 +4452,7 @@ def _avatar_compose_image(user: dict, theme: dict, canvas_w: int = 328, canvas_h
 
 def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: float = 0.0) -> ft.Control:
     w = int(max(84, size))
-    h = int(w * 1.58)
+    h = int(w * 1.5)
     rendered = _avatar_compose_image(user, theme)
     if rendered:
         return ft.Container(
