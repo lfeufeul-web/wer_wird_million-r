@@ -7652,10 +7652,12 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         def on_cancel(ev):
             if dlg_ref["dlg"] is not None:
                 close_page_dialog(page, dlg_ref["dlg"])
+            force_close_all_dialogs(page)
 
         def on_confirm_delete(ev):
             if dlg_ref["dlg"] is not None:
                 close_page_dialog(page, dlg_ref["dlg"])
+            force_close_all_dialogs(page)
             do_delete()
 
         dlg = ft.AlertDialog(
@@ -9588,6 +9590,38 @@ def close_page_dialog(page: ft.Page, dlg: ft.AlertDialog):
     if dlg in page.overlay:
         page.overlay.remove(dlg)
     page.update()
+
+
+def force_close_all_dialogs(page: ft.Page):
+    """Best-effort close for stubborn dialogs across Flet versions."""
+    try:
+        current = getattr(page, "dialog", None)
+        if isinstance(current, ft.AlertDialog):
+            current.open = False
+    except Exception:
+        pass
+    try:
+        page.dialog = None
+    except Exception:
+        pass
+    try:
+        overlays = list(getattr(page, "overlay", []) or [])
+        for overlay in overlays:
+            if isinstance(overlay, ft.AlertDialog):
+                try:
+                    overlay.open = False
+                except Exception:
+                    pass
+                try:
+                    page.overlay.remove(overlay)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    try:
+        page.update()
+    except Exception:
+        pass
 
 
 def _close_overlay(page: ft.Page, overlay):
