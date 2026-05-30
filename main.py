@@ -19,6 +19,7 @@ import io
 from email.message import EmailMessage
 
 import requests
+import unicodedata
 
 try:
     from flet_video import Video as FletVideo, VideoMedia, PlaylistMode
@@ -1152,98 +1153,83 @@ def avatar_base_emoji(gender: str) -> str:
 
 
 def _resolve_avatar_base_image(gender: str) -> str | None:
-    preferred_stems = (
-        ["avatar_männlich", "avatar_maennlich", "avatar"]
-        if gender != "female"
-        else ["avatar_weiblich", "avatar_female", "avatar_männlich", "avatar_maennlich", "avatar"]
-    )
+    male_tokens = ["avatar_männlich", "avatar_maennlich", "avatarmannlich", "avatar_male", "avatar"]
+    female_tokens = ["avatar_weiblich", "avatar_female", "avatar_frau", "avatar_männlich", "avatar_maennlich", "avatar"]
+    preferred_tokens = male_tokens if gender != "female" else female_tokens
     if gender == "diverse":
-        preferred_stems = ["avatar_männlich", "avatar_maennlich", "avatar_weiblich", "avatar_female", "avatar"]
+        preferred_tokens = male_tokens + [t for t in female_tokens if t not in male_tokens]
 
-    exts = [".png", ".webp", ".jpg", ".jpeg"]
+    def norm(s: str) -> str:
+        s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+        return re.sub(r"[^a-z0-9]+", "", s.lower())
+
     try:
         os.makedirs("assets", exist_ok=True)
     except Exception:
         pass
 
-    def find_in_folder(folder: str, stem: str) -> str | None:
-        # exact with known extensions
-        for ext in exts:
-            name = f"{stem}{ext}"
-            if os.path.exists(os.path.join(folder, name)):
-                return name
-        # exact without extension
-        if os.path.exists(os.path.join(folder, stem)):
-            return stem
-        # best-effort startswith match
+    def collect(folder: str) -> list[tuple[str, str]]:
+        items: list[tuple[str, str]] = []
         try:
-            files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+            for f in os.listdir(folder):
+                full = os.path.join(folder, f)
+                if os.path.isfile(full):
+                    stem, ext = os.path.splitext(f)
+                    if ext.lower() in (".png", ".webp", ".jpg", ".jpeg", ".gif"):
+                        items.append((f, norm(stem)))
         except Exception:
-            files = []
-        for f in files:
-            if f.lower().startswith(stem.lower()):
-                return f
-        return None
+            pass
+        return items
 
-    # For every preferred stem, check assets first, then root; only then move to next stem.
-    for stem in preferred_stems:
-        in_assets = find_in_folder("assets", stem)
-        if in_assets:
-            return in_assets
-        in_root = find_in_folder(".", stem)
-        if in_root:
-            dest_name = in_root if "." in os.path.basename(in_root) else f"{stem}.png"
-            src = in_root
-            dst = os.path.join("assets", dest_name)
-            if not os.path.exists(dst):
+    assets_files = collect("assets")
+    root_files = collect(".")
+    alias = "avatar_female_base.png" if gender == "female" else "avatar_male_base.png"
+    alias_path = os.path.join("assets", alias)
+    if os.path.exists(alias_path):
+        return alias
+
+    for token in preferred_tokens:
+        nt = norm(token)
+        for name, nstem in assets_files:
+            if nstem == nt or nstem.startswith(nt):
+                src = os.path.join("assets", name)
                 try:
-                    shutil.copy2(src, dst)
+                    shutil.copy2(src, alias_path)
                 except Exception:
-                    pass
-            if os.path.exists(dst):
-                return dest_name
-
-    # 2) Fallback: root files (with or without extension) -> copy into assets
-    root_files = []
-    try:
-        root_files = [f for f in os.listdir(".") if os.path.isfile(f)]
-    except Exception:
-        root_files = []
-
-    lower_map = {f.lower(): f for f in root_files}
-    for stem in preferred_stems:
-        stem_l = stem.lower()
-        match = None
-        # exact + extension
-        for ext in exts:
-            key = f"{stem_l}{ext}"
-            if key in lower_map:
-                match = lower_map[key]
-                break
-        # exact name without extension
-        if not match and stem_l in lower_map:
-            match = lower_map[stem_l]
-        # any file starting with stem
-        if not match:
-            for f in root_files:
-                if f.lower().startswith(stem_l):
-                    match = f
-                    break
-
-        if match:
-            dest_name = match
-            if "." not in os.path.basename(dest_name):
-                dest_name = f"{stem}.png"
-            src = match
-            dst = os.path.join("assets", dest_name)
-            if not os.path.exists(dst):
+                    return name
+                return alias if os.path.exists(alias_path) else name
+        for name, nstem in root_files:
+            if nstem == nt or nstem.startswith(nt):
+                src = name
                 try:
-                    shutil.copy2(src, dst)
+                    shutil.copy2(src, alias_path)
                 except Exception:
-                    pass
-            if os.path.exists(dst):
-                return dest_name
+                    return name
+                return alias if os.path.exists(alias_path) else name
     return None
+
+
+def _avatar_top_box(gender: str, top_id: str) -> tuple[int, int, int, int]:
+    key = (top_id or "").lower()
+    if gender == "female":
+        if "jacket" in key or "cape" in key:
+            return (55, 85, 270, 305)
+        if "ocean" in key or "lang" in key:
+            return (65, 100, 260, 285)
+        return (90, 100, 235, 250)
+    if "jacket" in key or "cape" in key:
+        return (50, 80, 280, 310)
+    if "ocean" in key or "lang" in key:
+        return (60, 95, 270, 290)
+    return (85, 95, 245, 265)
+
+
+def _avatar_pants_box(gender: str, pants_id: str) -> tuple[int, int, int, int]:
+    key = (pants_id or "").lower()
+    short = ("short" in key) or ("rock" in key)
+    if gender == "female":
+        return (95, 235, 230, 330) if short else (90, 235, 235, 485)
+    return (95, 240, 235, 340) if short else (85, 240, 245, 485)
 
 
 def uses_themed_game(theme: dict) -> bool:
@@ -4197,8 +4183,10 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
     render_w = max(26, int(size * width_factor))
     x_offset = int((size - render_w) / 2)
 
-    top_color = _avatar_piece_color(equipped.get("top", ""), theme, theme.get("accent", "#10B981"))
-    pants_color = _avatar_piece_color(equipped.get("pants", ""), theme, "#334155")
+    top_id = equipped.get("top", "")
+    pants_id = equipped.get("pants", "")
+    top_color = _avatar_piece_color(top_id, theme, theme.get("accent", "#10B981"))
+    pants_color = _avatar_piece_color(pants_id, theme, "#334155")
     shoes_color = _avatar_piece_color(equipped.get("shoes", ""), theme, "#111827")
     acc_color = _avatar_piece_color(equipped.get("accessory", ""), theme, theme.get("gold", "#F59E0B"))
     if not base_img:
@@ -4209,53 +4197,66 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
             content=ft.Text("Avatarbild fehlt", color=theme_txt(theme, "secondary"), size=12),
         )
 
-    shirt_left = int(size * 0.33 + x_offset * 0.08)
-    shirt_w = max(16, int(render_w * 0.42))
-    leg_w = max(8, int(render_w * 0.15))
-    leg_gap = max(2, int(render_w * 0.05))
-    leg_left = int(size * 0.39 + x_offset * 0.12)
-    leg_right = leg_left + leg_w + leg_gap
-    shoe_w = max(10, int(render_w * 0.17))
+    canvas_w = 328.0
+    canvas_h = 492.0
+    img_h = int(size * 0.84)
+    scale_x = render_w / canvas_w
+    scale_y = img_h / canvas_h
+    top_x1, top_y1, top_x2, top_y2 = _avatar_top_box(gender, top_id)
+    pant_x1, pant_y1, pant_x2, pant_y2 = _avatar_pants_box(gender, pants_id)
+
+    shirt_left = x_offset + int(top_x1 * scale_x)
+    shirt_top = int(top_y1 * scale_y)
+    shirt_w = max(16, int((top_x2 - top_x1) * scale_x))
+    shirt_h = max(20, int((top_y2 - top_y1) * scale_y))
+
+    pant_left = x_offset + int(pant_x1 * scale_x)
+    pant_top = int(pant_y1 * scale_y)
+    pant_w = max(18, int((pant_x2 - pant_x1) * scale_x))
+    pant_h = max(24, int((pant_y2 - pant_y1) * scale_y))
+    pant_half = max(8, int((pant_w - 4) / 2))
+    shoe_w = max(10, int(pant_half * 0.95))
+    shoe_top = min(img_h - 16, pant_top + pant_h - 8)
     shade = "#2b2b2b66" if not is_front else "#ffffff22"
 
     outfit_overlay = ft.Stack(
         [
             ft.Container(
-                left=(shirt_left + (int(size * 0.01) if gender == "female" else 0)),
-                top=int(size * (0.29 if gender == "female" else 0.27)),
-                width=max(14, int(shirt_w * (0.93 if gender == "female" else 1.0))),
-                height=int(size * (0.22 if gender == "female" else 0.24)),
+                left=shirt_left,
+                top=shirt_top,
+                width=shirt_w,
+                height=shirt_h,
                 border_radius=12,
                 bgcolor=f"#AA{top_color[1:]}" if top_color.startswith("#") else "#AA66ccff",
                 border=ft.border.Border.all(1, "#00000033"),
             ),
             ft.Container(
-                left=leg_left,
-                top=int(size * (0.53 if gender == "female" else 0.52)),
-                width=leg_w,
-                height=int(size * (0.23 if gender == "female" else 0.24)),
+                left=pant_left,
+                top=pant_top,
+                width=pant_half,
+                height=pant_h,
                 border_radius=6,
                 bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155",
             ),
             ft.Container(
-                left=leg_right,
-                top=int(size * (0.53 if gender == "female" else 0.52)),
-                width=leg_w,
-                height=int(size * (0.23 if gender == "female" else 0.24)),
+                left=pant_left + pant_half + 4,
+                top=pant_top,
+                width=pant_half,
+                height=pant_h,
                 border_radius=6,
                 bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155",
             ),
             ft.Container(
-                left=leg_left,
-                top=int(size * (0.755 if gender == "female" else 0.76)),
+                left=pant_left,
+                top=shoe_top,
                 width=shoe_w,
                 height=int(size * 0.05),
                 border_radius=6,
                 bgcolor=f"#CC{shoes_color[1:]}" if shoes_color.startswith("#") else "#cc111827",
             ),
             ft.Container(
-                left=leg_right,
-                top=int(size * (0.755 if gender == "female" else 0.76)),
+                left=pant_left + pant_half + 4,
+                top=shoe_top,
                 width=shoe_w,
                 height=int(size * 0.05),
                 border_radius=6,
