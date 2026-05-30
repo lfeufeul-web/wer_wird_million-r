@@ -100,6 +100,8 @@ EXTRA_STATS_DEFAULTS = {
     "daily_games_played": 0,
     "last_daily_played": "",
 }
+QUESTION_HISTORY_LIMIT = 360
+QUESTION_PERFORMANCE_LIMIT = 1500
 
 
 def load_env_file():
@@ -579,6 +581,7 @@ def default_user(email: str, uid: str | None = None) -> dict:
         "active_title": "Neuling",
         "unlocked_achievements": [],
         "avatar": default_avatar_profile(),
+        "question_profile": {"recent_prompts": [], "performance": {}},
     }
     if uid:
         user["uid"] = uid
@@ -875,6 +878,7 @@ def ensure_user_settings(db: dict, email: str):
     for key, value in DEFAULT_USER_SETTINGS.items():
         settings.setdefault(key, value)
     ensure_avatar_defaults(user)
+    ensure_question_profile_defaults(user)
 
 
 def _avatar_catalog_by_id() -> dict[str, dict]:
@@ -930,6 +934,53 @@ def ensure_stats_defaults(stats: dict):
         stats.setdefault(key, value)
 
 
+def ensure_question_profile_defaults(user: dict):
+    profile = user.setdefault("question_profile", {})
+    if not isinstance(profile, dict):
+        profile = {}
+        user["question_profile"] = profile
+
+    recent = profile.setdefault("recent_prompts", [])
+    if not isinstance(recent, list):
+        recent = []
+    normalized_recent: list[str] = []
+    for entry in recent:
+        key = str(entry or "").strip().lower()
+        if not key:
+            continue
+        if key in normalized_recent:
+            normalized_recent.remove(key)
+        normalized_recent.append(key)
+    profile["recent_prompts"] = normalized_recent[-QUESTION_HISTORY_LIMIT:]
+
+    performance = profile.setdefault("performance", {})
+    if not isinstance(performance, dict):
+        performance = {}
+    cleaned_performance: dict[str, dict] = {}
+    for raw_key, raw_value in performance.items():
+        key = str(raw_key or "").strip().lower()
+        if not key or not isinstance(raw_value, dict):
+            continue
+        seen = max(0, int(raw_value.get("seen", 0)))
+        correct = max(0, int(raw_value.get("correct", 0)))
+        wrong = max(0, int(raw_value.get("wrong", 0)))
+        cleaned_performance[key] = {
+            "seen": seen,
+            "correct": min(correct, seen if seen else correct),
+            "wrong": min(wrong, seen if seen else wrong),
+            "last_seen": str(raw_value.get("last_seen", "")),
+        }
+    if len(cleaned_performance) > QUESTION_PERFORMANCE_LIMIT:
+        # Keep the most recent entries first.
+        sorted_items = sorted(
+            cleaned_performance.items(),
+            key=lambda item: str(item[1].get("last_seen", "")),
+            reverse=True,
+        )[:QUESTION_PERFORMANCE_LIMIT]
+        cleaned_performance = dict(sorted_items)
+    profile["performance"] = cleaned_performance
+
+
 def generate_friend_code() -> str:
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     return "".join(random.choice(alphabet) for _ in range(8))
@@ -950,6 +1001,7 @@ def ensure_social_defaults(user: dict):
     user.setdefault("last_active", None)
     user.setdefault("weekly_stats", {"week": "", "money_level": 0, "games_won": 0})
     user.setdefault("custom_quizzes", [])
+    ensure_question_profile_defaults(user)
 
 
 def get_current_week_key() -> str:
@@ -3525,9 +3577,110 @@ EXTRA_TOPIC_QUESTIONS = [
     ("Welches Instrument spielt man mit einem Bogen?", "Geige", ["Trompete", "Klavier", "Schlagzeug"]),
 ]
 
+CURATED_EASY_QUESTIONS = [
+    ("In welchem Land liegt die Stadt Wien?", "Oesterreich", ["Schweiz", "Belgien", "Niederlande"]),
+    ("Welches Meer liegt zwischen Europa und Afrika?", "Mittelmeer", ["Nordsee", "Ostsee", "Karibik"]),
+    ("Welcher Kontinent ist flaechenmaessig der groesste?", "Asien", ["Europa", "Australien", "Antarktis"]),
+    ("Wie nennt man die gedachte Linie um die Erde auf halber Hoehe?", "Aequator", ["Nullmeridian", "Wendekreis", "Polarkreis"]),
+    ("Welche Farbe hat ein typisches Stoppschild?", "Rot", ["Gruen", "Blau", "Gelb"]),
+    ("Wie nennt man das Parlament in Deutschland?", "Bundestag", ["Bundesrat", "EU-Rat", "Landtag"]),
+    ("Wer malte die 'Sternennacht'?", "Vincent van Gogh", ["Pablo Picasso", "Claude Monet", "Edvard Munch"]),
+    ("Welche Zahl ist eine Primzahl?", "13", ["12", "15", "21"]),
+    ("Welche Einheit wird fuer elektrische Stromstaerke genutzt?", "Ampere", ["Volt", "Watt", "Ohm"]),
+    ("Welche Sprache spricht man hauptsaechlich in Argentinien?", "Spanisch", ["Portugiesisch", "Franzoesisch", "Italienisch"]),
+    ("Welches Organ ist fuer den Gasaustausch zustaendig?", "Lunge", ["Leber", "Milz", "Bauchspeicheldruese"]),
+    ("Welche Sportart spielt man auf einem Eisfeld mit Schlaeger und Puck?", "Eishockey", ["Handball", "Volleyball", "Baseball"]),
+    ("Wie heisst die Hauptstadt von Irland?", "Dublin", ["Cork", "Belfast", "Galway"]),
+    ("Welches Material gewinnt man aus Kautschukbaeumen?", "Gummi", ["Glas", "Beton", "Kupfer"]),
+    ("Welcher Planet wird oft der 'rote Planet' genannt?", "Mars", ["Saturn", "Neptun", "Venus"]),
+    ("Welche Himmelsrichtung zeigt ein Kompass in der Regel an?", "Norden", ["Sueden", "Westen", "Osten"]),
+]
+
+CURATED_MEDIUM_QUESTIONS = [
+    ("Welche Stadt ist Sitz des Internationalen Gerichtshofs?", "Den Haag", ["Bruessel", "Genf", "Wien"]),
+    ("Welche chemische Formel hat Kochsalz?", "NaCl", ["KCl", "HCl", "CaCO3"]),
+    ("Welcher Fluss fliesst durch Budapest?", "Donau", ["Rhein", "Loire", "Po"]),
+    ("Wer schrieb den Roman '1984'?", "George Orwell", ["Aldous Huxley", "Ray Bradbury", "Ernest Hemingway"]),
+    ("Wie heisst die Waehrung in Japan?", "Yen", ["Won", "Renminbi", "Ringgit"]),
+    ("Was beschreibt der Begriff 'Inflation' am besten?", "Anstieg des allgemeinen Preisniveaus", ["Sinkende Steuern", "Mehr Exporte", "Steigende Geburtenrate"]),
+    ("In welchem Jahr wurde die Europaeische Union in ihrer heutigen Form begruendet (Maastricht)?", "1993", ["1989", "1999", "2004"]),
+    ("Welche Schicht der Erdatmosphaere enthaelt den Grossteil des Ozons?", "Stratosphaere", ["Troposphaere", "Mesosphaere", "Thermosphaere"]),
+    ("Wie heisst das groesste Organ des Menschen?", "Haut", ["Leber", "Lunge", "Darm"]),
+    ("Welches Instrument misst Luftdruck?", "Barometer", ["Hygrometer", "Seismograf", "Spektrometer"]),
+    ("Wer war der erste Bundeskanzler der Bundesrepublik Deutschland?", "Konrad Adenauer", ["Willy Brandt", "Helmut Kohl", "Ludwig Erhard"]),
+    ("Welcher Staat besitzt die meisten Zeitzonen auf seinem Staatsgebiet?", "Frankreich", ["Russland", "USA", "China"]),
+    ("Was ist ein Isotop?", "Atom gleicher Protonenzahl mit anderer Neutronenzahl", ["Atom mit gleicher Masse", "Elektron ohne Ladung", "Molekuel mit einem Atom"]),
+    ("Welche Stadt liegt auf zwei Kontinenten?", "Istanbul", ["Kairo", "Athen", "Lissabon"]),
+    ("Welche Energieeinheit wird in der Physik verwendet?", "Joule", ["Tesla", "Hertz", "Kelvin"]),
+    ("Welches Land hat den Euro eingefuehrt, war aber nicht Gruendungsmitglied der EU?", "Kroatien", ["Belgien", "Italien", "Luxemburg"]),
+]
+
+CURATED_HARD_QUESTIONS = [
+    ("Wie lautet die Hauptstadt von Kasachstan seit der Rueckbenennung 2022?", "Astana", ["Almaty", "Bischkek", "Taschkent"]),
+    ("Welches Abkommen beendete 1648 den Dreissigjaehrigen Krieg?", "Westfaelischer Friede", ["Frieden von Utrecht", "Wiener Kongressakte", "Pariser Frieden"]),
+    ("Welches Teilchen vermittelt in der Standardtheorie die starke Wechselwirkung?", "Gluon", ["Photon", "Neutrino", "Graviton"]),
+    ("Was ist die Ableitung von sin(x)?", "cos(x)", ["-sin(x)", "-cos(x)", "tan(x)"]),
+    ("Welche Stadt war Austragungsort der ersten modernen Olympischen Spiele 1896?", "Athen", ["Paris", "London", "Rom"]),
+    ("Welche DNA-Base paart mit Guanin?", "Cytosin", ["Adenin", "Thymin", "Uracil"]),
+    ("Welche Inselgruppe gehoert zu Spanien und liegt im Atlantik vor Afrika?", "Kanarische Inseln", ["Balearen", "Azoren", "Kapverden"]),
+    ("Wie heisst das oekonomische Modell mit Angebots-Nachfrage-Gleichgewichtspunkt?", "Marktgleichgewicht", ["Goldener Schnitt", "Nash-Gewicht", "Pareto-Front"]),
+    ("Welche Kunststroemung ist mit Claude Monet besonders verbunden?", "Impressionismus", ["Expressionismus", "Kubismus", "Dadaismus"]),
+    ("Welches Metall hat die Ordnungszahl 82?", "Blei", ["Zinn", "Wismut", "Kupfer"]),
+    ("Welche Programmiersprache laeuft typischerweise auf der JVM?", "Java", ["C", "Go", "Rust"]),
+    ("Was ist die Loesung von 2x + 3 = 19?", "8", ["7", "9", "6"]),
+    ("Welches Land war Gastgeber der FIFA-WM 2010?", "Suedafrika", ["Brasilien", "Deutschland", "Japan"]),
+    ("Welche Skala misst Erdbeben als Magnitude?", "Richter-Skala", ["Beaufort-Skala", "Kelvin-Skala", "Mohs-Skala"]),
+    ("Welcher Denker praegte den kategorischen Imperativ?", "Immanuel Kant", ["John Locke", "Thomas Hobbes", "David Hume"]),
+    ("Was beschreibt die Halbwertszeit?", "Zeit bis zur Halbierung einer Menge", ["Dauer bis zur Verdopplung", "Zeit bis zur Reaktion", "Zeit pro Messung"]),
+]
+
+CURATED_EXPERT_QUESTIONS = [
+    ("Welches Prinzip besagt, dass keine Information schneller als Licht uebertragen werden kann?", "Kausalitaetsprinzip der Relativitaet", ["Unschärferelation", "Pauli-Prinzip", "Entropiesatz"]),
+    ("Wie heisst die Hauptstadt von Myanmar?", "Naypyidaw", ["Yangon", "Mandalay", "Bangkok"]),
+    ("Welche mathematische Konstante ist die Basis des natuerlichen Logarithmus?", "e", ["pi", "phi", "i"]),
+    ("Welcher Vertrag gruendete 1957 die EWG?", "Roemische Vertraege", ["Vertrag von Maastricht", "Vertrag von Lissabon", "Schengener Abkommen"]),
+    ("Welches physikalische Gesetz verbindet Spannung, Stromstaerke und Widerstand?", "Ohmsches Gesetz", ["Hookesches Gesetz", "Boyle-Mariotte-Gesetz", "Bernoulli-Gesetz"]),
+    ("Welche Programmiersprache wurde von Guido van Rossum entwickelt?", "Python", ["Perl", "Ruby", "Lua"]),
+    ("Welche Stadt liegt am Zusammenfluss von Weissblauem und Blauem Nil?", "Khartum", ["Kairo", "Addis Abeba", "Alexandria"]),
+    ("Wer schrieb die 'Kritik der praktischen Vernunft'?", "Immanuel Kant", ["Fichte", "Hegel", "Schopenhauer"]),
+    ("Welche chemische Bindung entsteht durch Elektronenpaarteilung?", "kovalente Bindung", ["Ionenbindung", "Metallbindung", "Wasserstoffbruecke"]),
+    ("Wie heisst die groesste Wuestenregion Asiens?", "Gobi", ["Kalahari", "Atacama", "Sahara"]),
+    ("Welche Konstante beschreibt die universelle Gravitationswirkung?", "Gravitationskonstante G", ["Planck-Konstante", "Avogadro-Zahl", "Faraday-Konstante"]),
+    ("Welcher Begriff beschreibt die Streuung eines Portfolios zur Risikominderung?", "Diversifikation", ["Liquidation", "Arbitrage", "Kapitalflucht"]),
+    ("Welches Molekuel traegt genetische Information in Zellen?", "DNA", ["ATP", "NADH", "mRNA"]),
+    ("Welche Stadt ist Sitz der EZB?", "Frankfurt am Main", ["Bruessel", "Luxemburg", "Strassburg"]),
+    ("Welcher Philosoph verfasste 'Also sprach Zarathustra'?", "Friedrich Nietzsche", ["Arthur Schopenhauer", "Soren Kierkegaard", "Karl Jaspers"]),
+    ("Welcher Ozean ist der tiefste?", "Pazifischer Ozean", ["Atlantischer Ozean", "Indischer Ozean", "Arktischer Ozean"]),
+]
+
 
 def supplemental_question(level_idx: int, variant: int) -> tuple:
     prompt, correct, wrongs = EXTRA_TOPIC_QUESTIONS[(level_idx * 17 + variant) % len(EXTRA_TOPIC_QUESTIONS)]
+    return _make_question(prompt, correct, wrongs)
+
+
+def _difficulty_bucket_for_level(level_idx: int) -> str:
+    total = max(1, len(MONEY_LEVELS))
+    ratio = (level_idx + 1) / total
+    if ratio <= 0.27:
+        return "easy"
+    if ratio <= 0.53:
+        return "medium"
+    if ratio <= 0.80:
+        return "hard"
+    return "expert"
+
+
+def _curated_question_for_level(level_idx: int, variant: int) -> tuple:
+    bucket = _difficulty_bucket_for_level(level_idx)
+    pools = {
+        "easy": CURATED_EASY_QUESTIONS,
+        "medium": CURATED_MEDIUM_QUESTIONS,
+        "hard": CURATED_HARD_QUESTIONS,
+        "expert": CURATED_EXPERT_QUESTIONS,
+    }
+    pool = pools.get(bucket, CURATED_MEDIUM_QUESTIONS)
+    prompt, correct, wrongs = pool[(level_idx * 31 + variant) % len(pool)]
     return _make_question(prompt, correct, wrongs)
 
 
@@ -3910,37 +4063,248 @@ def build_level_question_bank(age: str) -> list[list[tuple]]:
     return [
         [
             *[builder(level_idx, variant) for variant in range(QUESTIONS_PER_LEVEL)],
-            *[supplemental_question(level_idx, variant) for variant in range(40)],
+            *[supplemental_question(level_idx, variant) for variant in range(80)],
+            *[_curated_question_for_level(level_idx, variant) for variant in range(120)],
         ]
         for level_idx in range(len(MONEY_LEVELS))
     ]
 
 
-def create_game_questions(age: str) -> list[tuple]:
+QUESTION_TOPIC_KEYWORDS = {
+    "geschichte": ["jahr", "krieg", "revolution", "mittelalter", "kaiser", "vertrag", "histor", "griech", "röm", "mauer"],
+    "geografie": ["hauptstadt", "fluss", "kontinent", "insel", "meer", "ozean", "gebirge", "land", "wüste", "graben"],
+    "wissenschaft": ["chem", "physik", "biolog", "zelle", "dna", "atom", "licht", "temperatur", "gravitation", "reaktion"],
+    "mathematik": ["was ist", "gleichung", "prozent", "quadrat", "primzahl", "drittel", "hälfte", "x ", " + ", " - ", " %"],
+    "technik": ["internet", "algorithm", "html", "ip-", "passwort", "computer", "programmier", "jvm", "software"],
+    "kultur": ["roman", "oper", "musik", "künstler", "malte", "kompon", "literatur", "philosoph", "kunst", "film"],
+    "sport": ["sport", "fußball", "wm", "olymp", "puck", "tennis", "badminton", "basketball", "tour"],
+    "wirtschaft": ["inflation", "währung", "budget", "bip", "diversifikation", "preis", "rabatt", "opportunitätskosten"],
+    "natur": ["tier", "pflanze", "ozean", "wald", "blume", "sonnen", "frosch", "sauerstoff", "ozon", "korallen"],
+}
+QUESTION_TOPIC_ROTATION = [
+    "geschichte",
+    "geografie",
+    "wissenschaft",
+    "kultur",
+    "natur",
+    "technik",
+    "sport",
+    "wirtschaft",
+    "mathematik",
+]
+SEASONAL_QUESTIONS = {
+    "winter": [
+        ("Was ist in Mitteleuropa ein typisches Winter-Phänomen?", "Schneefall", ["Monsunregen", "Hitzewelle", "Sandsturm"]),
+        ("Welche Farbe haben Streusalz-Kristalle meist?", "weiß", ["grün", "rot", "blau"]),
+        ("Welcher Monat gehört meteorologisch zum Winter?", "Januar", ["Mai", "August", "Oktober"]),
+        ("Welches Fest liegt häufig im Winter?", "Weihnachten", ["Ostern", "Pfingsten", "Erntedank"]),
+    ],
+    "spring": [
+        ("Welche Jahreszeit folgt direkt auf den Winter?", "Frühling", ["Sommer", "Herbst", "Nacht"]),
+        ("Was machen viele Bäume im Frühling?", "Sie treiben neue Blätter aus", ["Sie verlieren alle Blätter", "Sie gefrieren", "Sie verdorren"]),
+        ("Welcher Monat gehört meteorologisch zum Frühling?", "April", ["Juli", "November", "Dezember"]),
+        ("Welches Tier wird oft mit Frühlingswiesen verbunden?", "Hase", ["Pinguin", "Kamel", "Wal"]),
+    ],
+    "summer": [
+        ("Welche Jahreszeit hat in Europa häufig die höchsten Temperaturen?", "Sommer", ["Winter", "Frühling", "Herbst"]),
+        ("Welcher Monat gehört meteorologisch zum Sommer?", "August", ["Februar", "November", "März"]),
+        ("Was ist an Sommertagen oft länger?", "Tageslicht", ["Mondfinsternis", "Nebel", "Schneefall"]),
+        ("Welche Aktivität ist typisch für heiße Sommertage?", "Schwimmen", ["Schlittenfahren", "Eisangeln", "Skispringen"]),
+    ],
+    "autumn": [
+        ("In welcher Jahreszeit verfärben sich viele Laubblätter?", "Herbst", ["Winter", "Sommer", "Frühling"]),
+        ("Welcher Monat gehört meteorologisch zum Herbst?", "Oktober", ["Januar", "April", "Juni"]),
+        ("Welche Ernte ist in vielen Regionen im Herbst typisch?", "Apfelernte", ["Mangoernte in Europa", "Olivenblüte", "Reisernte in Skandinavien"]),
+        ("Was passiert im Herbst häufiger als im Hochsommer?", "Laubfall", ["Polarnacht", "Monsun", "Gletscherschmelze auf Null"]),
+    ],
+}
+
+
+def _question_prompt_key(question: tuple) -> str:
+    return str(question[0]).strip().lower()
+
+
+def _question_text_blob(question: tuple) -> str:
+    prompt = str(question[0] if len(question) > 0 else "")
+    answers = question[1] if len(question) > 1 else []
+    options_txt = " ".join(str(a) for a in (answers or []))
+    return f"{prompt} {options_txt}".lower()
+
+
+def _question_topic(question: tuple) -> str:
+    text = _question_text_blob(question)
+    if is_math_question(question):
+        return "mathematik"
+    for topic, keywords in QUESTION_TOPIC_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            return topic
+    return "allgemein"
+
+
+def _current_season_key() -> str:
+    month = datetime.now().month
+    if month in (12, 1, 2):
+        return "winter"
+    if month in (3, 4, 5):
+        return "spring"
+    if month in (6, 7, 8):
+        return "summer"
+    return "autumn"
+
+
+def _seasonal_question_for_level(level_idx: int) -> tuple | None:
+    # Roughly every 4th level gets a season-themed option.
+    if level_idx % 4 != 1:
+        return None
+    season_key = _current_season_key()
+    pool = SEASONAL_QUESTIONS.get(season_key) or SEASONAL_QUESTIONS["spring"]
+    prompt, correct, wrongs = pool[(level_idx * 7) % len(pool)]
+    return _make_question(prompt, correct, wrongs)
+
+
+def _build_topic_plan(total: int) -> list[str]:
+    topics = list(QUESTION_TOPIC_ROTATION)
+    random.shuffle(topics)
+    plan: list[str] = []
+    while len(plan) < max(1, total):
+        plan.extend(topics)
+    return plan[:total]
+
+
+def _get_question_profile(state: dict | None) -> dict | None:
+    if not isinstance(state, dict):
+        return None
+    email = state.get("current_user_email")
+    if not email:
+        return None
+    db = load_db()
+    user = db.get("users", {}).get(email)
+    if not user:
+        return None
+    ensure_question_profile_defaults(user)
+    return user.get("question_profile")
+
+
+def _score_question_candidate(
+    candidate: tuple,
+    target_topic: str,
+    level_idx: int,
+    recent_set: set[str],
+    performance: dict,
+) -> float:
+    key = _question_prompt_key(candidate)
+    topic = _question_topic(candidate)
+    entry = performance.get(key, {}) if isinstance(performance, dict) else {}
+    seen = max(0, int(entry.get("seen", 0)))
+    wrong = max(0, int(entry.get("wrong", 0)))
+    wrong_rate = (wrong / seen) if seen else 0.0
+    review_boost = wrong_rate * 40.0 + min(wrong, 6) * 2.5
+    topic_boost = 24.0 if topic == target_topic else (7.5 if topic == "allgemein" else 0.0)
+    novelty_boost = 9.0 if seen == 0 else max(0.0, 4.0 - seen * 0.35)
+    seasonal_boost = 10.0 if "jahreszeit" in _question_text_blob(candidate) else 0.0
+    session_math_penalty = 4.0 if level_idx < 6 and is_math_question(candidate) else 0.0
+    history_penalty = 100.0 if key in recent_set else 0.0
+    return topic_boost + review_boost + novelty_boost + seasonal_boost - session_math_penalty - history_penalty
+
+
+def create_game_questions(age: str, state: dict | None = None) -> list[tuple]:
     bank = build_level_question_bank(age)
-    questions = []
-    used_prompts = set()
-    for level_questions in bank:
-        non_math = [question for question in level_questions if not is_math_question(question)]
-        candidates = non_math if len(non_math) >= 8 else level_questions
-        random.shuffle(candidates)
+    profile = _get_question_profile(state)
+    recent_prompts = []
+    performance = {}
+    if profile:
+        recent_prompts = list(profile.get("recent_prompts", []) or [])
+        performance = dict(profile.get("performance", {}) or {})
+
+    recent_set = {str(key).strip().lower() for key in recent_prompts[-QUESTION_HISTORY_LIMIT:]}
+    topic_plan = _build_topic_plan(len(bank))
+    questions: list[tuple] = []
+    used_prompts: set[str] = set()
+
+    for level_idx, level_questions in enumerate(bank):
+        candidates = list(level_questions)
+        non_math = [question for question in candidates if not is_math_question(question)]
+        if len(non_math) >= 8:
+            candidates = non_math
+        seasonal = _seasonal_question_for_level(level_idx)
+        if seasonal is not None:
+            candidates.append(seasonal)
+
+        candidates = [q for q in candidates if _question_prompt_key(q) not in used_prompts]
+        if not candidates:
+            raise RuntimeError("Nicht genug eindeutige Fragen fuer dieses Spiel.")
+
+        unseen = [q for q in candidates if _question_prompt_key(q) not in recent_set]
+        if unseen:
+            candidates = unseen
+
+        target_topic = topic_plan[level_idx]
+        best_score = None
         chosen = None
         for question in candidates:
-            prompt_key = question[0].strip().lower()
-            if prompt_key not in used_prompts:
+            score = _score_question_candidate(question, target_topic, level_idx, recent_set, performance) + random.random() * 0.8
+            if best_score is None or score > best_score:
+                best_score = score
                 chosen = question
-                break
+
         if chosen is None:
-            for question in level_questions:
-                prompt_key = question[0].strip().lower()
-                if prompt_key not in used_prompts:
-                    chosen = question
-                    break
-        if chosen is None:
-            raise RuntimeError("Nicht genug eindeutige Fragen fuer dieses Spiel.")
-        used_prompts.add(chosen[0].strip().lower())
+            chosen = random.choice(candidates)
+        prompt_key = _question_prompt_key(chosen)
+        used_prompts.add(prompt_key)
         questions.append(chosen)
+
     return questions
+
+
+def _remember_generated_questions(state: dict, questions: list[tuple]):
+    email = state.get("current_user_email")
+    if not email:
+        return
+    db = load_db()
+    user = db.get("users", {}).get(email)
+    if not user:
+        return
+    ensure_question_profile_defaults(user)
+    profile = user["question_profile"]
+    recent = list(profile.get("recent_prompts", []) or [])
+    for question in questions:
+        key = _question_prompt_key(question)
+        if key in recent:
+            recent.remove(key)
+        recent.append(key)
+    profile["recent_prompts"] = recent[-QUESTION_HISTORY_LIMIT:]
+    save_db(db)
+
+
+def record_question_result(state: dict, question: tuple, was_correct: bool):
+    email = state.get("current_user_email")
+    if not email:
+        return
+    db = load_db()
+    user = db.get("users", {}).get(email)
+    if not user:
+        return
+    ensure_question_profile_defaults(user)
+    profile = user["question_profile"]
+    key = _question_prompt_key(question)
+    perf = profile.setdefault("performance", {})
+    row = perf.setdefault(key, {"seen": 0, "correct": 0, "wrong": 0, "last_seen": ""})
+    row["seen"] = max(0, int(row.get("seen", 0))) + 1
+    if was_correct:
+        row["correct"] = max(0, int(row.get("correct", 0))) + 1
+    else:
+        row["wrong"] = max(0, int(row.get("wrong", 0))) + 1
+    row["last_seen"] = datetime.now().date().isoformat()
+
+    # Keep profile compact.
+    if len(perf) > QUESTION_PERFORMANCE_LIMIT:
+        sorted_items = sorted(
+            perf.items(),
+            key=lambda item: str(item[1].get("last_seen", "")),
+            reverse=True,
+        )[:QUESTION_PERFORMANCE_LIMIT]
+        profile["performance"] = dict(sorted_items)
+    save_db(db)
 
 
 # ---------- Duel question helpers ----------
@@ -4171,7 +4535,7 @@ def _avatar_preview_text(user: dict, theme: dict) -> str:
     theme_key = _theme_key_from_theme(theme) or "classic"
     scene = avatar_scene(theme_key)
     gender_label = {"male": "Männlich", "female": "Weiblich", "diverse": "Divers"}.get(gender, "Divers")
-    return f"{scene}\nTyp: {gender_label}"
+    return f"Avatar bald verfügbar\n{scene}\nTyp: {gender_label}"
 
 
 def _avatar_piece_color(item_id: str, theme: dict, fallback: str) -> str:
@@ -4453,25 +4817,25 @@ def _avatar_compose_image(user: dict, theme: dict, canvas_w: int = 512, canvas_h
 def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: float = 0.0) -> ft.Control:
     w = int(max(84, size))
     h = int(w * 1.5)
-    rendered = _avatar_compose_image(user, theme)
-    if rendered:
-        return ft.Container(
-            width=w,
-            height=h,
-            content=ft.Image(
-                src=rendered,
-                width=w,
-                height=h,
-                fit=ft.BoxFit.CONTAIN,
-                gapless_playback=True,
-                anti_alias=True,
-            ),
-        )
     return ft.Container(
         width=w,
         height=h,
+        border_radius=14,
+        padding=10,
         alignment=ft.Alignment(0, 0),
-        content=ft.Text("Avatar lädt…", color=theme_txt(theme, "secondary"), size=12),
+        bgcolor="#00000055",
+        border=ft.border.Border.all(1.5, theme.get("border", "#60A5FA")),
+        content=ft.Column(
+            [
+                ft.Icon(ft.Icons.PERSON_OUTLINE, color=theme.get("accent", "#60A5FA"), size=max(24, int(w * 0.28))),
+                ft.Text("Avatar", color=theme_txt(theme, "primary"), size=max(11, int(w * 0.11)), weight="bold"),
+                ft.Text("bald verfügbar", color=theme_txt(theme, "secondary"), size=max(10, int(w * 0.095))),
+            ],
+            spacing=4,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+            tight=True,
+        ),
     )
 
 
@@ -5786,7 +6150,8 @@ def show_age_selection(page: ft.Page, state: dict):
     def choose_age(e: ft.ControlEvent):
         age = e.control.data
         state["player_age"] = age
-        state["questions"] = create_game_questions(age)
+        state["questions"] = create_game_questions(age, state)
+        _remember_generated_questions(state, state["questions"])
         state.pop("selected_jokers", None)
         state.pop("jokers_used_ids", None)
         reset_joker_pick_state(state)
@@ -6004,6 +6369,11 @@ def _start_question_timer(page: ft.Page, state: dict):
             if left <= 0:
                 stop_game_timer(state)
                 state.pop("_timer_active_key", None)
+                try:
+                    q = state["questions"][state["question_index"]]
+                    record_question_result(state, q, was_correct=False)
+                except Exception:
+                    pass
                 state["questions_answered"] += 1
                 state["game_finished"] = True
                 clear_saved_game(state)
@@ -6068,6 +6438,7 @@ def render_game_screen(page: ft.Page, state: dict):
         async def _next():
             await asyncio.sleep(1.5)
             if chosen == correct_idx:
+                record_question_result(state, (question, options, correct_idx), was_correct=True)
                 state["correct"] += 1
                 levels = money_levels_for_state(state)
                 state["money"] = levels[min(state["correct"] - 1, len(levels) - 1)]
@@ -6080,6 +6451,7 @@ def render_game_screen(page: ft.Page, state: dict):
                     save_current_game(state)
                     _show_correct_screen(page, state)
             else:
+                record_question_result(state, (question, options, correct_idx), was_correct=False)
                 state["questions_answered"] += 1
                 state["game_finished"] = True
                 clear_saved_game(state)
@@ -9238,8 +9610,9 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
 
         # 4. Generate seeded questions
         random.seed(today_str)
-        state["questions"] = create_game_questions("old")
+        state["questions"] = create_game_questions("old", state)
         random.seed() # Reset seed
+        _remember_generated_questions(state, state["questions"])
 
         # 5. Launch the game immediately!
         show_next_question(page, state)
