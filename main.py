@@ -1152,9 +1152,13 @@ def avatar_base_emoji(gender: str) -> str:
 
 
 def _resolve_avatar_base_image(gender: str) -> str | None:
-    preferred_stems = ["avatar"] if gender != "female" else ["avatar_weiblich", "avatar"]
+    preferred_stems = (
+        ["avatar_männlich", "avatar_maennlich", "avatar"]
+        if gender != "female"
+        else ["avatar_weiblich", "avatar_female", "avatar_männlich", "avatar_maennlich", "avatar"]
+    )
     if gender == "diverse":
-        preferred_stems = ["avatar", "avatar_weiblich"]
+        preferred_stems = ["avatar_männlich", "avatar_maennlich", "avatar_weiblich", "avatar_female", "avatar"]
 
     exts = [".png", ".webp", ".jpg", ".jpeg"]
     try:
@@ -4217,33 +4221,33 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
     outfit_overlay = ft.Stack(
         [
             ft.Container(
-                left=shirt_left,
-                top=int(size * 0.27),
-                width=shirt_w,
-                height=int(size * 0.24),
+                left=(shirt_left + (int(size * 0.01) if gender == "female" else 0)),
+                top=int(size * (0.29 if gender == "female" else 0.27)),
+                width=max(14, int(shirt_w * (0.93 if gender == "female" else 1.0))),
+                height=int(size * (0.22 if gender == "female" else 0.24)),
                 border_radius=12,
                 bgcolor=f"#AA{top_color[1:]}" if top_color.startswith("#") else "#AA66ccff",
                 border=ft.border.Border.all(1, "#00000033"),
             ),
             ft.Container(
                 left=leg_left,
-                top=int(size * 0.52),
+                top=int(size * (0.53 if gender == "female" else 0.52)),
                 width=leg_w,
-                height=int(size * 0.24),
+                height=int(size * (0.23 if gender == "female" else 0.24)),
                 border_radius=6,
                 bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155",
             ),
             ft.Container(
                 left=leg_right,
-                top=int(size * 0.52),
+                top=int(size * (0.53 if gender == "female" else 0.52)),
                 width=leg_w,
-                height=int(size * 0.24),
+                height=int(size * (0.23 if gender == "female" else 0.24)),
                 border_radius=6,
                 bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155",
             ),
             ft.Container(
                 left=leg_left,
-                top=int(size * 0.76),
+                top=int(size * (0.755 if gender == "female" else 0.76)),
                 width=shoe_w,
                 height=int(size * 0.05),
                 border_radius=6,
@@ -4251,7 +4255,7 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
             ),
             ft.Container(
                 left=leg_right,
-                top=int(size * 0.76),
+                top=int(size * (0.755 if gender == "female" else 0.76)),
                 width=shoe_w,
                 height=int(size * 0.05),
                 border_radius=6,
