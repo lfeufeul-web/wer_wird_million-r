@@ -7525,9 +7525,19 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         save_quiz(mark_finished=points_quiz_is_playable(state.get("editing_points_quiz", quiz)))
         show_points_quiz_hub(page, state)
 
+    cell_label_w = 120
+    cell_btn_w = 180
+    table_spacing = 8
+    table_width = cell_label_w + (POINTS_QUIZ_MAX_CATEGORIES * cell_btn_w) + (POINTS_QUIZ_MAX_CATEGORIES * table_spacing)
     cell_rows = []
     for q_idx, points in enumerate(POINTS_QUIZ_POINT_VALUES):
-        row_controls = [ft.Text(f"{points} Punkte", color=theme["gold"], weight="bold", width=110)]
+        row_controls = [
+            ft.Container(
+                width=cell_label_w,
+                alignment=ft.Alignment(-1, 0),
+                content=ft.Text(f"{points} Punkte", color=theme["gold"], weight="bold"),
+            )
+        ]
         for cat_idx, category in enumerate(quiz.get("categories", [])):
             entry = category.get("questions", [])[q_idx]
             ready = bool(str(entry.get("question", "")).strip() and str(entry.get("answer", "")).strip())
@@ -7536,11 +7546,11 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                     "Bearbeiten" if ready else "Ausfüllen",
                     lambda e, c=cat_idx, q=q_idx: show_points_quiz_cell_editor(page, state, c, q),
                     theme["success"] if ready else theme["accent"],
-                    width=150,
+                    width=cell_btn_w,
                     height=36,
                 )
             )
-        cell_rows.append(ft.Row(row_controls, spacing=8, wrap=True))
+        cell_rows.append(ft.Row(row_controls, spacing=table_spacing, wrap=False))
 
     page.controls.clear()
     page.add(
@@ -7567,10 +7577,37 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                                     content=ft.Column(
                                         [
                                             ft.Text("Felder der Tafel", size=18, weight="bold", color="white"),
-                                            ft.Row([ft.Container(width=110)] + [ft.Text(f"K{idx + 1}", width=150, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER) for idx in range(POINTS_QUIZ_MAX_CATEGORIES)], spacing=8),
-                                        ] + cell_rows,
+                                            ft.Row(
+                                                [
+                                                    ft.Container(
+                                                        width=table_width,
+                                                        content=ft.Column(
+                                                            [
+                                                                ft.Row(
+                                                                    [ft.Container(width=cell_label_w)] + [
+                                                                        ft.Container(
+                                                                            width=cell_btn_w,
+                                                                            alignment=ft.Alignment(0, 0),
+                                                                            content=ft.Text(
+                                                                                f"K{idx + 1}",
+                                                                                color=theme_txt(theme, "secondary"),
+                                                                                text_align=ft.TextAlign.CENTER,
+                                                                            ),
+                                                                        )
+                                                                        for idx in range(POINTS_QUIZ_MAX_CATEGORIES)
+                                                                    ],
+                                                                    spacing=table_spacing,
+                                                                    wrap=False,
+                                                                ),
+                                                            ] + cell_rows,
+                                                            spacing=10,
+                                                        ),
+                                                    )
+                                                ],
+                                                scroll=ft.ScrollMode.AUTO,
+                                            ),
+                                        ],
                                         spacing=10,
-                                        scroll=ft.ScrollMode.AUTO,
                                     ),
                                 ),
                                 ft.Row(
