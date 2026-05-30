@@ -7610,7 +7610,7 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
             return
         categories.append(_default_points_category(len(categories)))
         local_quiz["categories"] = categories
-        state["editing_points_quiz"] = local_quiz
+        state["editing_points_quiz"] = upsert_points_quiz(state, local_quiz, mark_finished=False)
         show_points_quiz_editor(page, state, local_quiz.get("id"))
 
     def remove_category(index: int):
@@ -7640,7 +7640,7 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                 if not str(cat.get("name", "")).strip():
                     cat["name"] = f"Kategorie {i + 1}"
             local_quiz["categories"] = cats
-            state["editing_points_quiz"] = local_quiz
+            state["editing_points_quiz"] = upsert_points_quiz(state, local_quiz, mark_finished=False)
             show_points_quiz_editor(page, state, local_quiz.get("id"))
 
         if not has_content:
@@ -7736,42 +7736,30 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                                 title_field,
                                 ft.Row(
                                     [
-                                        ft.Container(
-                                            width=260,
-                                            content=ft.Row(
-                                                [
-                                                    field,
-                                                    ft.Container(
-                                                        width=30,
-                                                        height=30,
+                                        ft.Stack(
+                                            [
+                                                field,
+                                                ft.Container(
+                                                    top=-4,
+                                                    right=-4,
+                                                    visible=len(category_fields) > POINTS_QUIZ_MIN_CATEGORIES,
+                                                    content=ft.Container(
+                                                        width=18,
+                                                        height=18,
+                                                        border_radius=9,
+                                                        bgcolor="#B91C1C",
                                                         alignment=ft.Alignment(0, 0),
-                                                        content=ft.IconButton(
-                                                            icon=ft.Icons.CLOSE,
-                                                            icon_size=16,
-                                                            tooltip="Kategorie löschen",
-                                                            style=ft.ButtonStyle(
-                                                                bgcolor=theme["danger"],
-                                                                color="white",
-                                                                shape=ft.RoundedRectangleBorder(radius=8),
-                                                            ),
-                                                            on_click=lambda e, i=idx: remove_category(i),
-                                                            disabled=len(category_fields) <= POINTS_QUIZ_MIN_CATEGORIES,
-                                                        ),
+                                                        on_click=lambda e, i=idx: remove_category(i),
+                                                        content=ft.Text("×", size=11, color="white", weight="bold"),
                                                     ),
-                                                ],
-                                                spacing=8,
-                                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                            ),
+                                                ),
+                                            ],
+                                            width=220,
+                                            height=74,
                                         )
                                         for idx, field in enumerate(category_fields)
                                     ] + [
-                                        ft.ElevatedButton(
-                                            "+ Kategorie",
-                                            on_click=add_category,
-                                            style=ft.ButtonStyle(bgcolor=theme["accent"], color="white"),
-                                            width=180,
-                                            height=42,
-                                        )
+                                        _game_menu_button("+ Kategorie", add_category, theme["accent"], width=180, height=42)
                                     ],
                                     spacing=10,
                                     wrap=True,
