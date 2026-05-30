@@ -4524,71 +4524,92 @@ def _avatar_compose_image(user: dict, theme: dict, canvas_w: int = 328, canvas_h
 
     top_box = _avatar_top_box(gender, top_id)
     pants_box = _avatar_pants_box(gender, pants_id)
-    top_main = _avatar_hex_rgba(style["top"]["main"], 225)
-    top_line = _avatar_hex_rgba(style["top"]["line"], 235)
-    top_sleeve = _avatar_hex_rgba(style["top"]["sleeve"], 220)
-    pants_main = _avatar_hex_rgba(style["pants"]["main"], 235)
-    pants_line = _avatar_hex_rgba(style["pants"]["line"], 235)
-    shoes_main = _avatar_hex_rgba(style["shoes"]["main"], 235)
-    shoes_line = _avatar_hex_rgba(style["shoes"]["line"], 230)
+    top_main = _avatar_hex_rgba(style["top"]["main"], 188)
+    top_line = _avatar_hex_rgba(style["top"]["line"], 120)
+    top_sleeve = _avatar_hex_rgba(style["top"]["sleeve"], 176)
+    pants_main = _avatar_hex_rgba(style["pants"]["main"], 198)
+    pants_line = _avatar_hex_rgba(style["pants"]["line"], 115)
+    shoes_main = _avatar_hex_rgba(style["shoes"]["main"], 208)
+    shoes_line = _avatar_hex_rgba(style["shoes"]["line"], 128)
+
+    cloth = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    cd = ImageDraw.Draw(cloth, "RGBA")
+    glow = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow, "RGBA")
 
     tx1, ty1, tx2, ty2 = top_box
-    torso = (tx1 + 8, ty1 + 8, tx2 - 8, ty2 + 6)
-    draw.rounded_rectangle(torso, radius=22, fill=top_main, outline=top_line, width=3)
+    torso_poly = [
+        (tx1 + 22, ty1 + 16),
+        (tx2 - 22, ty1 + 16),
+        (tx2 - 16, ty2 + 6),
+        (tx1 + 16, ty2 + 6),
+    ]
+    left_sleeve_poly = [
+        (tx1 + 20, ty1 + 20),
+        (tx1 - 10, ty1 + 34),
+        (tx1 - 4, ty2 - 30),
+        (tx1 + 24, ty2 - 16),
+    ]
+    right_sleeve_poly = [
+        (tx2 - 20, ty1 + 20),
+        (tx2 + 10, ty1 + 34),
+        (tx2 + 4, ty2 - 30),
+        (tx2 - 24, ty2 - 16),
+    ]
+    cd.polygon(torso_poly, fill=top_main)
+    cd.polygon(left_sleeve_poly, fill=top_sleeve)
+    cd.polygon(right_sleeve_poly, fill=top_sleeve)
 
-    sleeve_w = max(16, int((tx2 - tx1) * 0.18))
-    draw.rounded_rectangle((torso[0] - sleeve_w + 2, ty1 + 18, torso[0] + 10, ty2 - 18), radius=14, fill=top_sleeve, outline=top_line, width=2)
-    draw.rounded_rectangle((torso[2] - 10, ty1 + 18, torso[2] + sleeve_w - 2, ty2 - 18), radius=14, fill=top_sleeve, outline=top_line, width=2)
-    collar_w = int((torso[2] - torso[0]) * 0.28)
-    cx = (torso[0] + torso[2]) // 2
-    draw.arc((cx - collar_w // 2, torso[1] - 2, cx + collar_w // 2, torso[1] + 30), 200, -20, fill=_avatar_tint(top_line, 0.95, 210), width=3)
-
-    for step in range(9):
-        y = torso[1] + 8 + step * max(1, int((torso[3] - torso[1]) / 12))
-        alpha = max(22, 90 - step * 7)
-        draw.line((torso[0] + 12, y, torso[2] - 12, y), fill=_avatar_tint(top_main, 1.15 - step * 0.03, alpha), width=2)
+    collar_x = (tx1 + tx2) // 2
+    cd.arc((collar_x - 30, ty1 + 10, collar_x + 30, ty1 + 40), 195, -15, fill=_avatar_tint(top_line, 1.0, 150), width=3)
+    cd.ellipse((tx1 + 30, ty1 + 20, tx2 - 30, ty1 + 90), fill=_avatar_tint(top_main, 1.22, 52))
+    cd.ellipse((tx1 + 34, ty2 - 18, tx2 - 34, ty2 + 40), fill=_avatar_tint(top_main, 0.82, 70))
 
     if "neon" in top_id:
-        glow = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-        gd = ImageDraw.Draw(glow, "RGBA")
-        g1 = _avatar_hex_rgba(style["top"].get("glow") or "#22D3EE", 165)
-        g2 = _avatar_hex_rgba(style["top"]["line"], 150)
-        gd.rounded_rectangle((torso[0] - 6, torso[1] - 6, torso[2] + 6, torso[3] + 6), radius=28, outline=g1, width=5)
-        gd.line((torso[0] + 14, torso[1] + 14, torso[0] + 14, torso[3] - 14), fill=g2, width=3)
-        gd.line((torso[2] - 14, torso[1] + 14, torso[2] - 14, torso[3] - 14), fill=g1, width=3)
-        glow = glow.filter(ImageFilter.GaussianBlur(radius=2.0))
-        layer = Image.alpha_composite(layer, glow)
+        neon_1 = _avatar_hex_rgba(style["top"]["line"], 155)
+        neon_2 = _avatar_hex_rgba(style["top"].get("glow") or "#22D3EE", 155)
+        gd.line((tx1 + 26, ty1 + 28, tx1 + 20, ty2 - 8), fill=neon_1, width=4)
+        gd.line((tx2 - 26, ty1 + 28, tx2 - 20, ty2 - 8), fill=neon_2, width=4)
+        gd.arc((tx1 + 10, ty1 + 12, tx2 - 10, ty1 + 64), 200, -20, fill=neon_2, width=3)
     elif "royal" in top_id:
-        sash = (torso[0] + 12, torso[1] + 14, torso[2] - 12, torso[1] + 52)
-        draw.rounded_rectangle(sash, radius=10, fill=(110, 70, 25, 150), outline=_avatar_hex_rgba("#F2C94C", 220), width=2)
+        cd.rounded_rectangle((tx1 + 26, ty1 + 22, tx2 - 26, ty1 + 54), radius=9, fill=(90, 58, 18, 95))
+        cd.line((tx1 + 30, ty1 + 52, tx2 - 30, ty1 + 52), fill=_avatar_hex_rgba("#F2C94C", 155), width=2)
     elif "ocean" in top_id:
-        wave_c = _avatar_hex_rgba("#7DD3FC", 160)
-        for wave in range(3):
-            wy = torso[1] + 20 + wave * 16
-            draw.arc((torso[0] + 14, wy, torso[2] - 14, wy + 18), 180, 360, fill=wave_c, width=2)
+        wave = _avatar_hex_rgba("#7DD3FC", 90)
+        for wave_i in range(3):
+            wy = ty1 + 26 + wave_i * 18
+            cd.arc((tx1 + 26, wy, tx2 - 26, wy + 18), 180, 360, fill=wave, width=2)
 
     px1, py1, px2, py2 = pants_box
     mid = (px1 + px2) // 2
-    gap = max(6, int((px2 - px1) * 0.06))
-    left_leg = [(px1 + 2, py1 + 4), (mid - gap, py1 + 2), (mid - gap - 6, py2 - 2), (px1 + 8, py2 - 1)]
-    right_leg = [(mid + gap, py1 + 2), (px2 - 2, py1 + 4), (px2 - 8, py2 - 1), (mid + gap + 6, py2 - 2)]
-    draw.polygon(left_leg, fill=pants_main, outline=pants_line)
-    draw.polygon(right_leg, fill=pants_main, outline=pants_line)
-    draw.line((mid - gap - 1, py1 + 10, mid - gap - 4, py2 - 18), fill=_avatar_tint(pants_line, 1.0, 175), width=2)
-    draw.line((mid + gap + 1, py1 + 10, mid + gap + 4, py2 - 18), fill=_avatar_tint(pants_line, 1.0, 175), width=2)
-    draw.rounded_rectangle((px1 + 3, py1 - 6, px2 - 3, py1 + 16), radius=9, fill=_avatar_tint(pants_main, 0.92, 245), outline=pants_line, width=2)
+    gap = max(7, int((px2 - px1) * 0.07))
+    left_leg = [(px1 + 8, py1 + 4), (mid - gap, py1 + 2), (mid - gap - 7, py2 - 2), (px1 + 14, py2)]
+    right_leg = [(mid + gap, py1 + 2), (px2 - 8, py1 + 4), (px2 - 14, py2), (mid + gap + 7, py2 - 2)]
+    cd.polygon(left_leg, fill=pants_main)
+    cd.polygon(right_leg, fill=pants_main)
+    cd.rounded_rectangle((px1 + 8, py1 - 4, px2 - 8, py1 + 16), radius=8, fill=_avatar_tint(pants_main, 0.9, 210))
+    cd.ellipse((px1 + 14, py1 + 34, mid - gap - 2, py2 - 20), fill=_avatar_tint(pants_main, 1.15, 42))
+    cd.ellipse((mid + gap + 2, py1 + 34, px2 - 14, py2 - 20), fill=_avatar_tint(pants_main, 1.15, 42))
     if "neon" in pants_id:
-        draw.line((px1 + 10, py1 + 18, px1 + 14, py2 - 24), fill=_avatar_hex_rgba("#D946EF", 220), width=3)
-        draw.line((px2 - 10, py1 + 18, px2 - 14, py2 - 24), fill=_avatar_hex_rgba("#22D3EE", 220), width=3)
+        gd.line((px1 + 16, py1 + 20, px1 + 18, py2 - 20), fill=_avatar_hex_rgba("#D946EF", 150), width=3)
+        gd.line((px2 - 16, py1 + 20, px2 - 18, py2 - 20), fill=_avatar_hex_rgba("#22D3EE", 150), width=3)
 
     shoe_y = py2 - 6
     shoe_h = max(18, int((py2 - py1) * 0.085))
-    left_shoe = (px1 - 4, shoe_y, mid - gap + 6, shoe_y + shoe_h)
-    right_shoe = (mid + gap - 6, shoe_y, px2 + 4, shoe_y + shoe_h)
-    draw.rounded_rectangle(left_shoe, radius=9, fill=shoes_main, outline=shoes_line, width=2)
-    draw.rounded_rectangle(right_shoe, radius=9, fill=shoes_main, outline=shoes_line, width=2)
-    draw.line((left_shoe[0] + 8, shoe_y + 5, left_shoe[2] - 8, shoe_y + 5), fill=_avatar_tint(shoes_line, 1.2, 170), width=1)
-    draw.line((right_shoe[0] + 8, shoe_y + 5, right_shoe[2] - 8, shoe_y + 5), fill=_avatar_tint(shoes_line, 1.2, 170), width=1)
+    left_shoe = (px1 + 2, shoe_y, mid - gap + 8, shoe_y + shoe_h)
+    right_shoe = (mid + gap - 8, shoe_y, px2 - 2, shoe_y + shoe_h)
+    cd.rounded_rectangle(left_shoe, radius=10, fill=shoes_main)
+    cd.rounded_rectangle(right_shoe, radius=10, fill=shoes_main)
+    cd.line((left_shoe[0] + 8, shoe_y + 6, left_shoe[2] - 8, shoe_y + 6), fill=shoes_line, width=2)
+    cd.line((right_shoe[0] + 8, shoe_y + 6, right_shoe[2] - 8, shoe_y + 6), fill=shoes_line, width=2)
+    cd.ellipse((left_shoe[0] + 4, shoe_y + 2, left_shoe[2] - 4, shoe_y + 11), fill=_avatar_tint(shoes_main, 1.18, 52))
+    cd.ellipse((right_shoe[0] + 4, shoe_y + 2, right_shoe[2] - 4, shoe_y + 11), fill=_avatar_tint(shoes_main, 1.18, 52))
+
+    cloth = cloth.filter(ImageFilter.GaussianBlur(radius=0.8))
+    if "neon" in top_id or "neon" in pants_id:
+        glow = glow.filter(ImageFilter.GaussianBlur(radius=2.4))
+        layer = Image.alpha_composite(layer, glow)
+    layer = Image.alpha_composite(layer, cloth)
 
     if "glasses" in acc_id:
         if gender == "female":
