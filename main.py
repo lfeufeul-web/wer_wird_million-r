@@ -9,6 +9,7 @@ import random
 import re
 import urllib.request
 import time
+import shutil
 from datetime import datetime, date, timezone
 import uuid
 import smtplib
@@ -1151,15 +1152,63 @@ def avatar_base_emoji(gender: str) -> str:
 
 
 def _resolve_avatar_base_image(gender: str) -> str | None:
-    candidates = ["avatar.png"] if gender != "female" else ["avatar_weiblich.png", "avatar.png"]
+    preferred_stems = ["avatar"] if gender != "female" else ["avatar_weiblich", "avatar"]
     if gender == "diverse":
-        candidates = ["avatar.png", "avatar_weiblich.png"]
-    folders = [".", "assets"]
-    for folder in folders:
-        for name in candidates:
-            p = os.path.join(folder, name)
-            if os.path.exists(p):
-                return name if folder == "." else f"{folder}/{name}"
+        preferred_stems = ["avatar", "avatar_weiblich"]
+
+    exts = [".png", ".webp", ".jpg", ".jpeg"]
+    try:
+        os.makedirs("assets", exist_ok=True)
+    except Exception:
+        pass
+
+    # 1) First try assets directly
+    for stem in preferred_stems:
+        for ext in exts:
+            name = f"{stem}{ext}"
+            if os.path.exists(os.path.join("assets", name)):
+                return name
+
+    # 2) Fallback: root files (with or without extension) -> copy into assets
+    root_files = []
+    try:
+        root_files = [f for f in os.listdir(".") if os.path.isfile(f)]
+    except Exception:
+        root_files = []
+
+    lower_map = {f.lower(): f for f in root_files}
+    for stem in preferred_stems:
+        stem_l = stem.lower()
+        match = None
+        # exact + extension
+        for ext in exts:
+            key = f"{stem_l}{ext}"
+            if key in lower_map:
+                match = lower_map[key]
+                break
+        # exact name without extension
+        if not match and stem_l in lower_map:
+            match = lower_map[stem_l]
+        # any file starting with stem
+        if not match:
+            for f in root_files:
+                if f.lower().startswith(stem_l):
+                    match = f
+                    break
+
+        if match:
+            dest_name = match
+            if "." not in os.path.basename(dest_name):
+                dest_name = f"{stem}.png"
+            src = match
+            dst = os.path.join("assets", dest_name)
+            if not os.path.exists(dst):
+                try:
+                    shutil.copy2(src, dst)
+                except Exception:
+                    pass
+            if os.path.exists(dst):
+                return dest_name
     return None
 
 
