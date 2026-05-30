@@ -1232,6 +1232,23 @@ def _avatar_pants_box(gender: str, pants_id: str) -> tuple[int, int, int, int]:
     return (95, 240, 235, 340) if short else (85, 240, 245, 485)
 
 
+def _avatar_image_source(asset_name: str | None) -> str | bytes | None:
+    if not asset_name:
+        return None
+    candidates = [
+        os.path.join("assets", asset_name),
+        asset_name,
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as f:
+                    return f.read()
+            except Exception:
+                return asset_name
+    return asset_name
+
+
 def uses_themed_game(theme: dict) -> bool:
     return theme.get("game_layout") == "themed" and bool(theme.get("game_bg"))
 
@@ -4196,6 +4213,7 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
             alignment=ft.Alignment(0, 0),
             content=ft.Text("Avatarbild fehlt", color=theme_txt(theme, "secondary"), size=12),
         )
+    image_src = _avatar_image_source(base_img)
 
     canvas_w = 328.0
     canvas_h = 492.0
@@ -4227,7 +4245,7 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
                 width=shirt_w,
                 height=shirt_h,
                 border_radius=12,
-                bgcolor=f"#AA{top_color[1:]}" if top_color.startswith("#") else "#AA66ccff",
+                bgcolor=f"#66{top_color[1:]}" if top_color.startswith("#") else "#6666ccff",
                 border=ft.border.Border.all(1, "#00000033"),
             ),
             ft.Container(
@@ -4236,7 +4254,7 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
                 width=pant_half,
                 height=pant_h,
                 border_radius=6,
-                bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155",
+                bgcolor=f"#66{pants_color[1:]}" if pants_color.startswith("#") else "#66334155",
             ),
             ft.Container(
                 left=pant_left + pant_half + 4,
@@ -4244,7 +4262,7 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
                 width=pant_half,
                 height=pant_h,
                 border_radius=6,
-                bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155",
+                bgcolor=f"#66{pants_color[1:]}" if pants_color.startswith("#") else "#66334155",
             ),
             ft.Container(
                 left=pant_left,
@@ -4252,7 +4270,7 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
                 width=shoe_w,
                 height=int(size * 0.05),
                 border_radius=6,
-                bgcolor=f"#CC{shoes_color[1:]}" if shoes_color.startswith("#") else "#cc111827",
+                bgcolor=f"#99{shoes_color[1:]}" if shoes_color.startswith("#") else "#99111827",
             ),
             ft.Container(
                 left=pant_left + pant_half + 4,
@@ -4260,7 +4278,7 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
                 width=shoe_w,
                 height=int(size * 0.05),
                 border_radius=6,
-                bgcolor=f"#CC{shoes_color[1:]}" if shoes_color.startswith("#") else "#cc111827",
+                bgcolor=f"#99{shoes_color[1:]}" if shoes_color.startswith("#") else "#99111827",
             ),
             ft.Container(
                 left=shirt_left + max(2, int(shirt_w * 0.33)),
@@ -4299,7 +4317,15 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
                     top=0,
                     width=render_w,
                     height=int(size * 0.84),
-                    content=ft.Image(src=base_img, width=render_w, height=int(size * 0.84), fit=ft.BoxFit.FILL),
+                    content=ft.Image(
+                        src=image_src or base_img,
+                        width=render_w,
+                        height=int(size * 0.84),
+                        fit=ft.BoxFit.CONTAIN,
+                        gapless_playback=True,
+                        anti_alias=True,
+                        error_content=ft.Text("Avatarbild lädt nicht", color=theme_txt(theme, "secondary"), size=12),
+                    ),
                 ),
                 outfit_overlay,
             ],
