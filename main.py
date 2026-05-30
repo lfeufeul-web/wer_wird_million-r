@@ -4380,68 +4380,324 @@ def _avatar_piece_color(item_id: str, theme: dict, fallback: str) -> str:
     return fallback
 
 
+def _avatar_outfit_style(user: dict, theme: dict) -> dict:
+    ensure_avatar_defaults(user)
+    equipped = user.get("avatar", {}).get("equipped", {})
+    top_id = str(equipped.get("top", "top_basic"))
+    pants_id = str(equipped.get("pants", "pants_basic"))
+    shoes_id = str(equipped.get("shoes", "shoes_basic"))
+    acc_id = str(equipped.get("accessory", "acc_none"))
+    gender = user.get("avatar", {}).get("gender", "male")
+
+    top_palette = {
+        "top_basic": {"main": "#F3F4F6", "line": "#CBD5E1", "sleeve": "#E5E7EB", "glow": None},
+        "top_neon": {"main": "#0F172A", "line": "#D946EF", "sleeve": "#111827", "glow": "#22D3EE"},
+        "top_royal": {"main": "#2B1B0E", "line": "#F2C94C", "sleeve": "#3B2A13", "glow": "#FFD700"},
+        "top_ocean": {"main": "#0B2942", "line": "#38BDF8", "sleeve": "#123E61", "glow": "#22D3EE"},
+    }
+    pants_palette = {
+        "pants_basic": {"main": "#1E3A8A", "line": "#2563EB"},
+        "pants_dark": {"main": "#1F2937", "line": "#334155"},
+        "pants_neon": {"main": "#0B1020", "line": "#22D3EE"},
+        "pants_royal": {"main": "#3B2A13", "line": "#F2C94C"},
+    }
+    shoes_palette = {
+        "shoes_basic": {"main": "#111827", "line": "#6B7280"},
+        "shoes_lux": {"main": "#2E1A0E", "line": "#F59E0B"},
+        "shoes_ocean": {"main": "#0B2942", "line": "#38BDF8"},
+    }
+    # fallback colors adapt to current theme
+    top = top_palette.get(top_id, {
+        "main": theme.get("question_bg", "#1F2937"),
+        "line": theme.get("accent", "#22D3EE"),
+        "sleeve": theme.get("panel", "#0F172A"),
+        "glow": theme.get("accent_2", "#38BDF8"),
+    })
+    pants = pants_palette.get(pants_id, {"main": "#1F2937", "line": theme.get("accent", "#22D3EE")})
+    shoes = shoes_palette.get(shoes_id, {"main": "#111827", "line": theme.get("accent", "#22D3EE")})
+
+    if gender == "female":
+        skin = "#F2C9A5"
+        hair = "#3F2A1F"
+    elif gender == "diverse":
+        skin = "#E3B88A"
+        hair = "#2C3342"
+    else:
+        skin = "#E7BE9A"
+        hair = "#2E251C"
+
+    return {
+        "gender": gender,
+        "skin": skin,
+        "hair": hair,
+        "top": top,
+        "pants": pants,
+        "shoes": shoes,
+        "accessory": acc_id,
+    }
+
+
 def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: float = 0.0) -> ft.Control:
     ensure_avatar_defaults(user)
-    gender = user["avatar"].get("gender", "male")
-    base_img = _resolve_avatar_base_image(gender)
-    equipped = user["avatar"]["equipped"]
-    if not base_img:
-        return ft.Container(
-            width=size,
-            height=int(size * 0.84),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Text("Avatarbild fehlt", color=theme_txt(theme, "secondary"), size=12),
-        )
-    image_src = _avatar_image_source(base_img)
-    top_overlay_path = _resolve_avatar_top_overlay(equipped.get("top", ""), gender)
-    pants_overlay_path = _resolve_avatar_pants_overlay(equipped.get("pants", ""), gender)
-    top_overlay_src = _clean_avatar_overlay(top_overlay_path, equipped.get("top", ""), gender, "top") if top_overlay_path else None
-    pants_overlay_src = _clean_avatar_overlay(pants_overlay_path, equipped.get("pants", ""), gender, "pants") if pants_overlay_path else None
-    if not top_overlay_src:
-        fallback_top = _resolve_avatar_top_overlay("top_basic", gender)
-        if fallback_top:
-            top_overlay_src = _clean_avatar_overlay(fallback_top, "top_basic", gender, "top")
-    if not pants_overlay_src:
-        fallback_pants = _resolve_avatar_pants_overlay("pants_basic", gender)
-        if fallback_pants:
-            pants_overlay_src = _clean_avatar_overlay(fallback_pants, "pants_basic", gender, "pants")
-    img_h = int(size * 0.84)
-    return ft.Container(
-        width=size,
-        height=img_h,
-        content=ft.Stack(
-            [
-                ft.Image(
-                    src=image_src or base_img,
-                    width=size,
-                    height=img_h,
-                    fit=ft.BoxFit.CONTAIN,
-                    gapless_playback=True,
-                    anti_alias=True,
-                    error_content=ft.Text("Avatarbild lädt nicht", color=theme_txt(theme, "secondary"), size=12),
-                ),
-                ft.Image(
-                    src=pants_overlay_src,
-                    width=size,
-                    height=img_h,
-                    fit=ft.BoxFit.CONTAIN,
-                    gapless_playback=True,
-                    anti_alias=True,
-                    visible=bool(pants_overlay_src),
-                ),
-                ft.Image(
-                    src=top_overlay_src,
-                    width=size,
-                    height=img_h,
-                    fit=ft.BoxFit.CONTAIN,
-                    gapless_playback=True,
-                    anti_alias=True,
-                    visible=bool(top_overlay_src),
-                ),
-            ],
-            width=size,
-            height=img_h,
+    style = _avatar_outfit_style(user, theme)
+    gender = style["gender"]
+    w = int(max(84, size))
+    h = int(w * 1.58)
+    cx = w / 2
+    is_female = gender == "female"
+    is_diverse = gender == "diverse"
+
+    head_size = int(w * (0.24 if is_female else 0.23))
+    head_left = int(cx - head_size / 2)
+    head_top = int(h * 0.03)
+    neck_w = int(w * 0.065)
+    neck_h = int(h * 0.045)
+    neck_left = int(cx - neck_w / 2)
+    neck_top = head_top + head_size - int(neck_h * 0.3)
+
+    torso_w = int(w * (0.30 if is_female else 0.33))
+    torso_h = int(h * (0.285 if is_female else 0.30))
+    torso_left = int(cx - torso_w / 2)
+    torso_top = neck_top + neck_h - 2
+
+    arm_w = int(w * (0.075 if is_female else 0.082))
+    arm_h = int(h * (0.27 if is_female else 0.29))
+    arm_top = torso_top + int(torso_h * 0.08)
+    left_arm_x = torso_left - arm_w + int(w * 0.01)
+    right_arm_x = torso_left + torso_w - int(w * 0.01)
+
+    hip_top = torso_top + torso_h - int(h * 0.02)
+    leg_w = int(w * (0.112 if is_female else 0.118))
+    leg_h = int(h * 0.34)
+    leg_gap = int(w * (0.022 if is_female else 0.028))
+    left_leg_x = int(cx - leg_gap / 2 - leg_w)
+    right_leg_x = int(cx + leg_gap / 2)
+    leg_top = hip_top
+
+    shoe_w = int(leg_w * 1.18)
+    shoe_h = int(h * 0.062)
+    left_shoe_x = left_leg_x - int((shoe_w - leg_w) / 2)
+    right_shoe_x = right_leg_x - int((shoe_w - leg_w) / 2)
+    shoe_top = leg_top + leg_h - int(h * 0.012)
+
+    hair_h = int(head_size * (0.42 if is_female else 0.36))
+    hair_top = head_top - int(head_size * 0.06)
+
+    controls: list[ft.Control] = [
+        ft.Container(
+            left=int(w * 0.32),
+            top=int(h * 0.93),
+            width=int(w * 0.36),
+            height=int(h * 0.04),
+            bgcolor="#00000055",
+            border_radius=999,
         ),
+        ft.Container(
+            left=head_left,
+            top=head_top,
+            width=head_size,
+            height=head_size,
+            bgcolor=style["skin"],
+            border_radius=999,
+            border=ft.border.Border.all(1, "#00000033"),
+        ),
+        ft.Container(
+            left=head_left + int(head_size * 0.04),
+            top=hair_top,
+            width=int(head_size * 0.92),
+            height=hair_h,
+            bgcolor=style["hair"],
+            border_radius=18,
+        ),
+        ft.Container(
+            left=neck_left,
+            top=neck_top,
+            width=neck_w,
+            height=neck_h,
+            bgcolor=style["skin"],
+            border_radius=4,
+        ),
+        ft.Container(
+            left=left_arm_x,
+            top=arm_top,
+            width=arm_w,
+            height=arm_h,
+            bgcolor=style["skin"],
+            border_radius=12,
+        ),
+        ft.Container(
+            left=right_arm_x,
+            top=arm_top,
+            width=arm_w,
+            height=arm_h,
+            bgcolor=style["skin"],
+            border_radius=12,
+        ),
+        ft.Container(
+            left=torso_left,
+            top=torso_top,
+            width=torso_w,
+            height=torso_h,
+            bgcolor=style["top"]["main"],
+            border_radius=16,
+            border=ft.border.Border.all(1.5, style["top"]["line"]),
+        ),
+        ft.Container(
+            left=left_arm_x + int(arm_w * 0.08),
+            top=arm_top + int(arm_h * 0.06),
+            width=int(arm_w * 0.84),
+            height=int(arm_h * 0.72),
+            bgcolor=style["top"]["sleeve"],
+            border_radius=10,
+        ),
+        ft.Container(
+            left=right_arm_x + int(arm_w * 0.08),
+            top=arm_top + int(arm_h * 0.06),
+            width=int(arm_w * 0.84),
+            height=int(arm_h * 0.72),
+            bgcolor=style["top"]["sleeve"],
+            border_radius=10,
+        ),
+        ft.Container(
+            left=left_leg_x,
+            top=leg_top,
+            width=leg_w,
+            height=leg_h,
+            bgcolor=style["pants"]["main"],
+            border_radius=8,
+            border=ft.border.Border.all(1.2, style["pants"]["line"]),
+        ),
+        ft.Container(
+            left=right_leg_x,
+            top=leg_top,
+            width=leg_w,
+            height=leg_h,
+            bgcolor=style["pants"]["main"],
+            border_radius=8,
+            border=ft.border.Border.all(1.2, style["pants"]["line"]),
+        ),
+        ft.Container(
+            left=left_shoe_x,
+            top=shoe_top,
+            width=shoe_w,
+            height=shoe_h,
+            bgcolor=style["shoes"]["main"],
+            border_radius=10,
+            border=ft.border.Border.all(1.2, style["shoes"]["line"]),
+        ),
+        ft.Container(
+            left=right_shoe_x,
+            top=shoe_top,
+            width=shoe_w,
+            height=shoe_h,
+            bgcolor=style["shoes"]["main"],
+            border_radius=10,
+            border=ft.border.Border.all(1.2, style["shoes"]["line"]),
+        ),
+    ]
+
+    top_id = str(user.get("avatar", {}).get("equipped", {}).get("top", "top_basic"))
+    if "neon" in top_id:
+        controls.extend(
+            [
+                ft.Container(
+                    left=torso_left + int(torso_w * 0.1),
+                    top=torso_top + int(torso_h * 0.08),
+                    width=2,
+                    height=int(torso_h * 0.82),
+                    bgcolor=style["top"]["line"],
+                ),
+                ft.Container(
+                    left=torso_left + int(torso_w * 0.9),
+                    top=torso_top + int(torso_h * 0.08),
+                    width=2,
+                    height=int(torso_h * 0.82),
+                    bgcolor=style["top"]["glow"] or style["top"]["line"],
+                ),
+            ]
+        )
+    if "royal" in top_id:
+        controls.append(
+            ft.Container(
+                left=torso_left - int(w * 0.02),
+                top=torso_top + int(torso_h * 0.05),
+                width=torso_w + int(w * 0.04),
+                height=int(torso_h * 0.34),
+                bgcolor="#7C2D12AA",
+                border_radius=12,
+                border=ft.border.Border.all(1.2, "#F2C94C"),
+            )
+        )
+
+    pants_id = str(user.get("avatar", {}).get("equipped", {}).get("pants", "pants_basic"))
+    if "neon" in pants_id:
+        controls.extend(
+            [
+                ft.Container(
+                    left=left_leg_x + int(leg_w * 0.12),
+                    top=leg_top + int(leg_h * 0.08),
+                    width=2,
+                    height=int(leg_h * 0.84),
+                    bgcolor="#D946EF",
+                ),
+                ft.Container(
+                    left=right_leg_x + int(leg_w * 0.82),
+                    top=leg_top + int(leg_h * 0.08),
+                    width=2,
+                    height=int(leg_h * 0.84),
+                    bgcolor="#22D3EE",
+                ),
+            ]
+        )
+
+    accessory = style["accessory"]
+    if "glasses" in accessory:
+        controls.append(
+            ft.Container(
+                left=head_left + int(head_size * 0.18),
+                top=head_top + int(head_size * 0.44),
+                width=int(head_size * 0.64),
+                height=int(head_size * 0.14),
+                border=ft.border.Border.all(2, "#111827"),
+                border_radius=12,
+            )
+        )
+    elif "chain" in accessory:
+        controls.append(
+            ft.Text(
+                "⛓",
+                size=max(8, int(w * 0.11)),
+                color="#F2C94C",
+                left=torso_left + int(torso_w * 0.36),
+                top=torso_top + int(torso_h * 0.06),
+            )
+        )
+    elif "crown" in accessory:
+        controls.append(
+            ft.Text(
+                "👑",
+                size=max(10, int(w * 0.17)),
+                left=head_left + int(head_size * 0.18),
+                top=head_top - int(head_size * 0.48),
+            )
+        )
+
+    if is_diverse:
+        controls.append(
+            ft.Container(
+                left=torso_left + int(torso_w * 0.44),
+                top=torso_top + int(torso_h * 0.42),
+                width=8,
+                height=8,
+                bgcolor=theme.get("accent_2", "#22D3EE"),
+                border_radius=999,
+            )
+        )
+
+    return ft.Container(
+        width=w,
+        height=h,
+        content=ft.Stack(controls=controls, width=w, height=h),
     )
 
 
