@@ -74,6 +74,9 @@ DEFAULT_GLOBAL_STATS = {
     "questions_answered": 0,
     "highest_money": "0 €",
     "highest_money_level": -1,
+    "points_quiz_games_played": 0,
+    "points_quiz_questions_judged": 0,
+    "points_quiz_finished_games": 0,
 }
 
 DEFAULT_USER_STATS = {
@@ -99,6 +102,9 @@ EXTRA_STATS_DEFAULTS = {
     "daily_avg_correct": 0.0,
     "daily_games_played": 0,
     "last_daily_played": "",
+    "points_quiz_games_played": 0,
+    "points_quiz_questions_judged": 0,
+    "points_quiz_finished_games": 0,
 }
 ACHIEVEMENT_DEFINITIONS = [
     {"id": "first_game", "name": "Erster Schritt", "desc": "Dein erstes Spiel abschließen."},
@@ -1187,6 +1193,11 @@ def get_user_settings(state: dict) -> dict:
         ensure_user_settings(db, email)
         save_db(db)
         return db["users"][email]["settings"]
+    state_settings = state.get("settings")
+    if isinstance(state_settings, dict):
+        merged = DEFAULT_USER_SETTINGS.copy()
+        merged.update(state_settings)
+        return merged
     return DEFAULT_USER_SETTINGS.copy()
 
 
@@ -1795,6 +1806,10 @@ POINTS_QUIZ_RANDOM_BANK = {
         {"question": "Was ist die Vergangenheitsform von 'go'?", "answer": "Went."},
         {"question": "Wie lautet die Steigerung von 'good'?", "answer": "Better."},
         {"question": "Welcher Artikel passt zu 'hour': 'a' oder 'an'?", "answer": "An hour."},
+        {"question": "Wie heißt 'Schule' auf Englisch?", "answer": "School."},
+        {"question": "Wie lautet das englische Wort für 'Frage'?", "answer": "Question."},
+        {"question": "Was bedeutet 'because' auf Deutsch?", "answer": "Weil."},
+        {"question": "Wie heißt die Mehrzahl von 'child'?", "answer": "Children."},
     ],
     "Sport": [
         {"question": "Wie viele Spieler stehen bei einer Fußballmannschaft gleichzeitig auf dem Feld?", "answer": "11 Spieler."},
@@ -1803,6 +1818,10 @@ POINTS_QUIZ_RANDOM_BANK = {
         {"question": "Wie lang ist ein Marathon ungefähr?", "answer": "42,195 Kilometer."},
         {"question": "In welcher Sportart gibt es einen 'Ass' als direkten Punktgewinn beim Aufschlag?", "answer": "Zum Beispiel im Tennis oder Volleyball."},
         {"question": "Wie nennt man im Handball den Bereich direkt vor dem Tor, den nur der Torwart betreten darf?", "answer": "Den Torraum beziehungsweise den 6-Meter-Raum."},
+        {"question": "Wie viele Ringe hat das olympische Symbol?", "answer": "Fünf."},
+        {"question": "Wie nennt man beim Fußball den Strafstoß vom Punkt?", "answer": "Elfmeter."},
+        {"question": "Welche Farbe hat die Mittellinie beim Schwimmen im Wettkampfbecken nicht?", "answer": "Sie hat keine feste Farbe; Markierungen sind je nach Bahn unterschiedlich."},
+        {"question": "Welche Sportart ist mit Wimbledon eng verbunden?", "answer": "Tennis."},
     ],
     "Biologie": [
         {"question": "Welches Organ pumpt das Blut durch den Körper?", "answer": "Das Herz."},
@@ -1811,6 +1830,10 @@ POINTS_QUIZ_RANDOM_BANK = {
         {"question": "Welcher Teil der Zelle enthält meistens die Erbinformation?", "answer": "Der Zellkern."},
         {"question": "Wie heißt der Vorgang, bei dem Pflanzen mit Licht Energie gewinnen?", "answer": "Fotosynthese."},
         {"question": "Welche Blutkörperchen helfen besonders bei der Abwehr von Krankheitserregern?", "answer": "Die weißen Blutkörperchen."},
+        {"question": "Wie nennt man den Prozess, bei dem sich Zellen teilen?", "answer": "Mitose (allgemein Zellteilung)."},
+        {"question": "Welche Blutgruppe gilt als Universalspender bei roten Blutkörperchen?", "answer": "0 negativ."},
+        {"question": "Welche Einheit wird oft für die Erbinformation verwendet?", "answer": "DNA-Basenpaare beziehungsweise Gene als Informationseinheiten."},
+        {"question": "Wie heißt der Muskel, der vor allem für die Atmung wichtig ist?", "answer": "Das Zwerchfell."},
     ],
     "Geschichte": [
         {"question": "In welchem Land standen die Pyramiden von Gizeh?", "answer": "In Ägypten."},
@@ -1819,6 +1842,10 @@ POINTS_QUIZ_RANDOM_BANK = {
         {"question": "In welchem Jahr fiel die Berliner Mauer?", "answer": "1989."},
         {"question": "Welche berühmten Schiffe nutzte Christoph Kolumbus auf seiner Reise 1492?", "answer": "Santa Maria, Nina und Pinta."},
         {"question": "Wie hieß die Epoche, in der Kunst, Wissenschaft und Denken in Europa stark aufblühten?", "answer": "Die Renaissance."},
+        {"question": "Wie hieß das geteilte Deutschland von 1949 bis 1990 im Osten?", "answer": "DDR."},
+        {"question": "Welche Stadt war Hauptstadt des Römischen Reiches?", "answer": "Rom."},
+        {"question": "Wie nennt man die industrielle Umwälzung ab dem 18. Jahrhundert?", "answer": "Industrielle Revolution."},
+        {"question": "Welches Reich wurde von Julius Caesar stark geprägt?", "answer": "Das Römische Reich."},
     ],
     "Geografie": [
         {"question": "Wie heißt die Hauptstadt von Frankreich?", "answer": "Paris."},
@@ -1827,6 +1854,10 @@ POINTS_QUIZ_RANDOM_BANK = {
         {"question": "Welches Gebirge trennt Europa und Asien in Russland traditionell voneinander?", "answer": "Der Ural."},
         {"question": "Wie heißt die größte Wüste der Welt?", "answer": "Die Antarktis ist die größte Wüste; die Sahara ist die größte heiße Wüste."},
         {"question": "Welcher Ozean liegt zwischen Amerika und Europa/Afrika?", "answer": "Der Atlantische Ozean."},
+        {"question": "Durch welche Stadt fließt die Donau nicht: Wien, Budapest oder Madrid?", "answer": "Madrid."},
+        {"question": "Welches Land hat die Hauptstadt Oslo?", "answer": "Norwegen."},
+        {"question": "Welches Meer liegt zwischen Europa und Afrika?", "answer": "Das Mittelmeer."},
+        {"question": "Wie heißt der höchste Berg der Erde?", "answer": "Mount Everest."},
     ],
     "Musik": [
         {"question": "Wie viele Linien hat ein Notensystem?", "answer": "Fünf Linien."},
@@ -1835,6 +1866,10 @@ POINTS_QUIZ_RANDOM_BANK = {
         {"question": "Wie nennt man eine Gruppe von Musikern mit Streich-, Blas- und Schlaginstrumenten?", "answer": "Orchester."},
         {"question": "Welches Symbol erhöht einen Ton um einen Halbton?", "answer": "Das Kreuz."},
         {"question": "Wie heißt die Pause von vier Schlägen im 4/4-Takt?", "answer": "Ganze Pause."},
+        {"question": "Wie nennt man die Lautstärkeangabe für leise in der Musik?", "answer": "Piano."},
+        {"question": "Wie viele Saiten hat eine klassische Violine üblicherweise?", "answer": "Vier."},
+        {"question": "Welche Note liegt im Deutschen direkt nach A?", "answer": "H."},
+        {"question": "Wie heißt ein Musikstück für zwei Ausführende?", "answer": "Duett."},
     ],
     "Mathe": [
         {"question": "Was ist 7 mal 8?", "answer": "56."},
@@ -1843,6 +1878,64 @@ POINTS_QUIZ_RANDOM_BANK = {
         {"question": "Wie nennt man das Ergebnis einer Multiplikation?", "answer": "Produkt."},
         {"question": "Wie viele Seiten hat ein Hexagon?", "answer": "Sechs Seiten."},
         {"question": "Was ist die Quadratwurzel von 144?", "answer": "12."},
+        {"question": "Wie viel ist 15 Prozent von 200?", "answer": "30."},
+        {"question": "Wie lautet 9 hoch 2?", "answer": "81."},
+        {"question": "Wie viele Minuten sind 2,5 Stunden?", "answer": "150 Minuten."},
+        {"question": "Was ist das Ergebnis von 1000 minus 275?", "answer": "725."},
+    ],
+    "Physik": [
+        {"question": "Wie heißt die Kraft, die Dinge nach unten zieht?", "answer": "Gravitation beziehungsweise Schwerkraft."},
+        {"question": "Welche Einheit hat die elektrische Spannung?", "answer": "Volt."},
+        {"question": "Wie schnell ist Licht im Vakuum ungefähr?", "answer": "Etwa 300.000 Kilometer pro Sekunde."},
+        {"question": "Wie nennt man den Übergang von flüssig zu gasförmig?", "answer": "Verdampfen."},
+        {"question": "Welche Einheit misst die Frequenz?", "answer": "Hertz."},
+        {"question": "Wie heißt das Messgerät für elektrische Stromstärke?", "answer": "Amperemeter."},
+        {"question": "Was ist der Nullpunkt der Celsius-Skala beim Gefrieren von Wasser?", "answer": "0 Grad Celsius."},
+    ],
+    "Chemie": [
+        {"question": "Wie lautet das chemische Symbol für Wasserstoff?", "answer": "H."},
+        {"question": "Wie heißt die chemische Formel von Wasser?", "answer": "H2O."},
+        {"question": "Welches Gas brauchen wir zum Atmen?", "answer": "Sauerstoff."},
+        {"question": "Wie nennt man Stoffe mit pH-Wert kleiner als 7?", "answer": "Säuren."},
+        {"question": "Wie heißt das bekannteste Kochsalz chemisch?", "answer": "Natriumchlorid."},
+        {"question": "Welches Element hat das Symbol Fe?", "answer": "Eisen."},
+        {"question": "Welches Teilchen ist negativ geladen?", "answer": "Das Elektron."},
+    ],
+    "Informatik": [
+        {"question": "Wofür steht die Abkürzung CPU?", "answer": "Central Processing Unit."},
+        {"question": "Wie heißt das Zahlensystem mit nur 0 und 1?", "answer": "Binärsystem."},
+        {"question": "Welche Taste nutzt man oft zum Löschen links vom Cursor?", "answer": "Backspace."},
+        {"question": "Was ist ein Browser?", "answer": "Ein Programm zum Anzeigen von Webseiten."},
+        {"question": "Wofür steht die Abkürzung URL?", "answer": "Uniform Resource Locator."},
+        {"question": "Wie nennt man Schadsoftware allgemein?", "answer": "Malware."},
+        {"question": "Wie nennt man eine Sicherungskopie von Daten?", "answer": "Backup."},
+    ],
+    "Deutsch": [
+        {"question": "Wie heißt die Grundform eines Verbs?", "answer": "Infinitiv."},
+        {"question": "Was ist das Gegenteil von 'laut'?", "answer": "Leise."},
+        {"question": "Wie heißt die Mehrzahl von 'Haus'?", "answer": "Häuser."},
+        {"question": "Welches Satzzeichen beendet eine Frage?", "answer": "Das Fragezeichen."},
+        {"question": "Was ist ein Synonym für 'beginnen'?", "answer": "Anfangen."},
+        {"question": "Welche Wortart ist 'schnell'?", "answer": "Adjektiv."},
+        {"question": "Wie nennt man Wörter mit gleicher Bedeutung?", "answer": "Synonyme."},
+    ],
+    "Politik & Gesellschaft": [
+        {"question": "Wie oft findet die Bundestagswahl regulär statt?", "answer": "Alle vier Jahre."},
+        {"question": "Wie heißt das Parlament in Deutschland?", "answer": "Der Deutsche Bundestag."},
+        {"question": "Was bedeutet Demokratie im Kern?", "answer": "Volksherrschaft beziehungsweise politische Teilhabe der Bürger."},
+        {"question": "Welche Farbe hat eine typische Fußgängerampel für 'Gehen'?", "answer": "Grün."},
+        {"question": "Wie nennt man Regeln, die in einem Staat gelten?", "answer": "Gesetze."},
+        {"question": "Was ist ein Kompromiss?", "answer": "Eine Einigung, bei der beide Seiten Zugeständnisse machen."},
+        {"question": "Wie nennt man den Zusammenschluss mehrerer Staaten in Europa?", "answer": "Europäische Union."},
+    ],
+    "Allgemeinwissen": [
+        {"question": "Wie viele Tage hat ein Schaltjahr?", "answer": "366 Tage."},
+        {"question": "Welche Farbe entsteht aus Blau und Gelb?", "answer": "Grün."},
+        {"question": "Wie viele Kontinente gibt es üblicherweise?", "answer": "Sieben."},
+        {"question": "Welcher Monat hat normalerweise 28 Tage?", "answer": "Der Februar."},
+        {"question": "Welcher Planet ist als 'roter Planet' bekannt?", "answer": "Mars."},
+        {"question": "Wie viele Minuten hat ein Tag?", "answer": "1440."},
+        {"question": "Welche Himmelsrichtung liegt gegenüber von Westen?", "answer": "Osten."},
     ],
 }
 
@@ -6430,6 +6523,115 @@ def _game_portal_back_overlay() -> ft.Container:
     )
 
 
+def show_portal_stats(page: ft.Page, state: dict):
+    db = load_db()
+    theme = get_theme(state)
+    g = db.get("global_stats", {})
+    ensure_stats_defaults(g)
+    email = state.get("current_user_email")
+    user = db.get("users", {}).get(email) if email else None
+    if user:
+        ensure_stats_defaults(user.setdefault("stats", {}))
+    u_stats = user.get("stats", {}) if user else {}
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=20,
+                        content=ft.Container(
+                            width=min(860, int((_page_size(page)[0]) - 24)),
+                            border_radius=18,
+                            bgcolor="#08120DE8",
+                            border=ft.border.Border.all(2, theme["border"]),
+                            padding=20,
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
+                                            ft.Text("Allgemeine Statistik", size=28, weight="bold", color="white"),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Divider(color=theme["border"]),
+                                    ft.Text("Global", size=18, weight="bold", color=theme["gold"]),
+                                    ft.Text(f"Gesamte WWM-Spiele: {g.get('games_played', 0)}", color="white"),
+                                    ft.Text(f"Punkte-Quiz-Spiele: {g.get('points_quiz_games_played', 0)}", color="white"),
+                                    ft.Text(f"Punkte-Quiz (komplett beendet): {g.get('points_quiz_finished_games', 0)}", color="white"),
+                                    ft.Text(f"Bewertete Punkte-Quiz-Fragen: {g.get('points_quiz_questions_judged', 0)}", color="white"),
+                                    ft.Container(height=8),
+                                    ft.Text("Dein Konto", size=18, weight="bold", color=theme["accent"]),
+                                    ft.Text(f"Eingeloggt als: {email}" if email and user else "Du bist aktuell nicht eingeloggt.", color=theme_txt(theme, "secondary")),
+                                    ft.Text(f"Deine WWM-Spiele: {u_stats.get('games_played', 0)}", color="white"),
+                                    ft.Text(f"Deine Punkte-Quiz-Spiele: {u_stats.get('points_quiz_games_played', 0)}", color="white"),
+                                    ft.Text(f"Deine kompletten Punkte-Quiz-Runden: {u_stats.get('points_quiz_finished_games', 0)}", color="white"),
+                                    ft.Text(f"Deine bewerteten Punkte-Quiz-Fragen: {u_stats.get('points_quiz_questions_judged', 0)}", color="white"),
+                                ],
+                                spacing=8,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
+def show_portal_settings(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    email = state.get("current_user_email")
+    logged_in = bool(email)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#0000008f"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Container(
+                            width=420,
+                            padding=22,
+                            bgcolor="#08120DE8",
+                            border_radius=18,
+                            border=ft.border.Border.all(2, theme["border"]),
+                            content=ft.Column(
+                                [
+                                    ft.Text("Einstellungen", size=30, weight="bold", color="white"),
+                                    _theme_action_button("Allgemeine Statistik", theme, lambda e: show_portal_stats(e.page, state), width=280),
+                                    _theme_action_button("Design auswählen", theme, lambda e: show_design_view(e.page, state), width=280),
+                                    _theme_action_button("Shop", theme, lambda e: e.page.go("/shop") if logged_in else show_login_view(e.page, state), width=280),
+                                    _theme_action_button("Anmelden", theme, lambda e: show_login_view(e.page, state), width=280, bg=theme["success"]) if not logged_in else ft.Container(),
+                                    _theme_action_button("Abmelden", theme, lambda e: e.page.run_task(_do_logout, e.page, state), width=280, bg=theme["danger"]) if logged_in else ft.Container(),
+                                    ft.Text(f"Konto: {email}" if logged_in else "Nicht eingeloggt", size=12, color=theme_txt(theme, "secondary")),
+                                    ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
+                                ],
+                                spacing=12,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
 def open_wwm_main_menu(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
     page.controls.clear()
@@ -6441,6 +6643,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
     theme = get_theme(state)
     page_w, _ = _page_size(page)
     mobile = page_w < 940
+    logged_in = bool(state.get("current_user_email"))
     hero = ft.Container(
         width=min(860, int(page_w - 24)),
         padding=ft.Padding(28, 26, 28, 26),
@@ -6508,6 +6711,17 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         alignment=ft.MainAxisAlignment.CENTER,
     )
 
+    general_actions = ft.Row(
+        [
+            _game_menu_button("Einstellungen", lambda e: show_portal_settings(e.page, state), theme["accent"], width=200, height=40),
+            _game_menu_button("Shop", lambda e: e.page.go("/shop") if logged_in else show_login_view(e.page, state), theme["gold"], width=140, height=40),
+            _game_menu_button("Anmelden" if not logged_in else "Profil", lambda e: show_login_view(e.page, state), theme["success"], width=160, height=40),
+        ],
+        alignment=ft.MainAxisAlignment.CENTER,
+        spacing=10,
+        wrap=True,
+    )
+
     return ft.Container(
         expand=True,
         content=ft.Stack(
@@ -6518,7 +6732,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
                     alignment=ft.Alignment(0, 0),
                     padding=20,
                     content=ft.Column(
-                        [hero, cards],
+                        [hero, general_actions, cards],
                         spacing=24,
                         alignment=ft.MainAxisAlignment.CENTER,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -7099,6 +7313,28 @@ def show_points_quiz_summary(page: ft.Page, state: dict, finished_early: bool):
     if not session:
         show_points_quiz_hub(page, state)
         return
+    if not session.get("stats_recorded"):
+        db = load_db()
+        g = db.setdefault("global_stats", DEFAULT_GLOBAL_STATS.copy())
+        ensure_stats_defaults(g)
+        judged = len(session.get("used_cells", []))
+        g["points_quiz_games_played"] = g.get("points_quiz_games_played", 0) + 1
+        g["points_quiz_questions_judged"] = g.get("points_quiz_questions_judged", 0) + judged
+        if not finished_early:
+            g["points_quiz_finished_games"] = g.get("points_quiz_finished_games", 0) + 1
+
+        email = state.get("current_user_email")
+        if email and email in db.get("users", {}):
+            u_stats = db["users"][email].setdefault("stats", DEFAULT_USER_STATS.copy())
+            ensure_stats_defaults(u_stats)
+            u_stats["points_quiz_games_played"] = u_stats.get("points_quiz_games_played", 0) + 1
+            u_stats["points_quiz_questions_judged"] = u_stats.get("points_quiz_questions_judged", 0) + judged
+            if not finished_early:
+                u_stats["points_quiz_finished_games"] = u_stats.get("points_quiz_finished_games", 0) + 1
+        save_db(db)
+        session["stats_recorded"] = True
+        state["points_quiz_session"] = session
+
     theme = get_theme(state)
     teams = sorted(session.get("teams", []), key=lambda team: team.get("score", 0), reverse=True)
     top_score = teams[0]["score"] if teams else 0
@@ -8893,39 +9129,44 @@ def show_settings_view(page: ft.Page, state: dict):
 def show_design_view(page: ft.Page, state: dict):
     db = load_db()
     email = state.get("current_user_email")
-    if not email or email not in db.get("users", {}):
-        show_login_view(page, state)
-        return
-
-    ensure_user_settings(db, email)
-    ensure_unlocked_themes(db["users"][email])
-    save_db(db)
-    current_theme = db["users"][email].get("settings", {}).get("theme", "classic")
-    unlocked_themes = set(get_unlocked_theme_keys(db["users"][email]))
-    if current_theme not in unlocked_themes:
-        current_theme = "classic"
-        db["users"][email]["settings"]["theme"] = "classic"
+    logged_in = bool(email and email in db.get("users", {}))
+    if logged_in:
+        ensure_user_settings(db, email)
+        ensure_unlocked_themes(db["users"][email])
         save_db(db)
+        current_theme = db["users"][email].get("settings", {}).get("theme", "classic")
+        unlocked_themes = set(get_unlocked_theme_keys(db["users"][email]))
+        if current_theme not in unlocked_themes:
+            current_theme = "classic"
+            db["users"][email]["settings"]["theme"] = "classic"
+            save_db(db)
+    else:
+        current_theme = get_user_settings(state).get("theme", "classic")
+        unlocked_themes = {"classic", "neon_nexus"}
     theme = get_theme(state)
     status_text = ft.Text("", size=13, text_align="center")
 
     def choose_theme(theme_key: str):
         def _handler(e):
-            db_current = load_db()
-            if email in db_current.get("users", {}) and theme_key in THEMES:
-                ensure_user_settings(db_current, email)
-                ensure_unlocked_themes(db_current["users"][email])
-                if theme_key not in set(get_unlocked_theme_keys(db_current["users"][email])):
-                    status_text.value = "Dieses Design ist noch nicht gekauft."
-                    status_text.color = THEMES["classic"]["danger"]
-                    e.page.update()
-                    return
-                db_current["users"][email]["settings"]["theme"] = theme_key
-                save_db(db_current)
-                state["theme"] = theme_key
-                status_text.value = "Design gespeichert."
-                status_text.color = THEMES[theme_key]["success"]
-                show_design_view(e.page, state)
+            if theme_key not in THEMES:
+                return
+            if logged_in:
+                db_current = load_db()
+                if email in db_current.get("users", {}):
+                    ensure_user_settings(db_current, email)
+                    ensure_unlocked_themes(db_current["users"][email])
+                    if theme_key not in set(get_unlocked_theme_keys(db_current["users"][email])):
+                        status_text.value = "Dieses Design ist noch nicht gekauft."
+                        status_text.color = THEMES["classic"]["danger"]
+                        e.page.update()
+                        return
+                    db_current["users"][email]["settings"]["theme"] = theme_key
+                    save_db(db_current)
+            state.setdefault("settings", DEFAULT_USER_SETTINGS.copy())
+            state["settings"]["theme"] = theme_key
+            status_text.value = "Design gespeichert."
+            status_text.color = THEMES[theme_key]["success"]
+            show_design_view(e.page, state)
         return _handler
 
     cards = []
@@ -8989,7 +9230,7 @@ def show_design_view(page: ft.Page, state: dict):
                             ),
                             ft.TextButton(
                                 "Zurück",
-                                on_click=lambda e: show_settings_view(e.page, state),
+                                on_click=lambda e: show_portal_settings(e.page, state),
                                 style=ft.ButtonStyle(color="white"),
                             ),
                         ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=14, scroll=ft.ScrollMode.AUTO),
@@ -11023,6 +11264,7 @@ def main(page: ft.Page):
         "jokers_used": 0,
         "current_user_email": None,
         "current_user_uid": None,
+        "settings": DEFAULT_USER_SETTINGS.copy(),
     }
 
     page.title = "Wer wird Millionär?"
