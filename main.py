@@ -5598,16 +5598,6 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             right=40,
             bottom=40
         ),
-        ft.Container(
-            content=ft.TextButton(
-                "← Spielauswahl",
-                on_click=lambda e: e.page.go("/"),
-                style=ft.ButtonStyle(color="white"),
-            ),
-            top=20,
-            left=20,
-            alignment=ft.Alignment(-1, -1),
-        ),
         # Centered main content
         ft.Container(
             content=main_column,
@@ -5620,6 +5610,21 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             top=20,
             right=20,
             alignment=ft.Alignment(1, -1),
+        ),
+        ft.Container(
+            content=ft.Container(
+                content=ft.TextButton(
+                    "← Spielauswahl",
+                    on_click=lambda e: e.page.go("/"),
+                    style=ft.ButtonStyle(color="white"),
+                ),
+                bgcolor="#0000008f",
+                border_radius=14,
+                padding=ft.Padding(6, 2, 6, 2),
+            ),
+            top=18,
+            left=18,
+            alignment=ft.Alignment(-1, -1),
         ),
     ])
     stack = ft.Stack(stack_controls, expand=True)
@@ -6407,6 +6412,24 @@ def _points_quiz_team_label(index: int) -> str:
     return f"Team {index + 1}"
 
 
+def _game_portal_back_overlay() -> ft.Container:
+    return ft.Container(
+        content=ft.Container(
+            content=ft.TextButton(
+                "← Spielauswahl",
+                on_click=lambda e: e.page.go("/"),
+                style=ft.ButtonStyle(color="white"),
+            ),
+            bgcolor="#0000008f",
+            border_radius=14,
+            padding=ft.Padding(6, 2, 6, 2),
+        ),
+        top=18,
+        left=18,
+        alignment=ft.Alignment(-1, -1),
+    )
+
+
 def open_wwm_main_menu(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
     page.controls.clear()
@@ -6619,6 +6642,7 @@ def show_points_quiz_hub(page: ft.Page, state: dict):
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                     ),
+                    _game_portal_back_overlay(),
                 ],
                 expand=True,
             ),
@@ -6723,6 +6747,7 @@ def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict):
                             ),
                         ),
                     ),
+                    _game_portal_back_overlay(),
                 ],
                 expand=True,
             ),
@@ -6910,6 +6935,7 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                             spacing=16,
                         ),
                     ),
+                    _game_portal_back_overlay(),
                 ],
                 expand=True,
             ),
@@ -6997,6 +7023,7 @@ def show_points_quiz_question(page: ft.Page, state: dict):
                             ),
                         ),
                     ),
+                    _game_portal_back_overlay(),
                 ],
                 expand=True,
             ),
@@ -7058,6 +7085,7 @@ def show_points_quiz_answer_screen(page: ft.Page, state: dict):
                             ),
                         ),
                     ),
+                    _game_portal_back_overlay(),
                 ],
                 expand=True,
             ),
@@ -7129,6 +7157,7 @@ def show_points_quiz_summary(page: ft.Page, state: dict, finished_early: bool):
                             ),
                         ),
                     ),
+                    _game_portal_back_overlay(),
                 ],
                 expand=True,
             ),
@@ -7273,6 +7302,7 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                             scroll=ft.ScrollMode.AUTO,
                         ),
                     ),
+                    _game_portal_back_overlay(),
                 ],
                 expand=True,
             ),
@@ -7363,6 +7393,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
                             ),
                         ),
                     ),
+                    _game_portal_back_overlay(),
                 ],
                 expand=True,
             ),
