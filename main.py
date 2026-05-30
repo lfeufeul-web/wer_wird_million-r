@@ -1796,7 +1796,9 @@ MAX_CUSTOM_QUESTIONS = 15
 MIN_CUSTOM_ANSWERS = 2
 MAX_CUSTOM_ANSWERS = 4
 POINTS_QUIZ_POINT_VALUES = [20, 40, 60, 80, 100]
-POINTS_QUIZ_MAX_CATEGORIES = 5
+POINTS_QUIZ_DEFAULT_CATEGORIES = 5
+POINTS_QUIZ_MIN_CATEGORIES = 2
+POINTS_QUIZ_MAX_CATEGORIES = 12
 POINTS_QUIZ_MIN_TEAMS = 2
 POINTS_QUIZ_MAX_TEAMS = 6
 POINTS_QUIZ_RANDOM_BANK = {
@@ -6370,8 +6372,10 @@ def _default_points_category(index: int) -> dict:
 def normalize_points_quiz(quiz: dict) -> dict:
     normalized = dict(quiz or {})
     categories = list(normalized.get("categories") or [])
+    desired_count = len(categories) if categories else POINTS_QUIZ_DEFAULT_CATEGORIES
+    desired_count = max(POINTS_QUIZ_MIN_CATEGORIES, min(POINTS_QUIZ_MAX_CATEGORIES, desired_count))
     result_categories = []
-    for idx in range(POINTS_QUIZ_MAX_CATEGORIES):
+    for idx in range(desired_count):
         raw_cat = categories[idx] if idx < len(categories) and isinstance(categories[idx], dict) else {}
         name = str(raw_cat.get("name", f"Kategorie {idx + 1}")).strip() or f"Kategorie {idx + 1}"
         raw_questions = list(raw_cat.get("questions") or [])
@@ -6401,7 +6405,7 @@ def new_empty_points_quiz(title: str = "Mein Punkte-Quiz") -> dict:
         "created_at": now,
         "updated_at": now,
         "is_draft": True,
-        "categories": [_default_points_category(i) for i in range(POINTS_QUIZ_MAX_CATEGORIES)],
+        "categories": [_default_points_category(i) for i in range(POINTS_QUIZ_DEFAULT_CATEGORIES)],
     })
 
 
@@ -6469,7 +6473,7 @@ def points_quiz_is_playable(quiz: dict) -> bool:
 
 def build_random_points_quiz() -> dict:
     categories_pool = list(POINTS_QUIZ_RANDOM_BANK.items())
-    picked = random.sample(categories_pool, k=min(POINTS_QUIZ_MAX_CATEGORIES, len(categories_pool)))
+    picked = random.sample(categories_pool, k=min(POINTS_QUIZ_DEFAULT_CATEGORIES, len(categories_pool)))
     categories = []
     for cat_name, entries in picked:
         picked_questions = random.sample(entries, k=min(len(POINTS_QUIZ_POINT_VALUES), len(entries)))
@@ -6835,7 +6839,7 @@ def show_points_quiz_hub(page: ft.Page, state: dict):
                                 ),
                             ]
                         ),
-                        ft.Text("5 Kategorien · 25 Felder", size=12, color=theme_txt(theme, "secondary")),
+                        ft.Text(f"{len(quiz.get('categories', []))} Kategorien · {len(POINTS_QUIZ_POINT_VALUES) * len(quiz.get('categories', []))} Felder", size=12, color=theme_txt(theme, "secondary")),
                         ft.Row(
                             [
                                 _game_menu_button("Bearbeiten", lambda e, qid=quiz["id"]: show_points_quiz_editor(e.page, state, qid), theme["accent"], width=110, height=36),
@@ -7081,11 +7085,19 @@ def show_points_quiz_board(page: ft.Page, state: dict):
         spacing=8,
     )
 
+    categories = quiz.get("categories", [])
+    cat_count = len(categories)
+    label_w = 96
+    cell_w = 180
+    cell_h = 66
+    spacing = 10
+    board_width = label_w + (cat_count * cell_w) + (cat_count * spacing)
+
     header_row = ft.Row(
-        [ft.Container(width=100)] + [
+        [ft.Container(width=label_w)] + [
             ft.Container(
-                width=150,
-                height=72,
+                width=cell_w,
+                height=cell_h,
                 border_radius=14,
                 bgcolor="#0B1A14",
                 border=ft.border.Border.all(1.2, theme["accent"]),
@@ -7093,18 +7105,18 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                 padding=8,
                 content=ft.Text(cat.get("name", "Kategorie"), size=15, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
             )
-            for cat in quiz.get("categories", [])
+            for cat in categories
         ],
-        spacing=10,
-        alignment=ft.MainAxisAlignment.CENTER,
+        spacing=spacing,
+        wrap=False,
     )
 
     grid_rows = []
     for q_idx, points in enumerate(POINTS_QUIZ_POINT_VALUES):
         row_controls = [
             ft.Container(
-                width=100,
-                height=72,
+                width=label_w,
+                height=cell_h,
                 border_radius=14,
                 bgcolor="#07110D",
                 border=ft.border.Border.all(1.2, theme["border"]),
@@ -7112,14 +7124,14 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                 content=ft.Text(str(points), size=24, weight="w900", color=theme["gold"]),
             )
         ]
-        for cat_idx, cat in enumerate(quiz.get("categories", [])):
+        for cat_idx, cat in enumerate(categories):
             key = _points_cell_key(cat_idx, q_idx)
             question = _find_points_question(quiz, cat_idx, q_idx) or {}
             is_used = key in used_cells
             row_controls.append(
                 ft.Container(
-                    width=150,
-                    height=72,
+                    width=cell_w,
+                    height=cell_h,
                     border_radius=16,
                     bgcolor="#334155" if is_used else theme["accent"],
                     border=ft.border.Border.all(1.2, theme["border"]),
@@ -7128,7 +7140,7 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                     content=ft.Text("Bereits gespielt" if is_used else f"{question.get('points', points)} Punkte", size=15, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
                 )
             )
-        grid_rows.append(ft.Row(row_controls, spacing=10, alignment=ft.MainAxisAlignment.CENTER))
+        grid_rows.append(ft.Row(row_controls, spacing=spacing, wrap=False))
 
     page.controls.clear()
     page.add(
@@ -7163,37 +7175,45 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     vertical_alignment=ft.CrossAxisAlignment.START,
                                 ),
-                                ft.Row(
-                                    [
-                                        ft.Container(
-                                            expand=1,
-                                            padding=16,
-                                            bgcolor="#08120DE0",
-                                            border_radius=20,
-                                            border=ft.border.Border.all(1.4, theme["border"]),
-                                            content=ft.Column([header_row] + grid_rows, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO),
-                                        ),
-                                        ft.Container(
-                                            width=250,
-                                            padding=16,
-                                            bgcolor="#08120DE0",
-                                            border_radius=20,
-                                            border=ft.border.Border.all(1.4, theme["gold"]),
-                                            content=ft.Column(
-                                                [
-                                                    ft.Text("Punktestand", size=20, weight="bold", color="white"),
-                                                    scoreboard,
-                                                ],
-                                                spacing=12,
-                                            ),
-                                        ),
-                                    ],
+                                ft.Container(
                                     expand=True,
-                                    spacing=16,
-                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                    padding=16,
+                                    bgcolor="#08120DE0",
+                                    border_radius=20,
+                                    border=ft.border.Border.all(1.4, theme["border"]),
+                                    content=ft.Column(
+                                        [
+                                            ft.Row(
+                                                [
+                                                    ft.Container(
+                                                        width=board_width,
+                                                        content=ft.Column([header_row] + grid_rows, spacing=10),
+                                                    )
+                                                ],
+                                                scroll=ft.ScrollMode.AUTO,
+                                            ),
+                                            ft.Container(height=12),
+                                            ft.Container(
+                                                width=min(420, int(_page_size(page)[0] - 56)),
+                                                padding=14,
+                                                bgcolor="#08120DE0",
+                                                border_radius=16,
+                                                border=ft.border.Border.all(1.2, theme["gold"]),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Punktestand", size=20, weight="bold", color="white"),
+                                                        scoreboard,
+                                                    ],
+                                                    spacing=12,
+                                                ),
+                                            ),
+                                        ],
+                                        spacing=8,
+                                    ),
                                 ),
                             ],
                             spacing=16,
+                            scroll=ft.ScrollMode.AUTO,
                         ),
                     ),
                     _game_portal_back_overlay(),
@@ -7235,7 +7255,14 @@ def show_points_quiz_question(page: ft.Page, state: dict):
     current_team = teams[session.get("current_team_idx", 0) % len(teams)]
     question = active["question"]
 
+    active.setdefault("solution_revealed", False)
+
     def resolve_question(correct: bool):
+        if not active.get("solution_revealed"):
+            page.snack_bar = ft.SnackBar(content=ft.Text("Bitte zuerst die Lösung anzeigen."))
+            page.snack_bar.open = True
+            page.update()
+            return
         delta = int(question.get("points", 0)) * (1 if correct else -1)
         current_team["score"] += delta
         if correct:
@@ -7244,9 +7271,23 @@ def show_points_quiz_question(page: ft.Page, state: dict):
         if key not in session["used_cells"]:
             session["used_cells"].append(key)
         state["points_quiz_session"] = session
-        state["active_points_question"]["result_correct"] = correct
-        state["active_points_question"]["delta"] = delta
-        show_points_quiz_answer_screen(page, state)
+        if _points_quiz_used_cells(session) >= _points_quiz_total_cells(session.get("quiz", {})):
+            show_points_quiz_summary(page, state, finished_early=False)
+            return
+        session["current_team_idx"] = (session.get("current_team_idx", 0) + 1) % max(1, len(teams))
+        state["points_quiz_session"] = session
+        state.pop("active_points_question", None)
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text(f"{current_team['name']}: {'+' if delta >= 0 else ''}{delta} Punkte"),
+            bgcolor=theme["success"] if delta >= 0 else theme["danger"],
+        )
+        page.snack_bar.open = True
+        show_points_quiz_board(page, state)
+
+    def toggle_solution(e):
+        active["solution_revealed"] = not active.get("solution_revealed", False)
+        state["active_points_question"] = active
+        show_points_quiz_question(page, state)
 
     page.controls.clear()
     page.add(
@@ -7272,6 +7313,34 @@ def show_points_quiz_question(page: ft.Page, state: dict):
                                     ft.Container(height=8),
                                     ft.Text(question.get("question", "Frage"), size=28, color="white", text_align=ft.TextAlign.CENTER, weight="w900"),
                                     ft.Container(height=18),
+                                    ft.Container(
+                                        width=min(760, int(_page_size(page)[0] - 48)),
+                                        padding=14,
+                                        border_radius=16,
+                                        bgcolor="#0B1A14",
+                                        border=ft.border.Border.all(1.4, theme["gold"]),
+                                        content=ft.Column(
+                                            [
+                                                ft.Text("Lösung", size=16, weight="bold", color=theme["gold"]),
+                                                ft.Text(
+                                                    question.get("answer", "") if active.get("solution_revealed") else "Tippen, um die Lösung aufzudecken",
+                                                    size=18 if active.get("solution_revealed") else 15,
+                                                    color="white",
+                                                    text_align=ft.TextAlign.CENTER,
+                                                ),
+                                            ],
+                                            spacing=8,
+                                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                        ),
+                                        on_click=toggle_solution,
+                                    ),
+                                    ft.Text(
+                                        "Lösung sichtbar - jetzt richtig oder falsch wählen."
+                                        if active.get("solution_revealed")
+                                        else "Erst Lösung anzeigen, dann bewerten.",
+                                        size=12,
+                                        color=theme_txt(theme, "secondary"),
+                                    ),
                                     ft.Row(
                                         [
                                             _game_menu_button("Richtig beantwortet", lambda e: resolve_question(True), theme["success"], width=240, height=48),
@@ -7493,25 +7562,96 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         color=theme["question_text"],
         border_color=theme["border"],
     )
-    category_fields = []
-    for idx, category in enumerate(quiz.get("categories", [])):
-        category_fields.append(
-            ft.TextField(
-                label=f"Kategorie {idx + 1}",
-                value=category.get("name", ""),
-                width=220,
-                bgcolor=theme["question_bg"],
-                color=theme["question_text"],
-                border_color=theme["border"],
-            )
-        )
+    category_fields: list[ft.TextField] = []
+    header_labels: list[ft.Text] = []
 
-    def save_quiz(mark_finished: bool = False):
+    def _collect_current_quiz_from_fields() -> dict:
         local_quiz = state.get("editing_points_quiz", quiz)
         local_quiz["title"] = (title_field.value or "").strip() or "Mein Punkte-Quiz"
         for idx, field in enumerate(category_fields):
             local_quiz["categories"][idx]["name"] = (field.value or "").strip() or f"Kategorie {idx + 1}"
+        state["editing_points_quiz"] = local_quiz
+        return local_quiz
+
+    def _refresh_header_labels():
+        for idx, label in enumerate(header_labels):
+            if idx < len(category_fields):
+                label.value = (category_fields[idx].value or f"K{idx + 1}").strip() or f"K{idx + 1}"
+                label.update()
+
+    def _build_category_field(idx: int, category: dict) -> ft.TextField:
+        field = ft.TextField(
+            label=f"Kategorie {idx + 1}",
+            value=category.get("name", ""),
+            width=220,
+            bgcolor=theme["question_bg"],
+            color=theme["question_text"],
+            border_color=theme["border"],
+        )
+        field.on_change = lambda e: _refresh_header_labels()
+        return field
+
+    for idx, category in enumerate(quiz.get("categories", [])):
+        category_fields.append(_build_category_field(idx, category))
+
+    def save_quiz(mark_finished: bool = False):
+        local_quiz = _collect_current_quiz_from_fields()
         state["editing_points_quiz"] = upsert_points_quiz(state, local_quiz, mark_finished=mark_finished)
+
+    def add_category(e):
+        local_quiz = _collect_current_quiz_from_fields()
+        categories = local_quiz.get("categories", [])
+        if len(categories) >= POINTS_QUIZ_MAX_CATEGORIES:
+            page.snack_bar = ft.SnackBar(content=ft.Text(f"Maximal {POINTS_QUIZ_MAX_CATEGORIES} Kategorien."))
+            page.snack_bar.open = True
+            page.update()
+            return
+        categories.append(_default_points_category(len(categories)))
+        local_quiz["categories"] = categories
+        state["editing_points_quiz"] = local_quiz
+        show_points_quiz_editor(page, state, local_quiz.get("id"))
+
+    def remove_category(index: int):
+        local_quiz = _collect_current_quiz_from_fields()
+        categories = local_quiz.get("categories", [])
+        if len(categories) <= POINTS_QUIZ_MIN_CATEGORIES:
+            page.snack_bar = ft.SnackBar(content=ft.Text(f"Mindestens {POINTS_QUIZ_MIN_CATEGORIES} Kategorien erforderlich."))
+            page.snack_bar.open = True
+            page.update()
+            return
+        to_delete = categories[index]
+        has_content = False
+        if str(to_delete.get("name", "")).strip() and str(to_delete.get("name", "")).strip() != f"Kategorie {index + 1}":
+            has_content = True
+        for q in to_delete.get("questions", []):
+            if str(q.get("question", "")).strip() or str(q.get("answer", "")).strip():
+                has_content = True
+                break
+
+        def do_delete(_e=None):
+            cats = local_quiz.get("categories", [])
+            if 0 <= index < len(cats):
+                cats.pop(index)
+            for i, cat in enumerate(cats):
+                if not str(cat.get("name", "")).strip():
+                    cat["name"] = f"Kategorie {i + 1}"
+            local_quiz["categories"] = cats
+            state["editing_points_quiz"] = local_quiz
+            show_points_quiz_editor(page, state, local_quiz.get("id"))
+
+        if not has_content:
+            do_delete()
+            return
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Kategorie löschen?"),
+            content=ft.Text("Diese Kategorie enthält Inhalte. Wirklich mit allen Fragen löschen?"),
+            actions=[
+                ft.TextButton("Abbrechen", on_click=lambda ev: close_page_dialog(page, dlg)),
+                ft.TextButton("Löschen", on_click=lambda ev: (close_page_dialog(page, dlg), do_delete())),
+            ],
+        )
+        open_page_dialog(page, dlg)
 
     def back_to_hub(e):
         save_quiz(mark_finished=False)
@@ -7528,7 +7668,16 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
     cell_label_w = 120
     cell_btn_w = 180
     table_spacing = 8
-    table_width = cell_label_w + (POINTS_QUIZ_MAX_CATEGORIES * cell_btn_w) + (POINTS_QUIZ_MAX_CATEGORIES * table_spacing)
+    category_count = len(quiz.get("categories", []))
+    table_width = cell_label_w + (category_count * cell_btn_w) + (category_count * table_spacing)
+    header_labels = [
+        ft.Text(
+            (category_fields[idx].value or f"K{idx + 1}").strip() or f"K{idx + 1}",
+            color=theme_txt(theme, "secondary"),
+            text_align=ft.TextAlign.CENTER,
+        )
+        for idx in range(category_count)
+    ]
     cell_rows = []
     for q_idx, points in enumerate(POINTS_QUIZ_POINT_VALUES):
         row_controls = [
@@ -7567,9 +7716,39 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                             [
                                 ft.Text("Punkte-Quiz bearbeiten", size=28, weight="w900", color="white"),
                                 title_field,
-                                ft.Row(category_fields, spacing=10, wrap=True, alignment=ft.MainAxisAlignment.CENTER),
+                                ft.Row(
+                                    [
+                                        ft.Stack(
+                                            [
+                                                field,
+                                                ft.Container(
+                                                    top=-4,
+                                                    right=-4,
+                                                    visible=len(category_fields) > POINTS_QUIZ_MIN_CATEGORIES,
+                                                    content=ft.Container(
+                                                        width=18,
+                                                        height=18,
+                                                        border_radius=9,
+                                                        bgcolor="#B91C1C",
+                                                        alignment=ft.Alignment(0, 0),
+                                                        on_click=lambda e, i=idx: remove_category(i),
+                                                        content=ft.Text("×", size=11, color="white", weight="bold"),
+                                                    ),
+                                                ),
+                                            ],
+                                            width=220,
+                                            height=74,
+                                        )
+                                        for idx, field in enumerate(category_fields)
+                                    ] + [
+                                        _game_menu_button("+ Kategorie", add_category, theme["accent"], width=180, height=42)
+                                    ],
+                                    spacing=10,
+                                    wrap=True,
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                ),
                                 ft.Container(
-                                    width=920,
+                                    width=min(1220, int(_page_size(page)[0] - 28)),
                                     padding=18,
                                     bgcolor="#08120DE8",
                                     border_radius=20,
@@ -7588,13 +7767,9 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                                                                         ft.Container(
                                                                             width=cell_btn_w,
                                                                             alignment=ft.Alignment(0, 0),
-                                                                            content=ft.Text(
-                                                                                f"K{idx + 1}",
-                                                                                color=theme_txt(theme, "secondary"),
-                                                                                text_align=ft.TextAlign.CENTER,
-                                                                            ),
+                                                                            content=header_labels[idx],
                                                                         )
-                                                                        for idx in range(POINTS_QUIZ_MAX_CATEGORIES)
+                                                                        for idx in range(category_count)
                                                                     ],
                                                                     spacing=table_spacing,
                                                                     wrap=False,
