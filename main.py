@@ -5598,6 +5598,16 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             right=40,
             bottom=40
         ),
+        ft.Container(
+            content=ft.TextButton(
+                "← Spielauswahl",
+                on_click=lambda e: e.page.go("/"),
+                style=ft.ButtonStyle(color="white"),
+            ),
+            top=20,
+            left=20,
+            alignment=ft.Alignment(-1, -1),
+        ),
         # Centered main content
         ft.Container(
             content=main_column,
@@ -6656,7 +6666,6 @@ def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict):
             )
             team_fields.append(field)
             fields_column.controls.append(field)
-        fields_column.update() if fields_column.page else None
 
     rebuild_team_fields(2)
 
@@ -6666,6 +6675,7 @@ def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict):
         except Exception:
             count = 2
         rebuild_team_fields(count)
+        page.update()
 
     team_count.on_change = on_team_count_change
     team_count.on_select = on_team_count_change
