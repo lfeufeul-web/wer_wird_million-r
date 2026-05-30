@@ -100,6 +100,30 @@ EXTRA_STATS_DEFAULTS = {
     "daily_games_played": 0,
     "last_daily_played": "",
 }
+ACHIEVEMENT_DEFINITIONS = [
+    {"id": "first_game", "name": "Erster Schritt", "desc": "Dein erstes Spiel abschließen."},
+    {"id": "quiz_fan", "name": "Quiz-Fan", "desc": "5 Spiele insgesamt spielen."},
+    {"id": "marathon", "name": "Marathon", "desc": "10 Spiele insgesamt spielen."},
+    {"id": "veteran", "name": "Veteran", "desc": "25 Spiele insgesamt spielen."},
+    {"id": "legend_50", "name": "Legende", "desc": "50 Spiele insgesamt spielen."},
+    {"id": "first_win", "name": "Siegertyp", "desc": "Zum ersten Mal gewinnen."},
+    {"id": "streak_3", "name": "Heißlauf", "desc": "3 Siege in Folge schaffen."},
+    {"id": "streak_5", "name": "Unaufhaltbar", "desc": "5 Siege in Folge schaffen."},
+    {"id": "purist", "name": "Purist", "desc": "Ein Spiel gewinnen, ohne Joker zu nutzen."},
+    {"id": "joker_friend", "name": "Jokerfreund", "desc": "Zum ersten Mal einen Joker einsetzen."},
+    {"id": "joker_master", "name": "Joker-Meister", "desc": "Insgesamt 25 Joker einsetzen."},
+    {"id": "perfect_round", "name": "Fehlerfrei", "desc": "Ein perfektes Spiel ohne falsche Antwort gewinnen."},
+    {"id": "perfectionist", "name": "Perfektionist", "desc": "3 perfekte Spiele gewinnen."},
+    {"id": "money_1000", "name": "Vierstellig", "desc": "Mindestens 1.000 € erreichen."},
+    {"id": "money_32000", "name": "High Roller", "desc": "Mindestens 32.000 € erreichen."},
+    {"id": "money_125000", "name": "Elite-Spieler", "desc": "Mindestens 125.000 € erreichen."},
+    {"id": "millionaire", "name": "Millionär", "desc": "Die Million gewinnen."},
+    {"id": "correct_50", "name": "Schlaufuchs", "desc": "Insgesamt 50 richtige Antworten geben."},
+    {"id": "correct_200", "name": "Quizmaschine", "desc": "Insgesamt 200 richtige Antworten geben."},
+    {"id": "daily_first", "name": "Tagesstarter", "desc": "Die Daily Challenge einmal spielen."},
+    {"id": "daily_streak_3", "name": "Daily-Serie", "desc": "3 Daily Challenges in Folge gewinnen."},
+    {"id": "daily_streak_7", "name": "Daily-Champion", "desc": "7 Daily Challenges in Folge gewinnen."},
+]
 QUESTION_HISTORY_LIMIT = 360
 QUESTION_PERFORMANCE_LIMIT = 1500
 
@@ -582,6 +606,7 @@ def default_user(email: str, uid: str | None = None) -> dict:
         "unlocked_achievements": [],
         "avatar": default_avatar_profile(),
         "question_profile": {"recent_prompts": [], "performance": {}},
+        "custom_points_quizzes": [],
     }
     if uid:
         user["uid"] = uid
@@ -1023,6 +1048,7 @@ def ensure_social_defaults(user: dict):
     user.setdefault("last_active", None)
     user.setdefault("weekly_stats", {"week": "", "money_level": 0, "games_won": 0})
     user.setdefault("custom_quizzes", [])
+    user.setdefault("custom_points_quizzes", [])
     ensure_question_profile_defaults(user)
 
 
@@ -1623,6 +1649,16 @@ def update_game_stats(correct: int, answered: int, money: str, money_level_idx: 
     save_db(db)
 
 
+def get_achievement_definitions() -> list[dict]:
+    return ACHIEVEMENT_DEFINITIONS
+
+
+def _unlock_achievement(unlocked: list[str], newly_unlocked: list[str], achievement_id: str, achievement_name: str, condition: bool):
+    if condition and achievement_id not in unlocked:
+        unlocked.append(achievement_id)
+        newly_unlocked.append(achievement_name)
+
+
 def save_current_game(state: dict):
     email = state.get("current_user_email")
     if not email or state.get("game_finished") or state.get("is_daily_challenge"):
@@ -1747,6 +1783,68 @@ def resume_saved_game(page: ft.Page, state: dict, saved: dict | None = None):
 MAX_CUSTOM_QUESTIONS = 15
 MIN_CUSTOM_ANSWERS = 2
 MAX_CUSTOM_ANSWERS = 4
+POINTS_QUIZ_POINT_VALUES = [20, 40, 60, 80, 100]
+POINTS_QUIZ_MAX_CATEGORIES = 5
+POINTS_QUIZ_MIN_TEAMS = 2
+POINTS_QUIZ_MAX_TEAMS = 6
+POINTS_QUIZ_RANDOM_BANK = {
+    "Englisch": [
+        {"question": "Wie lautet die englische Übersetzung von 'Apfel'?", "answer": "Apple."},
+        {"question": "Welches englische Wort bedeutet 'Freund'?", "answer": "Friend."},
+        {"question": "Wie heißt 'Buch' auf Englisch?", "answer": "Book."},
+        {"question": "Was ist die Vergangenheitsform von 'go'?", "answer": "Went."},
+        {"question": "Wie lautet die Steigerung von 'good'?", "answer": "Better."},
+        {"question": "Welcher Artikel passt zu 'hour': 'a' oder 'an'?", "answer": "An hour."},
+    ],
+    "Sport": [
+        {"question": "Wie viele Spieler stehen bei einer Fußballmannschaft gleichzeitig auf dem Feld?", "answer": "11 Spieler."},
+        {"question": "Was passiert bei einer roten Karte im Fußball?", "answer": "Der Spieler muss das Spielfeld verlassen und darf nicht zurückkehren."},
+        {"question": "Wie viele Punkte ist ein Freiwurf im Basketball wert?", "answer": "Einen Punkt."},
+        {"question": "Wie lang ist ein Marathon ungefähr?", "answer": "42,195 Kilometer."},
+        {"question": "In welcher Sportart gibt es einen 'Ass' als direkten Punktgewinn beim Aufschlag?", "answer": "Zum Beispiel im Tennis oder Volleyball."},
+        {"question": "Wie nennt man im Handball den Bereich direkt vor dem Tor, den nur der Torwart betreten darf?", "answer": "Den Torraum beziehungsweise den 6-Meter-Raum."},
+    ],
+    "Biologie": [
+        {"question": "Welches Organ pumpt das Blut durch den Körper?", "answer": "Das Herz."},
+        {"question": "Welches Gas atmen Menschen hauptsächlich ein?", "answer": "Sauerstoff."},
+        {"question": "Wie nennt man den grünen Farbstoff der Pflanzen?", "answer": "Chlorophyll."},
+        {"question": "Welcher Teil der Zelle enthält meistens die Erbinformation?", "answer": "Der Zellkern."},
+        {"question": "Wie heißt der Vorgang, bei dem Pflanzen mit Licht Energie gewinnen?", "answer": "Fotosynthese."},
+        {"question": "Welche Blutkörperchen helfen besonders bei der Abwehr von Krankheitserregern?", "answer": "Die weißen Blutkörperchen."},
+    ],
+    "Geschichte": [
+        {"question": "In welchem Land standen die Pyramiden von Gizeh?", "answer": "In Ägypten."},
+        {"question": "Wer war der erste Bundeskanzler der Bundesrepublik Deutschland?", "answer": "Konrad Adenauer."},
+        {"question": "Wie hieß die Mauer, die Berlin von 1961 bis 1989 teilte?", "answer": "Die Berliner Mauer."},
+        {"question": "In welchem Jahr fiel die Berliner Mauer?", "answer": "1989."},
+        {"question": "Welche berühmten Schiffe nutzte Christoph Kolumbus auf seiner Reise 1492?", "answer": "Santa Maria, Nina und Pinta."},
+        {"question": "Wie hieß die Epoche, in der Kunst, Wissenschaft und Denken in Europa stark aufblühten?", "answer": "Die Renaissance."},
+    ],
+    "Geografie": [
+        {"question": "Wie heißt die Hauptstadt von Frankreich?", "answer": "Paris."},
+        {"question": "Welcher Kontinent ist der größte der Erde?", "answer": "Asien."},
+        {"question": "Welcher Fluss fließt durch Köln?", "answer": "Der Rhein."},
+        {"question": "Welches Gebirge trennt Europa und Asien in Russland traditionell voneinander?", "answer": "Der Ural."},
+        {"question": "Wie heißt die größte Wüste der Welt?", "answer": "Die Antarktis ist die größte Wüste; die Sahara ist die größte heiße Wüste."},
+        {"question": "Welcher Ozean liegt zwischen Amerika und Europa/Afrika?", "answer": "Der Atlantische Ozean."},
+    ],
+    "Musik": [
+        {"question": "Wie viele Linien hat ein Notensystem?", "answer": "Fünf Linien."},
+        {"question": "Wie nennt man ein sehr schnelles Musiktempo auf Italienisch oft?", "answer": "Presto."},
+        {"question": "Welches Instrument hat in der Regel 88 Tasten?", "answer": "Das Klavier."},
+        {"question": "Wie nennt man eine Gruppe von Musikern mit Streich-, Blas- und Schlaginstrumenten?", "answer": "Orchester."},
+        {"question": "Welches Symbol erhöht einen Ton um einen Halbton?", "answer": "Das Kreuz."},
+        {"question": "Wie heißt die Pause von vier Schlägen im 4/4-Takt?", "answer": "Ganze Pause."},
+    ],
+    "Mathe": [
+        {"question": "Was ist 7 mal 8?", "answer": "56."},
+        {"question": "Wie viele Grad hat ein rechter Winkel?", "answer": "90 Grad."},
+        {"question": "Wie lautet das Ergebnis von 12 + 19?", "answer": "31."},
+        {"question": "Wie nennt man das Ergebnis einer Multiplikation?", "answer": "Produkt."},
+        {"question": "Wie viele Seiten hat ein Hexagon?", "answer": "Sechs Seiten."},
+        {"question": "Was ist die Quadratwurzel von 144?", "answer": "12."},
+    ],
+}
 
 
 def new_custom_quiz_id() -> str:
@@ -6144,6 +6242,1125 @@ def show_custom_question_editor(page: ft.Page, state: dict, question_index: int 
     page.update()
 
 
+# ---------- Points quiz ----------
+def new_points_quiz_id() -> str:
+    return f"points_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
+
+
+def _blank_points_question(points: int) -> dict:
+    return {"points": points, "question": "", "answer": "", "used": False}
+
+
+def _default_points_category(index: int) -> dict:
+    return {
+        "name": f"Kategorie {index + 1}",
+        "questions": [_blank_points_question(points) for points in POINTS_QUIZ_POINT_VALUES],
+    }
+
+
+def normalize_points_quiz(quiz: dict) -> dict:
+    normalized = dict(quiz or {})
+    categories = list(normalized.get("categories") or [])
+    result_categories = []
+    for idx in range(POINTS_QUIZ_MAX_CATEGORIES):
+        raw_cat = categories[idx] if idx < len(categories) and isinstance(categories[idx], dict) else {}
+        name = str(raw_cat.get("name", f"Kategorie {idx + 1}")).strip() or f"Kategorie {idx + 1}"
+        raw_questions = list(raw_cat.get("questions") or [])
+        questions = []
+        for q_idx, points in enumerate(POINTS_QUIZ_POINT_VALUES):
+            raw_q = raw_questions[q_idx] if q_idx < len(raw_questions) and isinstance(raw_questions[q_idx], dict) else {}
+            questions.append({
+                "points": points,
+                "question": str(raw_q.get("question", "")).strip(),
+                "answer": str(raw_q.get("answer", "")).strip(),
+            })
+        result_categories.append({"name": name, "questions": questions})
+    normalized["categories"] = result_categories
+    normalized.setdefault("id", new_points_quiz_id())
+    normalized["title"] = str(normalized.get("title", "Mein Punkte-Quiz")).strip() or "Mein Punkte-Quiz"
+    normalized.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+    normalized["updated_at"] = normalized.get("updated_at") or normalized["created_at"]
+    normalized["is_draft"] = bool(normalized.get("is_draft", True))
+    return normalized
+
+
+def new_empty_points_quiz(title: str = "Mein Punkte-Quiz") -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    return normalize_points_quiz({
+        "id": new_points_quiz_id(),
+        "title": title,
+        "created_at": now,
+        "updated_at": now,
+        "is_draft": True,
+        "categories": [_default_points_category(i) for i in range(POINTS_QUIZ_MAX_CATEGORIES)],
+    })
+
+
+def get_user_points_quizzes(state: dict) -> list[dict]:
+    email = state.get("current_user_email")
+    if not email:
+        return []
+    db = load_db()
+    user = db.get("users", {}).get(email)
+    if not user:
+        return []
+    ensure_social_defaults(user)
+    return [normalize_points_quiz(q) for q in list(user.get("custom_points_quizzes", []) or [])]
+
+
+def persist_user_points_quizzes(state: dict, quizzes: list[dict]):
+    email = state.get("current_user_email")
+    if not email:
+        return
+    db = load_db()
+    if email not in db.get("users", {}):
+        return
+    ensure_social_defaults(db["users"][email])
+    db["users"][email]["custom_points_quizzes"] = [normalize_points_quiz(q) for q in quizzes]
+    save_db(db)
+
+
+def find_points_quiz(quizzes: list[dict], quiz_id: str) -> dict | None:
+    for quiz in quizzes:
+        if quiz.get("id") == quiz_id:
+            return normalize_points_quiz(quiz)
+    return None
+
+
+def upsert_points_quiz(state: dict, quiz: dict, mark_finished: bool = False) -> dict:
+    quiz = normalize_points_quiz(quiz)
+    quiz["updated_at"] = datetime.now(timezone.utc).isoformat()
+    if mark_finished:
+        quiz["is_draft"] = False
+    quizzes = get_user_points_quizzes(state)
+    replaced = False
+    for idx, existing in enumerate(quizzes):
+        if existing.get("id") == quiz.get("id"):
+            quizzes[idx] = quiz
+            replaced = True
+            break
+    if not replaced:
+        quizzes.append(quiz)
+    persist_user_points_quizzes(state, quizzes)
+    return quiz
+
+
+def delete_points_quiz(state: dict, quiz_id: str):
+    quizzes = [q for q in get_user_points_quizzes(state) if q.get("id") != quiz_id]
+    persist_user_points_quizzes(state, quizzes)
+
+
+def points_quiz_is_playable(quiz: dict) -> bool:
+    categories = normalize_points_quiz(quiz).get("categories", [])
+    return all(
+        str(cat.get("name", "")).strip() and all(str(q.get("question", "")).strip() and str(q.get("answer", "")).strip() for q in cat.get("questions", []))
+        for cat in categories
+    )
+
+
+def build_random_points_quiz() -> dict:
+    categories_pool = list(POINTS_QUIZ_RANDOM_BANK.items())
+    picked = random.sample(categories_pool, k=min(POINTS_QUIZ_MAX_CATEGORIES, len(categories_pool)))
+    categories = []
+    for cat_name, entries in picked:
+        picked_questions = random.sample(entries, k=min(len(POINTS_QUIZ_POINT_VALUES), len(entries)))
+        questions = []
+        for idx, points in enumerate(POINTS_QUIZ_POINT_VALUES):
+            entry = picked_questions[idx]
+            questions.append({
+                "points": points,
+                "question": entry["question"],
+                "answer": entry["answer"],
+            })
+        categories.append({"name": cat_name, "questions": questions})
+    return normalize_points_quiz({
+        "id": f"random_points_{int(time.time())}",
+        "title": "Zufälliges Punkte-Quiz",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "is_draft": False,
+        "categories": categories,
+        "source": "random",
+    })
+
+
+def _points_quiz_total_cells(quiz: dict) -> int:
+    categories = normalize_points_quiz(quiz).get("categories", [])
+    return sum(len(cat.get("questions", [])) for cat in categories)
+
+
+def _points_quiz_used_cells(session: dict) -> int:
+    return len(session.get("used_cells", []))
+
+
+def _points_quiz_team_label(index: int) -> str:
+    return f"Team {index + 1}"
+
+
+def open_wwm_main_menu(page: ft.Page, state: dict):
+    _clear_themed_game_resize(state)
+    page.controls.clear()
+    page.add(build_welcome_view(page, state))
+    page.update()
+
+
+def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
+    theme = get_theme(state)
+    page_w, _ = _page_size(page)
+    mobile = page_w < 940
+    hero = ft.Container(
+        width=min(860, int(page_w - 24)),
+        padding=ft.Padding(28, 26, 28, 26),
+        bgcolor="#08120DE0",
+        border_radius=28,
+        border=ft.border.Border.all(1.5, theme.get("border", "#17432C")),
+        shadow=ft.BoxShadow(blur_radius=28, color="#44000000"),
+        content=ft.Column(
+            [
+                ft.Text("QUIZ ARENA", size=18, weight="bold", color=theme.get("accent", "#10B981")),
+                ft.Text("Wähle deinen Spielmodus", size=34, weight="w900", color="white"),
+                ft.Text(
+                    "Klassisches Wer wird Millionär oder ein Team-basiertes Punkte-Quiz mit Kategorien, Tafel und Live-Wertung.",
+                    size=14,
+                    color=theme_txt(theme, "secondary"),
+                ),
+            ],
+            spacing=6,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        alignment=ft.Alignment(0, 0),
+    )
+
+    def portal_card(title: str, subtitle: str, accent: str, icon: str, on_click):
+        return ft.Container(
+            width=360 if not mobile else min(420, int(page_w - 28)),
+            height=250,
+            border_radius=26,
+            on_click=on_click,
+            bgcolor="#07110DDF",
+            border=ft.border.Border.all(1.6, accent),
+            shadow=ft.BoxShadow(blur_radius=24, color=f"#44{accent[1:]}", spread_radius=1),
+            padding=ft.Padding(24, 22, 24, 22),
+            content=ft.Column(
+                [
+                    ft.Text(icon, size=42),
+                    ft.Text(title, size=28, weight="w900", color="white"),
+                    ft.Text(subtitle, size=14, color=theme_txt(theme, "secondary")),
+                    ft.Container(expand=True),
+                    ft.Row(
+                        [
+                            ft.Text("Modus öffnen", size=14, weight="bold", color=accent),
+                            ft.Text("→", size=18, color=accent),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                ],
+                spacing=8,
+            ),
+        )
+
+    cards = ft.Column(
+        [
+            portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: e.page.go("/wwm")),
+            portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: e.page.go("/points")),
+        ],
+        spacing=16,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+    ) if mobile else ft.Row(
+        [
+            portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: e.page.go("/wwm")),
+            portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: e.page.go("/points")),
+        ],
+        spacing=18,
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
+
+    return ft.Container(
+        expand=True,
+        content=ft.Stack(
+            [
+                _themed_screen_background(page, theme, "#00000090"),
+                ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment(0, 0),
+                    padding=20,
+                    content=ft.Column(
+                        [hero, cards],
+                        spacing=24,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ),
+            ],
+            expand=True,
+        ),
+    )
+
+
+def show_points_quiz_hub(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    ui = theme_ui_palette(theme)
+    logged_in = bool(state.get("current_user_email"))
+    own_quizzes = get_user_points_quizzes(state) if logged_in else []
+
+    random_card = ft.Container(
+        width=420,
+        border_radius=20,
+        padding=20,
+        bgcolor="#08120DE8",
+        border=ft.border.Border.all(1.4, theme["gold"]),
+        content=ft.Column(
+            [
+                ft.Text("🎲 Zufälliges Punkte-Quiz", size=22, weight="bold", color="white"),
+                ft.Text("Erstellt sofort ein fertiges Brett aus gemischten Kategorien.", size=13, color=theme_txt(theme, "secondary")),
+                ft.Container(height=8),
+                _game_menu_button("Jetzt spielen", lambda e: show_points_quiz_team_setup(e.page, state, build_random_points_quiz()), theme["gold"], width=220),
+            ],
+            spacing=6,
+        ),
+    )
+
+    own_rows = []
+    for quiz in sorted(own_quizzes, key=lambda q: q.get("updated_at", ""), reverse=True):
+        ready = points_quiz_is_playable(quiz)
+        own_rows.append(
+            ft.Container(
+                padding=12,
+                border_radius=14,
+                bgcolor=theme["panel"],
+                border=ft.border.Border.all(1, theme["border"]),
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Text(quiz.get("title", "Punkte-Quiz"), size=16, weight="bold", color="white", expand=True),
+                                ft.Container(
+                                    content=ft.Text("Fertig" if ready else "Entwurf", size=10, weight="bold", color="white"),
+                                    bgcolor=theme["success"] if ready else theme["accent_2"],
+                                    border_radius=8,
+                                    padding=ft.Padding(8, 3, 8, 3),
+                                ),
+                            ]
+                        ),
+                        ft.Text("5 Kategorien · 25 Felder", size=12, color=theme_txt(theme, "secondary")),
+                        ft.Row(
+                            [
+                                _game_menu_button("Bearbeiten", lambda e, qid=quiz["id"]: show_points_quiz_editor(e.page, state, qid), theme["accent"], width=110, height=36),
+                                _game_menu_button("Spielen", lambda e, q=quiz: show_points_quiz_team_setup(e.page, state, q), theme["success"] if ready else "#666666", width=110, height=36),
+                                _game_menu_button("Löschen", lambda e, qid=quiz["id"]: confirm_delete_points_quiz(e.page, state, qid), theme["danger"], width=110, height=36),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            spacing=8,
+                        ),
+                    ],
+                    spacing=6,
+                ),
+            )
+        )
+
+    if not own_rows:
+        own_rows.append(ft.Text("Noch keine eigenen Punkte-Quiz-Spiele.", size=13, color=theme_txt(theme, "secondary")))
+
+    own_card = ft.Container(
+        width=420,
+        border_radius=20,
+        padding=20,
+        bgcolor="#08120DE8",
+        border=ft.border.Border.all(1.4, theme["accent"]),
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Text("🧩 Eigene Punkte-Quiz-Spiele", size=22, weight="bold", color="white", expand=True),
+                        _game_menu_button("Neu", lambda e: show_points_quiz_editor(e.page, state, None) if logged_in else show_login_view(e.page, state), theme["accent"], width=100, height=34),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Text("Erstelle eigene Kategorien und Fragen oder spiele gespeicherte Bretter.", size=13, color=theme_txt(theme, "secondary")),
+                ft.Container(
+                    height=300,
+                    content=ft.Column(own_rows, spacing=10, scroll=ft.ScrollMode.AUTO),
+                ),
+                ft.Text("Anmeldung erforderlich, um eigene Punkte-Spiele zu speichern.", size=12, color=theme_txt(theme, "muted")) if not logged_in else ft.Container(height=0),
+            ],
+            spacing=8,
+        ),
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000090"),
+                    ft.Container(
+                        expand=True,
+                        padding=20,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column(
+                            [
+                                ft.Text("Punkte-Quiz", size=30, weight="w900", color=ui["text"]),
+                                ft.Text("Teams, Kategorien, Punktebrett und freie Spielleitung.", size=14, color=theme_txt(theme, "secondary")),
+                                ft.Row([random_card, own_card], spacing=18, wrap=True, alignment=ft.MainAxisAlignment.CENTER),
+                                ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
+                            ],
+                            spacing=16,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
+def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict):
+    quiz = normalize_points_quiz(quiz)
+    if not points_quiz_is_playable(quiz):
+        page.snack_bar = ft.SnackBar(content=ft.Text("Dieses Punkte-Quiz ist noch nicht vollständig ausgefüllt."))
+        page.snack_bar.open = True
+        page.update()
+        if quiz.get("source") == "random":
+            show_points_quiz_hub(page, state)
+        else:
+            show_points_quiz_editor(page, state, quiz.get("id"))
+        return
+
+    theme = get_theme(state)
+    team_count = ft.Dropdown(
+        label="Anzahl Teams",
+        width=240,
+        value="2",
+        options=[ft.dropdown.Option(str(i)) for i in range(POINTS_QUIZ_MIN_TEAMS, POINTS_QUIZ_MAX_TEAMS + 1)],
+        bgcolor=theme["question_bg"],
+        color=theme["question_text"],
+        border_color=theme["border"],
+    )
+    team_fields = []
+    fields_column = ft.Column(spacing=8)
+
+    def rebuild_team_fields(count: int):
+        team_fields.clear()
+        fields_column.controls.clear()
+        for idx in range(count):
+            field = ft.TextField(
+                label=_points_quiz_team_label(idx),
+                value=_points_quiz_team_label(idx),
+                width=320,
+                bgcolor=theme["question_bg"],
+                color=theme["question_text"],
+                border_color=theme["border"],
+            )
+            team_fields.append(field)
+            fields_column.controls.append(field)
+        fields_column.update() if fields_column.page else None
+
+    rebuild_team_fields(2)
+
+    def on_team_count_change(e):
+        try:
+            count = max(POINTS_QUIZ_MIN_TEAMS, min(POINTS_QUIZ_MAX_TEAMS, int(e.control.value or "2")))
+        except Exception:
+            count = 2
+        rebuild_team_fields(count)
+
+    team_count.on_change = on_team_count_change
+    team_count.on_select = on_team_count_change
+
+    def start_game(e):
+        teams = []
+        for idx, field in enumerate(team_fields):
+            name = (field.value or "").strip() or _points_quiz_team_label(idx)
+            teams.append({"name": name, "score": 0})
+        start_points_quiz_session(page, state, quiz, teams)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000092"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Container(
+                            width=560,
+                            padding=24,
+                            bgcolor="#08120DE8",
+                            border_radius=22,
+                            border=ft.border.Border.all(1.5, theme["gold"]),
+                            content=ft.Column(
+                                [
+                                    ft.Text(quiz.get("title", "Punkte-Quiz"), size=28, weight="w900", color="white", text_align=ft.TextAlign.CENTER),
+                                    ft.Text("Lege die Teams fest und starte danach das Brett.", size=13, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                                    team_count,
+                                    fields_column,
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("Starten", start_game, theme["success"]),
+                                            _game_menu_button("Zurück", lambda e: show_points_quiz_hub(e.page, state), theme["danger"]),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        spacing=12,
+                                    ),
+                                ],
+                                spacing=14,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
+def start_points_quiz_session(page: ft.Page, state: dict, quiz: dict, teams: list[dict]):
+    state["points_quiz_session"] = {
+        "quiz": normalize_points_quiz(quiz),
+        "teams": teams,
+        "current_team_idx": 0,
+        "used_cells": [],
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "finished": False,
+    }
+    state.pop("active_points_question", None)
+    show_points_quiz_board(page, state)
+
+
+def _find_points_question(quiz: dict, cat_idx: int, q_idx: int) -> dict | None:
+    categories = normalize_points_quiz(quiz).get("categories", [])
+    if 0 <= cat_idx < len(categories):
+        questions = categories[cat_idx].get("questions", [])
+        if 0 <= q_idx < len(questions):
+            return questions[q_idx]
+    return None
+
+
+def _points_cell_key(cat_idx: int, q_idx: int) -> str:
+    return f"{cat_idx}:{q_idx}"
+
+
+def show_points_quiz_board(page: ft.Page, state: dict):
+    session = state.get("points_quiz_session")
+    if not session:
+        show_points_quiz_hub(page, state)
+        return
+    quiz = normalize_points_quiz(session.get("quiz", {}))
+    teams = session.get("teams", [])
+    if not teams:
+        show_points_quiz_hub(page, state)
+        return
+    used_cells = set(session.get("used_cells", []))
+    theme = get_theme(state)
+    current_team = teams[session.get("current_team_idx", 0) % len(teams)]
+    total_cells = _points_quiz_total_cells(quiz)
+    used_count = _points_quiz_used_cells(session)
+    if used_count >= total_cells:
+        show_points_quiz_summary(page, state, finished_early=False)
+        return
+
+    scoreboard = ft.Column(
+        [
+            ft.Container(
+                padding=10,
+                border_radius=12,
+                bgcolor=theme["gold"] if idx == session.get("current_team_idx", 0) else theme["panel"],
+                border=ft.border.Border.all(1, theme["gold"] if idx == session.get("current_team_idx", 0) else theme["border"]),
+                content=ft.Row(
+                    [
+                        ft.Text(team["name"], color="#111111" if idx == session.get("current_team_idx", 0) else "white", weight="bold", expand=True),
+                        ft.Text(str(team["score"]), color="#111111" if idx == session.get("current_team_idx", 0) else theme["gold"], weight="bold"),
+                    ]
+                ),
+            )
+            for idx, team in enumerate(teams)
+        ],
+        spacing=8,
+    )
+
+    header_row = ft.Row(
+        [ft.Container(width=100)] + [
+            ft.Container(
+                width=150,
+                height=72,
+                border_radius=14,
+                bgcolor="#0B1A14",
+                border=ft.border.Border.all(1.2, theme["accent"]),
+                alignment=ft.Alignment(0, 0),
+                padding=8,
+                content=ft.Text(cat.get("name", "Kategorie"), size=15, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+            )
+            for cat in quiz.get("categories", [])
+        ],
+        spacing=10,
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
+
+    grid_rows = []
+    for q_idx, points in enumerate(POINTS_QUIZ_POINT_VALUES):
+        row_controls = [
+            ft.Container(
+                width=100,
+                height=72,
+                border_radius=14,
+                bgcolor="#07110D",
+                border=ft.border.Border.all(1.2, theme["border"]),
+                alignment=ft.Alignment(0, 0),
+                content=ft.Text(str(points), size=24, weight="w900", color=theme["gold"]),
+            )
+        ]
+        for cat_idx, cat in enumerate(quiz.get("categories", [])):
+            key = _points_cell_key(cat_idx, q_idx)
+            question = _find_points_question(quiz, cat_idx, q_idx) or {}
+            is_used = key in used_cells
+            row_controls.append(
+                ft.Container(
+                    width=150,
+                    height=72,
+                    border_radius=16,
+                    bgcolor="#334155" if is_used else theme["accent"],
+                    border=ft.border.Border.all(1.2, theme["border"]),
+                    alignment=ft.Alignment(0, 0),
+                    on_click=None if is_used else (lambda e, c=cat_idx, q=q_idx: open_points_question(e.page, state, c, q)),
+                    content=ft.Text("Bereits gespielt" if is_used else f"{question.get('points', points)} Punkte", size=15, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                )
+            )
+        grid_rows.append(ft.Row(row_controls, spacing=10, alignment=ft.MainAxisAlignment.CENTER))
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000094"),
+                    ft.Container(
+                        expand=True,
+                        padding=18,
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        ft.Column(
+                                            [
+                                                ft.Text(quiz.get("title", "Punkte-Quiz"), size=28, weight="w900", color="white"),
+                                                ft.Text(f"Am Zug: {current_team['name']}", size=16, weight="bold", color=theme["gold"]),
+                                                ft.Text(f"{used_count} / {total_cells} Felder gespielt", size=12, color=theme_txt(theme, "secondary")),
+                                            ],
+                                            spacing=4,
+                                        ),
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("Spiel beenden", lambda e: show_points_quiz_summary(e.page, state, finished_early=True), theme["danger"], width=180, height=40),
+                                                _game_menu_button("Zurück", lambda e: show_points_quiz_hub(e.page, state), "#4B5563", width=140, height=40),
+                                            ],
+                                            spacing=10,
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                ),
+                                ft.Row(
+                                    [
+                                        ft.Container(
+                                            expand=1,
+                                            padding=16,
+                                            bgcolor="#08120DE0",
+                                            border_radius=20,
+                                            border=ft.border.Border.all(1.4, theme["border"]),
+                                            content=ft.Column([header_row] + grid_rows, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO),
+                                        ),
+                                        ft.Container(
+                                            width=250,
+                                            padding=16,
+                                            bgcolor="#08120DE0",
+                                            border_radius=20,
+                                            border=ft.border.Border.all(1.4, theme["gold"]),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Text("Punktestand", size=20, weight="bold", color="white"),
+                                                    scoreboard,
+                                                ],
+                                                spacing=12,
+                                            ),
+                                        ),
+                                    ],
+                                    expand=True,
+                                    spacing=16,
+                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                ),
+                            ],
+                            spacing=16,
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
+def open_points_question(page: ft.Page, state: dict, cat_idx: int, q_idx: int):
+    session = state.get("points_quiz_session")
+    if not session:
+        show_points_quiz_hub(page, state)
+        return
+    quiz = normalize_points_quiz(session.get("quiz", {}))
+    question = _find_points_question(quiz, cat_idx, q_idx)
+    if not question:
+        show_points_quiz_board(page, state)
+        return
+    state["active_points_question"] = {
+        "cat_idx": cat_idx,
+        "q_idx": q_idx,
+        "question": question,
+        "category_name": quiz["categories"][cat_idx]["name"],
+    }
+    show_points_quiz_question(page, state)
+
+
+def show_points_quiz_question(page: ft.Page, state: dict):
+    session = state.get("points_quiz_session")
+    active = state.get("active_points_question")
+    if not session or not active:
+        show_points_quiz_board(page, state)
+        return
+    theme = get_theme(state)
+    teams = session.get("teams", [])
+    current_team = teams[session.get("current_team_idx", 0) % len(teams)]
+    question = active["question"]
+
+    def resolve_question(correct: bool):
+        delta = int(question.get("points", 0)) * (1 if correct else -1)
+        current_team["score"] += delta
+        key = _points_cell_key(active["cat_idx"], active["q_idx"])
+        if key not in session["used_cells"]:
+            session["used_cells"].append(key)
+        state["points_quiz_session"] = session
+        state["active_points_question"]["result_correct"] = correct
+        state["active_points_question"]["delta"] = delta
+        show_points_quiz_answer_screen(page, state)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000092"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=18,
+                        content=ft.Container(
+                            width=860,
+                            padding=26,
+                            border_radius=24,
+                            bgcolor="#08120DE8",
+                            border=ft.border.Border.all(1.5, theme["accent"]),
+                            content=ft.Column(
+                                [
+                                    ft.Text(active["category_name"], size=15, color=theme["gold"], weight="bold"),
+                                    ft.Text(f"{question.get('points', 0)} Punkte für {current_team['name']}", size=18, color="white", weight="bold"),
+                                    ft.Container(height=8),
+                                    ft.Text(question.get("question", "Frage"), size=28, color="white", text_align=ft.TextAlign.CENTER, weight="w900"),
+                                    ft.Container(height=18),
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("Richtig beantwortet", lambda e: resolve_question(True), theme["success"], width=240, height=48),
+                                            _game_menu_button("Falsch beantwortet", lambda e: resolve_question(False), theme["danger"], width=240, height=48),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        spacing=16,
+                                    ),
+                                ],
+                                spacing=10,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
+def show_points_quiz_answer_screen(page: ft.Page, state: dict):
+    session = state.get("points_quiz_session")
+    active = state.get("active_points_question")
+    if not session or not active:
+        show_points_quiz_board(page, state)
+        return
+    theme = get_theme(state)
+    teams = session.get("teams", [])
+    current_idx = session.get("current_team_idx", 0)
+    current_team = teams[current_idx % len(teams)]
+    correct = bool(active.get("result_correct"))
+
+    def continue_after_result(e):
+        if _points_quiz_used_cells(session) >= _points_quiz_total_cells(session.get("quiz", {})):
+            show_points_quiz_summary(page, state, finished_early=False)
+            return
+        session["current_team_idx"] = (current_idx + 1) % len(teams)
+        state["points_quiz_session"] = session
+        state.pop("active_points_question", None)
+        show_points_quiz_board(page, state)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000092"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=18,
+                        content=ft.Container(
+                            width=900,
+                            padding=28,
+                            border_radius=24,
+                            bgcolor="#08120DE8",
+                            border=ft.border.Border.all(1.5, theme["gold"] if correct else theme["danger"]),
+                            content=ft.Column(
+                                [
+                                    ft.Text("Richtig!" if correct else "Leider falsch", size=34, weight="w900", color=theme["success"] if correct else theme["danger"]),
+                                    ft.Text(f"{current_team['name']} erhält {'+' if active.get('delta', 0) >= 0 else ''}{active.get('delta', 0)} Punkte.", size=18, color="white"),
+                                    ft.Container(height=6),
+                                    ft.Text("Richtige Antwort", size=16, weight="bold", color=theme["gold"]),
+                                    ft.Text(active["question"].get("answer", ""), size=22, color="white", text_align=ft.TextAlign.CENTER),
+                                    ft.Container(height=12),
+                                    _game_menu_button("Weiter", continue_after_result, theme["accent"], width=220, height=48),
+                                ],
+                                spacing=10,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
+def show_points_quiz_summary(page: ft.Page, state: dict, finished_early: bool):
+    session = state.get("points_quiz_session")
+    if not session:
+        show_points_quiz_hub(page, state)
+        return
+    theme = get_theme(state)
+    teams = sorted(session.get("teams", []), key=lambda team: team.get("score", 0), reverse=True)
+    top_score = teams[0]["score"] if teams else 0
+    winners = [team["name"] for team in teams if team.get("score", 0) == top_score]
+
+    def back_to_points_hub(e):
+        state.pop("points_quiz_session", None)
+        state.pop("active_points_question", None)
+        show_points_quiz_hub(page, state)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000092"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=20,
+                        content=ft.Container(
+                            width=760,
+                            padding=28,
+                            border_radius=24,
+                            bgcolor="#08120DE8",
+                            border=ft.border.Border.all(1.5, theme["gold"]),
+                            content=ft.Column(
+                                [
+                                    ft.Text("Punkte-Quiz beendet", size=32, weight="w900", color="white"),
+                                    ft.Text("Vorzeitig beendet" if finished_early else "Alle Fragen wurden gespielt", size=14, color=theme_txt(theme, "secondary")),
+                                    ft.Text("Gewinner: " + ", ".join(winners), size=20, weight="bold", color=theme["gold"], text_align=ft.TextAlign.CENTER),
+                                    ft.Container(
+                                        content=ft.Column(
+                                            [
+                                                ft.Row(
+                                                    [
+                                                        ft.Text(f"{idx + 1}. {team['name']}", color="white", weight="bold", expand=True),
+                                                        ft.Text(str(team["score"]), color=theme["gold"], weight="bold"),
+                                                    ]
+                                                )
+                                                for idx, team in enumerate(teams)
+                                            ],
+                                            spacing=10,
+                                        ),
+                                        width=420,
+                                        padding=16,
+                                        bgcolor=theme["panel"],
+                                        border_radius=16,
+                                        border=ft.border.Border.all(1, theme["border"]),
+                                    ),
+                                    _game_menu_button("Zurück zum Punkte-Quiz", back_to_points_hub, theme["accent"], width=280, height=46),
+                                ],
+                                spacing=14,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
+def confirm_delete_points_quiz(page: ft.Page, state: dict, quiz_id: str):
+    theme = get_theme(state)
+    quiz = find_points_quiz(get_user_points_quizzes(state), quiz_id)
+    title = quiz.get("title", "Punkte-Quiz") if quiz else "Punkte-Quiz"
+
+    def do_delete(e):
+        close_page_dialog(page, dlg)
+        delete_points_quiz(state, quiz_id)
+        show_points_quiz_hub(page, state)
+
+    dlg = ft.AlertDialog(
+        title=ft.Text("Punkte-Quiz löschen?"),
+        content=ft.Text(f'"{title}" wirklich löschen?', color=theme_txt(theme, "secondary")),
+        actions=[
+            ft.TextButton("Abbrechen", on_click=lambda e: close_page_dialog(page, dlg)),
+            ft.TextButton("Löschen", on_click=do_delete),
+        ],
+    )
+    open_page_dialog(page, dlg)
+
+
+def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
+    if not state.get("current_user_email"):
+        show_login_view(page, state)
+        return
+    theme = get_theme(state)
+    if quiz_id:
+        quiz = find_points_quiz(get_user_points_quizzes(state), quiz_id) or new_empty_points_quiz()
+    else:
+        quiz = new_empty_points_quiz()
+    quiz = normalize_points_quiz(quiz)
+    state["editing_points_quiz"] = quiz
+
+    title_field = ft.TextField(
+        label="Titel des Punkte-Quiz",
+        value=quiz.get("title", ""),
+        width=420,
+        bgcolor=theme["question_bg"],
+        color=theme["question_text"],
+        border_color=theme["border"],
+    )
+    category_fields = []
+    for idx, category in enumerate(quiz.get("categories", [])):
+        category_fields.append(
+            ft.TextField(
+                label=f"Kategorie {idx + 1}",
+                value=category.get("name", ""),
+                width=220,
+                bgcolor=theme["question_bg"],
+                color=theme["question_text"],
+                border_color=theme["border"],
+            )
+        )
+
+    def save_quiz(mark_finished: bool = False):
+        local_quiz = state.get("editing_points_quiz", quiz)
+        local_quiz["title"] = (title_field.value or "").strip() or "Mein Punkte-Quiz"
+        for idx, field in enumerate(category_fields):
+            local_quiz["categories"][idx]["name"] = (field.value or "").strip() or f"Kategorie {idx + 1}"
+        state["editing_points_quiz"] = upsert_points_quiz(state, local_quiz, mark_finished=mark_finished)
+
+    def back_to_hub(e):
+        save_quiz(mark_finished=False)
+        show_points_quiz_hub(page, state)
+
+    def play_quiz(e):
+        save_quiz(mark_finished=points_quiz_is_playable(state.get("editing_points_quiz", quiz)))
+        show_points_quiz_team_setup(page, state, state["editing_points_quiz"])
+
+    def finish_quiz(e):
+        save_quiz(mark_finished=points_quiz_is_playable(state.get("editing_points_quiz", quiz)))
+        show_points_quiz_hub(page, state)
+
+    cell_rows = []
+    for q_idx, points in enumerate(POINTS_QUIZ_POINT_VALUES):
+        row_controls = [ft.Text(f"{points} Punkte", color=theme["gold"], weight="bold", width=110)]
+        for cat_idx, category in enumerate(quiz.get("categories", [])):
+            entry = category.get("questions", [])[q_idx]
+            ready = bool(str(entry.get("question", "")).strip() and str(entry.get("answer", "")).strip())
+            row_controls.append(
+                _game_menu_button(
+                    "Bearbeiten" if ready else "Ausfüllen",
+                    lambda e, c=cat_idx, q=q_idx: show_points_quiz_cell_editor(page, state, c, q),
+                    theme["success"] if ready else theme["accent"],
+                    width=150,
+                    height=36,
+                )
+            )
+        cell_rows.append(ft.Row(row_controls, spacing=8, wrap=True))
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000092"),
+                    ft.Container(
+                        expand=True,
+                        padding=20,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column(
+                            [
+                                ft.Text("Punkte-Quiz bearbeiten", size=28, weight="w900", color="white"),
+                                title_field,
+                                ft.Row(category_fields, spacing=10, wrap=True, alignment=ft.MainAxisAlignment.CENTER),
+                                ft.Container(
+                                    width=920,
+                                    padding=18,
+                                    bgcolor="#08120DE8",
+                                    border_radius=20,
+                                    border=ft.border.Border.all(1.4, theme["border"]),
+                                    content=ft.Column(
+                                        [
+                                            ft.Text("Felder der Tafel", size=18, weight="bold", color="white"),
+                                            ft.Row([ft.Container(width=110)] + [ft.Text(f"K{idx + 1}", width=150, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER) for idx in range(POINTS_QUIZ_MAX_CATEGORIES)], spacing=8),
+                                        ] + cell_rows,
+                                        spacing=10,
+                                        scroll=ft.ScrollMode.AUTO,
+                                    ),
+                                ),
+                                ft.Row(
+                                    [
+                                        _game_menu_button("Speichern / Zurück", back_to_hub, theme["success"], width=220, height=42),
+                                        _game_menu_button("Jetzt spielen", play_quiz, theme["gold"], width=220, height=42),
+                                        _game_menu_button("Fertig", finish_quiz, theme["accent"], width=180, height=42),
+                                    ],
+                                    spacing=12,
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                ),
+                            ],
+                            spacing=16,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            scroll=ft.ScrollMode.AUTO,
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
+def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx: int):
+    theme = get_theme(state)
+    quiz = state.get("editing_points_quiz")
+    if not quiz:
+        show_points_quiz_hub(page, state)
+        return
+    quiz = normalize_points_quiz(quiz)
+    state["editing_points_quiz"] = quiz
+    category = quiz["categories"][cat_idx]
+    entry = dict(category["questions"][q_idx])
+
+    question_field = ft.TextField(
+        label="Frage",
+        value=entry.get("question", ""),
+        multiline=True,
+        min_lines=3,
+        max_lines=5,
+        width=620,
+        bgcolor=theme["question_bg"],
+        color=theme["question_text"],
+        border_color=theme["border"],
+    )
+    answer_field = ft.TextField(
+        label="Richtige Antwort / Auflösung",
+        value=entry.get("answer", ""),
+        multiline=True,
+        min_lines=2,
+        max_lines=4,
+        width=620,
+        bgcolor=theme["question_bg"],
+        color=theme["question_text"],
+        border_color=theme["border"],
+    )
+
+    def save_cell(e):
+        if not (question_field.value or "").strip() or not (answer_field.value or "").strip():
+            page.snack_bar = ft.SnackBar(content=ft.Text("Bitte Frage und richtige Antwort ausfüllen."))
+            page.snack_bar.open = True
+            page.update()
+            return
+        quiz_local = state.get("editing_points_quiz", quiz)
+        quiz_local["categories"][cat_idx]["questions"][q_idx]["question"] = question_field.value.strip()
+        quiz_local["categories"][cat_idx]["questions"][q_idx]["answer"] = answer_field.value.strip()
+        state["editing_points_quiz"] = quiz_local
+        show_points_quiz_editor(page, state, quiz_local.get("id"))
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000092"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=20,
+                        content=ft.Container(
+                            width=760,
+                            padding=24,
+                            bgcolor="#08120DE8",
+                            border_radius=22,
+                            border=ft.border.Border.all(1.4, theme["gold"]),
+                            content=ft.Column(
+                                [
+                                    ft.Text(f"{category['name']} · {POINTS_QUIZ_POINT_VALUES[q_idx]} Punkte", size=24, weight="w900", color="white"),
+                                    question_field,
+                                    answer_field,
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("Speichern", save_cell, theme["success"], width=220, height=42),
+                                            _game_menu_button("Zurück", lambda e: show_points_quiz_editor(page, state, quiz.get("id")), theme["danger"], width=220, height=42),
+                                        ],
+                                        spacing=12,
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                    ),
+                                ],
+                                spacing=14,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
 # ---------- Age Selection ----------
 def start_new_game(page: ft.Page, state: dict, force_new: bool = False):
     """Entry: menu with continue / standard / custom quizzes."""
@@ -6256,7 +7473,7 @@ def _age_button(label: str, data: str, color: str, on_click, theme: dict | None 
 def open_main_menu(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
     page.controls.clear()
-    page.add(build_welcome_view(page, state))
+    page.add(build_game_portal_view(page, state))
     page.update()
 
 
@@ -7023,9 +8240,6 @@ def _show_wrong_screen(page: ft.Page, state: dict):
         jokers_used=state.get("jokers_used", 0),
     )
 
-    # Check achievements
-    _check_and_show_achievements(page, state, money, won=False)
-    
     # Daily challenge updates
     if state.get("is_daily_challenge"):
         db = load_db()
@@ -7044,6 +8258,9 @@ def _show_wrong_screen(page: ft.Page, state: dict):
             if money_idx > best_idx:
                 stats["daily_best_result"] = money
             save_db(db)
+
+    # Check achievements after all stats, including daily challenge stats, are updated
+    _check_and_show_achievements(page, state, money, won=False)
 
     page.controls.clear()
     page.add(
@@ -7074,32 +8291,62 @@ def _show_wrong_screen(page: ft.Page, state: dict):
     page.update()
 
 
-def _check_and_show_achievements(page: ft.Page, state: dict, money: str, won: bool):
+def _check_and_show_achievements(page: ft.Page, state: dict, money: str, won: bool, show_snackbar: bool = True):
     db = load_db()
     email = state.get("current_user_email")
     if email and email in db["users"]:
         user = db["users"][email]
         stats = user["stats"]
+        history = user.get("game_history", [])
         unlocked = user.setdefault("unlocked_achievements", [])
         newly_unlocked = []
-        
-        if won and "purist" not in unlocked and state.get("jokers_used", 0) == 0:
-            unlocked.append("purist")
-            newly_unlocked.append("Purist")
-            
-        if "millionaire" not in unlocked and money == "1.000.000 €":
-            unlocked.append("millionaire")
-            newly_unlocked.append("Millionär")
-            
-        if "marathon" not in unlocked and stats.get("games_played", 0) >= 10:
-            unlocked.append("marathon")
-            newly_unlocked.append("Marathon")
-            
+
+        games_played = stats.get("games_played", 0)
+        games_won = stats.get("games_won", 0)
+        best_streak = stats.get("best_streak", 0)
+        jokers_total = stats.get("jokers_used", 0)
+        perfect_games = stats.get("perfect_games", 0)
+        highest_money_level = stats.get("highest_money_level", -1)
+        correct_answers = stats.get("correct_answers", 0)
+        daily_games_played = stats.get("daily_games_played", 0)
+        daily_best_streak = stats.get("daily_best_streak", 0)
+        has_purist_win = any(entry.get("won") and entry.get("jokers_used", 0) == 0 for entry in history)
+
+        _unlock_achievement(unlocked, newly_unlocked, "first_game", "Erster Schritt", games_played >= 1)
+        _unlock_achievement(unlocked, newly_unlocked, "quiz_fan", "Quiz-Fan", games_played >= 5)
+        _unlock_achievement(unlocked, newly_unlocked, "marathon", "Marathon", games_played >= 10)
+        _unlock_achievement(unlocked, newly_unlocked, "veteran", "Veteran", games_played >= 25)
+        _unlock_achievement(unlocked, newly_unlocked, "legend_50", "Legende", games_played >= 50)
+
+        _unlock_achievement(unlocked, newly_unlocked, "first_win", "Siegertyp", games_won >= 1)
+        _unlock_achievement(unlocked, newly_unlocked, "streak_3", "Heißlauf", best_streak >= 3)
+        _unlock_achievement(unlocked, newly_unlocked, "streak_5", "Unaufhaltbar", best_streak >= 5)
+
+        _unlock_achievement(unlocked, newly_unlocked, "purist", "Purist", has_purist_win)
+        _unlock_achievement(unlocked, newly_unlocked, "joker_friend", "Jokerfreund", jokers_total >= 1)
+        _unlock_achievement(unlocked, newly_unlocked, "joker_master", "Joker-Meister", jokers_total >= 25)
+
+        _unlock_achievement(unlocked, newly_unlocked, "perfect_round", "Fehlerfrei", perfect_games >= 1)
+        _unlock_achievement(unlocked, newly_unlocked, "perfectionist", "Perfektionist", perfect_games >= 3)
+
+        _unlock_achievement(unlocked, newly_unlocked, "money_1000", "Vierstellig", highest_money_level >= 5)
+        _unlock_achievement(unlocked, newly_unlocked, "money_32000", "High Roller", highest_money_level >= 10)
+        _unlock_achievement(unlocked, newly_unlocked, "money_125000", "Elite-Spieler", highest_money_level >= 12)
+        _unlock_achievement(unlocked, newly_unlocked, "millionaire", "Millionär", highest_money_level >= 14)
+
+        _unlock_achievement(unlocked, newly_unlocked, "correct_50", "Schlaufuchs", correct_answers >= 50)
+        _unlock_achievement(unlocked, newly_unlocked, "correct_200", "Quizmaschine", correct_answers >= 200)
+
+        _unlock_achievement(unlocked, newly_unlocked, "daily_first", "Tagesstarter", daily_games_played >= 1)
+        _unlock_achievement(unlocked, newly_unlocked, "daily_streak_3", "Daily-Serie", daily_best_streak >= 3)
+        _unlock_achievement(unlocked, newly_unlocked, "daily_streak_7", "Daily-Champion", daily_best_streak >= 7)
+
         if newly_unlocked:
             save_db(db)
-            ach_text = ", ".join(newly_unlocked)
-            page.snack_bar = ft.SnackBar(content=ft.Text(f"🏆 Neue Erfolge freigeschaltet: {ach_text}!", size=16), bgcolor="green")
-            page.snack_bar.open = True
+            if show_snackbar:
+                ach_text = ", ".join(newly_unlocked)
+                page.snack_bar = ft.SnackBar(content=ft.Text(f"🏆 Neue Erfolge freigeschaltet: {ach_text}!", size=16), bgcolor="green")
+                page.snack_bar.open = True
 
 def _show_win_screen(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
@@ -7123,9 +8370,6 @@ def _show_win_screen(page: ft.Page, state: dict):
         jokers_used=state.get("jokers_used", 0),
     )
     
-    # Check achievements
-    _check_and_show_achievements(page, state, money, won=True)
-    
     # Daily challenge updates
     if state.get("is_daily_challenge"):
         db_d = load_db()
@@ -7146,6 +8390,9 @@ def _show_win_screen(page: ft.Page, state: dict):
             if money_idx > best_idx:
                 stats_d["daily_best_result"] = money
             save_db(db_d)
+
+    # Check achievements after all stats, including daily challenge stats, are updated
+    _check_and_show_achievements(page, state, money, won=True)
 
     page.controls.clear()
     page.add(
@@ -9554,6 +10801,7 @@ def show_shop_screen(page: ft.Page, state: dict):
 
 
 def show_achievements_screen(page: ft.Page, state: dict):
+    _check_and_show_achievements(page, state, "", won=False, show_snackbar=False)
     db = load_db()
     email = state.get("current_user_email")
     if not email or email not in db["users"]:
@@ -9562,13 +10810,9 @@ def show_achievements_screen(page: ft.Page, state: dict):
     user = db["users"][email]
     theme = get_theme(state)
 
-    # Hardcoded achievements for now (can be expanded)
-    achievements = [
-        {"id": "purist", "name": "Purist", "desc": "Ein Spiel gewinnen, ohne Joker zu nutzen."},
-        {"id": "millionaire", "name": "Millionär", "desc": "Die Million gewinnen."},
-        {"id": "marathon", "name": "Marathon", "desc": "10 Spiele insgesamt gespielt."},
-    ]
+    achievements = get_achievement_definitions()
     unlocked = user.get("unlocked_achievements", [])
+    unlocked_count = sum(1 for achievement in achievements if achievement["id"] in unlocked)
 
     cards = []
     for a in achievements:
@@ -9602,6 +10846,11 @@ def show_achievements_screen(page: ft.Page, state: dict):
                                 ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
                                 ft.Text("Erfolge", size=24, weight="bold", color="white"),
                             ]),
+                            ft.Text(
+                                f"{unlocked_count} / {len(achievements)} Erfolge freigeschaltet",
+                                size=14,
+                                color=theme_txt(theme, "muted"),
+                            ),
                             ft.Column(cards, scroll=ft.ScrollMode.AUTO, expand=True)
                         ])
                     ),
@@ -9764,7 +11013,11 @@ def main(page: ft.Page):
         check_url_parameters()
         route = page.route or "/"
         path = route.split("?")[0]
-        if path == "/shop":
+        if path == "/wwm":
+            open_wwm_main_menu(page, app_state)
+        elif path == "/points":
+            show_points_quiz_hub(page, app_state)
+        elif path == "/shop":
             show_shop_screen(page, app_state)
         elif path == "/achievements":
             show_achievements_screen(page, app_state)
@@ -9789,7 +11042,7 @@ def main(page: ft.Page):
         # Only re-run route logic for special deep-link paths.
         route = page.route or "/"
         path = route.split("?")[0]
-        if path in ("/shop", "/achievements", "/daily"):
+        if path in ("/wwm", "/points", "/shop", "/achievements", "/daily"):
             on_route_change(None)
 
     page.run_task(init_task)
