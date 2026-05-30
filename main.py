@@ -22,6 +22,11 @@ import requests
 import unicodedata
 
 try:
+    from PIL import Image
+except ImportError:
+    Image = None
+
+try:
     from flet_video import Video as FletVideo, VideoMedia, PlaylistMode
 except ImportError:
     FletVideo = None
@@ -1249,6 +1254,121 @@ def _avatar_image_source(asset_name: str | None) -> str | bytes | None:
     return asset_name
 
 
+_AVATAR_OVERLAY_CACHE: dict[tuple[str, str, str, float], bytes] = {}
+
+
+def _clean_avatar_overlay(path: str, top_id: str, gender: str) -> bytes | None:
+    if not path or not os.path.exists(path) or Image is None:
+        return None
+    try:
+        mtime = os.path.getmtime(path)
+    except Exception:
+        mtime = 0.0
+    cache_key = (path, top_id or "", gender or "", float(mtime))
+    cached = _AVATAR_OVERLAY_CACHE.get(cache_key)
+    if cached:
+        return cached
+    try:
+        src = Image.open(path).convert("RGBA")
+        w, h = src.size
+        pixels = src.load()
+
+        # Robust background removal:
+        # remove only regions connected to image borders that are visually
+        # similar to the border background, while preserving dark jacket areas.
+        corner_samples: list[tuple[int, int, int]] = []
+        sample_pts = [
+            (0, 0),
+            (w - 1, 0),
+            (0, h - 1),
+            (w - 1, h - 1),
+            (w // 2, 0),
+            (w // 2, h - 1),
+            (0, h // 2),
+            (w - 1, h // 2),
+        ]
+        for sx, sy in sample_pts:
+            r, g, b, a = pixels[max(0, min(w - 1, sx)), max(0, min(h - 1, sy))]
+            if a > 0:
+                corner_samples.append((r, g, b))
+        if not corner_samples:
+            corner_samples = [(0, 0, 0)]
+        bg_r = sum(c[0] for c in corner_samples) / len(corner_samples)
+        bg_g = sum(c[1] for c in corner_samples) / len(corner_samples)
+        bg_b = sum(c[2] for c in corner_samples) / len(corner_samples)
+
+        def near_bg(r: int, g: int, b: int, a: int) -> bool:
+            if a < 8:
+                return True
+            dr = abs(r - bg_r)
+            dg = abs(g - bg_g)
+            db = abs(b - bg_b)
+            return (dr + dg + db) <= 95
+
+        from collections import deque
+        visited = bytearray(w * h)
+        q = deque()
+
+        def push(px: int, py: int):
+            idx = py * w + px
+            if visited[idx]:
+                return
+            visited[idx] = 1
+            q.append((px, py))
+
+        for x in range(w):
+            push(x, 0)
+            push(x, h - 1)
+        for y in range(h):
+            push(0, y)
+            push(w - 1, y)
+
+        while q:
+            x, y = q.popleft()
+            r, g, b, a = pixels[x, y]
+            if not near_bg(r, g, b, a):
+                continue
+            pixels[x, y] = (0, 0, 0, 0)
+            if x > 0:
+                push(x - 1, y)
+            if x < w - 1:
+                push(x + 1, y)
+            if y > 0:
+                push(x, y - 1)
+            if y < h - 1:
+                push(x, y + 1)
+
+        # soften remaining near-transparent pixels for cleaner edges
+        for y in range(h):
+            for x in range(w):
+                r, g, b, a = pixels[x, y]
+                if a < 20:
+                    pixels[x, y] = (0, 0, 0, 0)
+        bbox = src.getbbox()
+        if not bbox:
+            return None
+        cutout = src.crop(bbox)
+        canvas_w, canvas_h = 328, 492
+        lx, ty, rx, by = _avatar_top_box(gender, top_id)
+        slot_w = max(12, rx - lx)
+        slot_h = max(12, by - ty)
+        fit_ratio = min(slot_w / max(cutout.width, 1), slot_h / max(cutout.height, 1))
+        scaled_w = max(1, int(cutout.width * fit_ratio))
+        scaled_h = max(1, int(cutout.height * fit_ratio))
+        cutout = cutout.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
+        overlay = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+        paste_x = lx + max(0, (slot_w - scaled_w) // 2)
+        paste_y = ty + max(0, (slot_h - scaled_h) // 2)
+        overlay.paste(cutout, (paste_x, paste_y), cutout)
+        out = io.BytesIO()
+        overlay.save(out, format="PNG")
+        data = out.getvalue()
+        _AVATAR_OVERLAY_CACHE[cache_key] = data
+        return data
+    except Exception:
+        return None
+
+
 def _avatar_collect(folder: str) -> list[tuple[str, str]]:
     items: list[tuple[str, str]] = []
     try:
@@ -1267,11 +1387,19 @@ def _avatar_collect(folder: str) -> list[tuple[str, str]]:
 
 
 def _resolve_avatar_top_overlay(top_id: str, gender: str) -> str | None:
+    top_id_norm = str(top_id or "").lower()
+    if "neon" in top_id_norm:
+        top_key = "top_neon"
+    elif "basic" in top_id_norm or "shirt" in top_id_norm or "tshirt" in top_id_norm:
+        top_key = "top_basic"
+    else:
+        top_key = top_id
+
     tokens_by_top = {
         "top_basic": ["avatartshirtweiss", "avatartshirtweis", "avatartshirtwei", "avatartshirtwhite", "tshirtweiss", "tshirtwei", "tshirt"],
         "top_neon": ["avatarneonjacket", "neonjacket"],
     }
-    token_list = tokens_by_top.get(top_id, [])
+    token_list = tokens_by_top.get(top_key, [])
     if not token_list:
         return None
     folder = os.path.join("assets", "avatar", "oberteil")
@@ -4237,7 +4365,7 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
         )
     image_src = _avatar_image_source(base_img)
     top_overlay_path = _resolve_avatar_top_overlay(equipped.get("top", ""), gender)
-    top_overlay_src = _avatar_image_source(top_overlay_path) if top_overlay_path else None
+    top_overlay_src = _clean_avatar_overlay(top_overlay_path, equipped.get("top", ""), gender) if top_overlay_path else None
     img_h = int(size * 0.84)
     return ft.Container(
         width=size,
