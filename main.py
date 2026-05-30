@@ -6754,6 +6754,21 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         wrap=True,
     )
 
+    profile_chip = ft.Container(
+        bgcolor="#00000095",
+        border_radius=14,
+        border=ft.border.Border.all(1, theme["border"]),
+        padding=ft.Padding(10, 8, 10, 8),
+        on_click=lambda e: show_login_view(e.page, state),
+        content=ft.Row(
+            [
+                avatar_preview,
+                ft.Text((email or "Anmelden"), size=12, color="white", weight="bold"),
+            ],
+            spacing=6,
+        ),
+    )
+
     return ft.Container(
         expand=True,
         content=ft.Stack(
@@ -6764,30 +6779,14 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
                     alignment=ft.Alignment(0, 0),
                     padding=20,
                     content=ft.Column(
-                        [hero, general_actions, cards],
+                        ([profile_chip] if mobile else []) + [hero, general_actions, cards],
                         spacing=24,
                         alignment=ft.MainAxisAlignment.CENTER,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        scroll=ft.ScrollMode.AUTO,
                     ),
                 ),
-                ft.Container(
-                    top=20,
-                    right=20,
-                    content=ft.Container(
-                        bgcolor="#00000095",
-                        border_radius=14,
-                        border=ft.border.Border.all(1, theme["border"]),
-                        padding=ft.Padding(10, 8, 10, 8),
-                        on_click=lambda e: show_login_view(e.page, state),
-                        content=ft.Row(
-                            [
-                                avatar_preview,
-                                ft.Text((email or "Anmelden"), size=12, color="white", weight="bold"),
-                            ],
-                            spacing=6,
-                        ),
-                    ),
-                ),
+                ft.Container(top=20, right=20, content=profile_chip, visible=not mobile),
             ],
             expand=True,
         ),
@@ -7059,6 +7058,8 @@ def show_points_quiz_board(page: ft.Page, state: dict):
         return
     used_cells = set(session.get("used_cells", []))
     theme = get_theme(state)
+    page_w, _ = _page_size(page)
+    is_mobile = page_w < 980
     current_team = teams[session.get("current_team_idx", 0) % len(teams)]
     total_cells = _points_quiz_total_cells(quiz)
     used_count = _points_quiz_used_cells(session)
@@ -7151,29 +7152,31 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                     _themed_screen_background(page, theme, "#00000094"),
                     ft.Container(
                         expand=True,
-                        padding=18,
+                        padding=ft.Padding(14, 14, 14, 14),
                         content=ft.Column(
                             [
-                                ft.Row(
+                                ft.Column(
                                     [
                                         ft.Column(
                                             [
-                                                ft.Text(quiz.get("title", "Punkte-Quiz"), size=28, weight="w900", color="white"),
+                                                ft.Text(quiz.get("title", "Punkte-Quiz"), size=24 if is_mobile else 28, weight="w900", color="white"),
                                                 ft.Text(f"Am Zug: {current_team['name']}", size=16, weight="bold", color=theme["gold"]),
                                                 ft.Text(f"{used_count} / {total_cells} Felder gespielt", size=12, color=theme_txt(theme, "secondary")),
                                             ],
                                             spacing=4,
+                                            horizontal_alignment=ft.CrossAxisAlignment.START,
                                         ),
                                         ft.Row(
                                             [
-                                                _game_menu_button("Spiel beenden", lambda e: show_points_quiz_summary(e.page, state, finished_early=True), theme["danger"], width=180, height=40),
-                                                _game_menu_button("Zurück", lambda e: show_points_quiz_hub(e.page, state), "#4B5563", width=140, height=40),
+                                                _game_menu_button("Spielauswahl", lambda e: e.page.go("/"), "#4B5563", width=150 if is_mobile else 170, height=40),
+                                                _game_menu_button("Spiel beenden", lambda e: show_points_quiz_summary(e.page, state, finished_early=True), theme["danger"], width=170 if is_mobile else 180, height=40),
+                                                _game_menu_button("Zurück", lambda e: show_points_quiz_hub(e.page, state), "#4B5563", width=130 if is_mobile else 140, height=40),
                                             ],
                                             spacing=10,
+                                            wrap=True,
                                         ),
                                     ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                    spacing=10,
                                 ),
                                 ft.Container(
                                     expand=True,
@@ -7216,7 +7219,6 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                             scroll=ft.ScrollMode.AUTO,
                         ),
                     ),
-                    _game_portal_back_overlay(),
                 ],
                 expand=True,
             ),
@@ -7644,13 +7646,27 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
             return
 
         dlg = ft.AlertDialog(
-            title=ft.Text("Kategorie löschen?"),
-            content=ft.Text("Diese Kategorie enthält Inhalte. Wirklich mit allen Fragen löschen?"),
-            actions=[
-                ft.TextButton("Abbrechen", on_click=lambda ev: close_page_dialog(page, dlg)),
-                ft.TextButton("Löschen", on_click=lambda ev: (close_page_dialog(page, dlg), do_delete())),
-            ],
+            modal=True,
+            bgcolor=theme.get("panel", "#1f2937"),
+            title=ft.Text("Kategorie löschen?", color=theme_txt(theme, "primary"), weight="bold"),
+            content=ft.Text(
+                "Diese Kategorie enthält Inhalte. Wirklich mit allen Fragen löschen?",
+                color=theme_txt(theme, "secondary"),
+            ),
         )
+
+        def on_cancel(ev):
+            close_page_dialog(page, dlg)
+
+        def on_confirm_delete(ev):
+            close_page_dialog(page, dlg)
+            do_delete()
+
+        dlg.actions = [
+            ft.TextButton("Abbrechen", on_click=on_cancel, style=ft.ButtonStyle(color=theme_txt(theme, "secondary"))),
+            ft.ElevatedButton("Löschen", on_click=on_confirm_delete, style=ft.ButtonStyle(bgcolor=theme["danger"], color="white")),
+        ]
+        dlg.actions_alignment = ft.MainAxisAlignment.END
         open_page_dialog(page, dlg)
 
     def back_to_hub(e):
