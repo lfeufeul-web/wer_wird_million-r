@@ -1150,6 +1150,19 @@ def avatar_base_emoji(gender: str) -> str:
     }.get(gender, "🧑")
 
 
+def _resolve_avatar_base_image(gender: str) -> str | None:
+    candidates = ["avatar.png"] if gender != "female" else ["avatar_weiblich.png", "avatar.png"]
+    if gender == "diverse":
+        candidates = ["avatar.png", "avatar_weiblich.png"]
+    folders = [".", "assets"]
+    for folder in folders:
+        for name in candidates:
+            p = os.path.join(folder, name)
+            if os.path.exists(p):
+                return name if folder == "." else f"{folder}/{name}"
+    return None
+
+
 def uses_themed_game(theme: dict) -> bool:
     return theme.get("game_layout") == "themed" and bool(theme.get("game_bg"))
 
@@ -4096,6 +4109,8 @@ def _avatar_piece_color(item_id: str, theme: dict, fallback: str) -> str:
 
 def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: float = 0.0) -> ft.Control:
     ensure_avatar_defaults(user)
+    gender = user["avatar"].get("gender", "male")
+    base_img = _resolve_avatar_base_image(gender)
     equipped = user["avatar"]["equipped"]
     turn = max(-1.0, min(1.0, math.sin(math.radians(angle_deg))))
     front = 1.0 - abs(turn) * 0.35
@@ -4190,6 +4205,26 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
         alignment=ft.MainAxisAlignment.CENTER,
         tight=True,
     )
+    if base_img:
+        outfit_overlay = ft.Stack(
+            [
+                ft.Container(left=int(size * 0.36), top=int(size * 0.30), width=int(size * 0.30), height=int(size * 0.24), border_radius=12, bgcolor=f"#99{top_color[1:]}" if top_color.startswith("#") else "#9966ccff"),
+                ft.Container(left=int(size * 0.40), top=int(size * 0.54), width=int(size * 0.10), height=int(size * 0.22), border_radius=6, bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155"),
+                ft.Container(left=int(size * 0.52), top=int(size * 0.54), width=int(size * 0.10), height=int(size * 0.22), border_radius=6, bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155"),
+                ft.Container(left=int(size * 0.40), top=int(size * 0.76), width=int(size * 0.12), height=int(size * 0.05), border_radius=6, bgcolor=f"#CC{shoes_color[1:]}" if shoes_color.startswith("#") else "#cc111827"),
+                ft.Container(left=int(size * 0.52), top=int(size * 0.76), width=int(size * 0.12), height=int(size * 0.05), border_radius=6, bgcolor=f"#CC{shoes_color[1:]}" if shoes_color.startswith("#") else "#cc111827"),
+            ],
+            width=size,
+            height=int(size * 0.84),
+        )
+        body = ft.Stack(
+            [
+                ft.Image(src=base_img, width=size, height=int(size * 0.84), fit=ft.BoxFit.CONTAIN),
+                outfit_overlay,
+            ],
+            width=size,
+            height=int(size * 0.84),
+        )
     return ft.Container(
         content=body,
         rotate=ft.Rotate(math.radians(angle_deg) * 0.30, alignment=ft.Alignment(0, 0)),
@@ -4850,18 +4885,19 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             right=40,
             bottom=40
         ),
-        # Header action buttons
-        ft.Container(
-            content=header_actions,
-            top=20,
-            right=20
-        ),
         # Centered main content
         ft.Container(
             content=main_column,
             alignment=ft.Alignment(0, 0),
             expand=True
-        )
+        ),
+        # Header action buttons (last layer so it's always clickable)
+        ft.Container(
+            content=header_actions,
+            top=20,
+            right=20,
+            alignment=ft.Alignment(1, -1),
+        ),
     ])
     stack = ft.Stack(stack_controls, expand=True)
     
