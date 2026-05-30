@@ -881,6 +881,28 @@ def ensure_user_settings(db: dict, email: str):
     ensure_question_profile_defaults(user)
 
 
+def ensure_unlocked_themes(user: dict):
+    unlocked = user.setdefault("unlocked_themes", ["classic", "neon_nexus"])
+    if not isinstance(unlocked, list):
+        unlocked = ["classic", "neon_nexus"]
+    cleaned: list[str] = []
+    for theme_id in unlocked:
+        key = str(theme_id or "").strip()
+        if not key or key not in THEMES:
+            continue
+        if key not in cleaned:
+            cleaned.append(key)
+    for base_theme in ("classic", "neon_nexus"):
+        if base_theme not in cleaned:
+            cleaned.append(base_theme)
+    user["unlocked_themes"] = cleaned
+
+
+def get_unlocked_theme_keys(user: dict) -> list[str]:
+    ensure_unlocked_themes(user)
+    return list(user.get("unlocked_themes", ["classic", "neon_nexus"]))
+
+
 def _avatar_catalog_by_id() -> dict[str, dict]:
     return {item["id"]: item for item in SHOP_CATALOG.get("avatar_items", [])}
 
@@ -1144,6 +1166,16 @@ def get_user_settings(state: dict) -> dict:
 
 def get_theme(state: dict) -> dict:
     theme_name = get_user_settings(state).get("theme", "classic")
+    email = state.get("current_user_email")
+    if email:
+        db = load_db()
+        user = db.get("users", {}).get(email)
+        if user:
+            ensure_unlocked_themes(user)
+            if theme_name not in user.get("unlocked_themes", []):
+                theme_name = "classic"
+                user.setdefault("settings", {})["theme"] = "classic"
+                save_db(db)
     return THEMES.get(theme_name, THEMES["classic"])
 
 
@@ -7578,8 +7610,14 @@ def show_design_view(page: ft.Page, state: dict):
         return
 
     ensure_user_settings(db, email)
+    ensure_unlocked_themes(db["users"][email])
     save_db(db)
     current_theme = db["users"][email].get("settings", {}).get("theme", "classic")
+    unlocked_themes = set(get_unlocked_theme_keys(db["users"][email]))
+    if current_theme not in unlocked_themes:
+        current_theme = "classic"
+        db["users"][email]["settings"]["theme"] = "classic"
+        save_db(db)
     theme = get_theme(state)
     status_text = ft.Text("", size=13, text_align="center")
 
@@ -7588,6 +7626,12 @@ def show_design_view(page: ft.Page, state: dict):
             db_current = load_db()
             if email in db_current.get("users", {}) and theme_key in THEMES:
                 ensure_user_settings(db_current, email)
+                ensure_unlocked_themes(db_current["users"][email])
+                if theme_key not in set(get_unlocked_theme_keys(db_current["users"][email])):
+                    status_text.value = "Dieses Design ist noch nicht gekauft."
+                    status_text.color = THEMES["classic"]["danger"]
+                    e.page.update()
+                    return
                 db_current["users"][email]["settings"]["theme"] = theme_key
                 save_db(db_current)
                 state["theme"] = theme_key
@@ -7598,6 +7642,8 @@ def show_design_view(page: ft.Page, state: dict):
 
     cards = []
     for key, value in THEMES.items():
+        if key not in unlocked_themes:
+            continue
         selected = key == current_theme
         cards.append(
             ft.Container(
@@ -8813,11 +8859,15 @@ def show_edit_profile_view(page: ft.Page, state: dict):
         return
         
     ensure_user_settings(db, email)
+    ensure_unlocked_themes(db["users"][email])
     save_db(db)
     theme = get_theme(state)
     user_info = db["users"].get(email, {})
     current_name = user_info.get("name", "")
     current_theme = user_info.get("settings", {}).get("theme", "classic")
+    unlocked_themes = get_unlocked_theme_keys(user_info)
+    if current_theme not in unlocked_themes:
+        current_theme = "classic"
     
     name_input = ft.TextField(
         label="Dein Anzeigename",
@@ -8838,6 +8888,7 @@ def show_edit_profile_view(page: ft.Page, state: dict):
         options=[
             ft.dropdown.Option(key=key, text=value["label"])
             for key, value in THEMES.items()
+            if key in unlocked_themes
         ],
     )
     
@@ -8855,7 +8906,9 @@ def show_edit_profile_view(page: ft.Page, state: dict):
         if email in db["users"]:
             db["users"][email]["name"] = new_name
             ensure_user_settings(db, email)
-            selected_theme = theme_dropdown.value if theme_dropdown.value in THEMES else "classic"
+            ensure_unlocked_themes(db["users"][email])
+            allowed_themes = set(get_unlocked_theme_keys(db["users"][email]))
+            selected_theme = theme_dropdown.value if theme_dropdown.value in allowed_themes else "classic"
             db["users"][email]["settings"]["theme"] = selected_theme
             save_db(db)
             state["theme"] = selected_theme
@@ -9331,6 +9384,9 @@ def show_shop_screen(page: ft.Page, state: dict):
             await flash_insufficient_funds(e.control)
 
     def on_equip_theme(e, theme_id):
+        ensure_unlocked_themes(user)
+        if theme_id not in set(get_unlocked_theme_keys(user)):
+            return
         user["settings"]["theme"] = theme_id
         state["settings"]["theme"] = theme_id
         save_db(db)
@@ -9350,6 +9406,7 @@ def show_shop_screen(page: ft.Page, state: dict):
         build_shop()
 
     def build_shop():
+        ensure_unlocked_themes(user)
         unlocked_themes = user.get("unlocked_themes", ["classic", "neon_nexus"])
         unlocked_titles = user.get("unlocked_titles", ["Neuling"])
         current_theme = user.get("settings", {}).get("theme", "classic")
