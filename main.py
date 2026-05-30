@@ -418,6 +418,7 @@ SHOP_CATALOG = {
         {"id": "top_ocean", "slot": "top", "name": "Ocean Suit", "icon": "🫧", "price": 9000},
         {"id": "pants_basic", "slot": "pants", "name": "Basic Pants", "icon": "👖", "price": 0},
         {"id": "pants_dark", "slot": "pants", "name": "Dark Pants", "icon": "🩳", "price": 2500},
+        {"id": "pants_neon", "slot": "pants", "name": "Neon Nexus Pants", "icon": "🥋", "price": 4200},
         {"id": "pants_royal", "slot": "pants", "name": "Royal Pants", "icon": "👘", "price": 9000},
         {"id": "shoes_basic", "slot": "shoes", "name": "Basic Shoes", "icon": "👟", "price": 0},
         {"id": "shoes_lux", "slot": "shoes", "name": "Luxury Shoes", "icon": "🥾", "price": 6500},
@@ -1218,23 +1219,23 @@ def _avatar_top_box(gender: str, top_id: str) -> tuple[int, int, int, int]:
     key = (top_id or "").lower()
     if gender == "female":
         if "jacket" in key or "cape" in key:
-            return (55, 85, 270, 305)
+            return (44, 82, 284, 322)
         if "ocean" in key or "lang" in key:
-            return (65, 100, 260, 285)
-        return (90, 100, 235, 250)
+            return (54, 92, 274, 306)
+        return (74, 94, 254, 278)
     if "jacket" in key or "cape" in key:
-        return (50, 80, 280, 310)
+        return (40, 78, 288, 330)
     if "ocean" in key or "lang" in key:
-        return (60, 95, 270, 290)
-    return (85, 95, 245, 265)
+        return (48, 88, 280, 312)
+    return (70, 90, 258, 284)
 
 
 def _avatar_pants_box(gender: str, pants_id: str) -> tuple[int, int, int, int]:
     key = (pants_id or "").lower()
     short = ("short" in key) or ("rock" in key)
     if gender == "female":
-        return (95, 235, 230, 330) if short else (90, 235, 235, 485)
-    return (95, 240, 235, 340) if short else (85, 240, 245, 485)
+        return (88, 232, 240, 338) if short else (84, 224, 244, 486)
+    return (90, 236, 240, 344) if short else (80, 226, 248, 486)
 
 
 def _avatar_image_source(asset_name: str | None) -> str | bytes | None:
@@ -1254,17 +1255,17 @@ def _avatar_image_source(asset_name: str | None) -> str | bytes | None:
     return asset_name
 
 
-_AVATAR_OVERLAY_CACHE: dict[tuple[str, str, str, float], bytes] = {}
+_AVATAR_OVERLAY_CACHE: dict[tuple[str, str, str, str, float], bytes] = {}
 
 
-def _clean_avatar_overlay(path: str, top_id: str, gender: str) -> bytes | None:
+def _clean_avatar_overlay(path: str, item_id: str, gender: str, slot: str) -> bytes | None:
     if not path or not os.path.exists(path) or Image is None:
         return None
     try:
         mtime = os.path.getmtime(path)
     except Exception:
         mtime = 0.0
-    cache_key = (path, top_id or "", gender or "", float(mtime))
+    cache_key = (path, item_id or "", gender or "", slot or "", float(mtime))
     cached = _AVATAR_OVERLAY_CACHE.get(cache_key)
     if cached:
         return cached
@@ -1349,7 +1350,10 @@ def _clean_avatar_overlay(path: str, top_id: str, gender: str) -> bytes | None:
             return None
         cutout = src.crop(bbox)
         canvas_w, canvas_h = 328, 492
-        lx, ty, rx, by = _avatar_top_box(gender, top_id)
+        if slot == "pants":
+            lx, ty, rx, by = _avatar_pants_box(gender, item_id)
+        else:
+            lx, ty, rx, by = _avatar_top_box(gender, item_id)
         slot_w = max(12, rx - lx)
         slot_h = max(12, by - ty)
         fit_ratio = min(slot_w / max(cutout.width, 1), slot_h / max(cutout.height, 1))
@@ -1403,6 +1407,31 @@ def _resolve_avatar_top_overlay(top_id: str, gender: str) -> str | None:
     if not token_list:
         return None
     folder = os.path.join("assets", "avatar", "oberteil")
+    files = _avatar_collect(folder)
+    for token in token_list:
+        for fname, nstem in files:
+            if nstem == token or nstem.startswith(token):
+                return os.path.join(folder, fname)
+    return None
+
+
+def _resolve_avatar_pants_overlay(pants_id: str, gender: str) -> str | None:
+    pants_id_norm = str(pants_id or "").lower()
+    if "neon" in pants_id_norm:
+        pants_key = "pants_neon"
+    elif "basic" in pants_id_norm or "dark" in pants_id_norm or "royal" in pants_id_norm:
+        pants_key = "pants_basic"
+    else:
+        pants_key = "pants_basic"
+
+    tokens_by_pants = {
+        "pants_basic": ["hosestandart", "hosestandard", "avatarhose", "jeans", "pantsbasic", "basicpants"],
+        "pants_neon": ["hoseneonnexus", "hosenneonnexus", "neonpants", "pantsneon"],
+    }
+    token_list = tokens_by_pants.get(pants_key, [])
+    if not token_list:
+        return None
+    folder = os.path.join("assets", "avatar", "unterteil")
     files = _avatar_collect(folder)
     for token in token_list:
         for fname, nstem in files:
@@ -4365,7 +4394,17 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
         )
     image_src = _avatar_image_source(base_img)
     top_overlay_path = _resolve_avatar_top_overlay(equipped.get("top", ""), gender)
-    top_overlay_src = _clean_avatar_overlay(top_overlay_path, equipped.get("top", ""), gender) if top_overlay_path else None
+    pants_overlay_path = _resolve_avatar_pants_overlay(equipped.get("pants", ""), gender)
+    top_overlay_src = _clean_avatar_overlay(top_overlay_path, equipped.get("top", ""), gender, "top") if top_overlay_path else None
+    pants_overlay_src = _clean_avatar_overlay(pants_overlay_path, equipped.get("pants", ""), gender, "pants") if pants_overlay_path else None
+    if not top_overlay_src:
+        fallback_top = _resolve_avatar_top_overlay("top_basic", gender)
+        if fallback_top:
+            top_overlay_src = _clean_avatar_overlay(fallback_top, "top_basic", gender, "top")
+    if not pants_overlay_src:
+        fallback_pants = _resolve_avatar_pants_overlay("pants_basic", gender)
+        if fallback_pants:
+            pants_overlay_src = _clean_avatar_overlay(fallback_pants, "pants_basic", gender, "pants")
     img_h = int(size * 0.84)
     return ft.Container(
         width=size,
@@ -4380,6 +4419,15 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
                     gapless_playback=True,
                     anti_alias=True,
                     error_content=ft.Text("Avatarbild lädt nicht", color=theme_txt(theme, "secondary"), size=12),
+                ),
+                ft.Image(
+                    src=pants_overlay_src,
+                    width=size,
+                    height=img_h,
+                    fit=ft.BoxFit.CONTAIN,
+                    gapless_playback=True,
+                    anti_alias=True,
+                    visible=bool(pants_overlay_src),
                 ),
                 ft.Image(
                     src=top_overlay_src,
@@ -4412,7 +4460,7 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
     slot_state = {"value": "top"}
     status = ft.Text("", size=12, color=theme_txt(theme, "secondary"))
 
-    def buy_item(item: dict):
+    def buy_item(item: dict, persist: bool = True):
         wallet = int(user.get("stats", {}).get("wallet_balance", 0))
         if item["id"] in user["avatar"]["owned_items"]:
             return
@@ -4424,18 +4472,20 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
         user["avatar"]["owned_items"].append(item["id"])
         status.value = f"Gekauft: {item['name']}"
         status.color = theme.get("success", "#22C55E")
-        save_db(db)
+        if persist:
+            save_db(db)
 
-    def equip_item(item: dict):
+    def equip_item(item: dict, persist: bool = True):
         slot = item["slot"]
         if item["id"] not in user["avatar"]["owned_items"]:
-            buy_item(item)
+            buy_item(item, persist=False)
             if item["id"] not in user["avatar"]["owned_items"]:
                 return
         user["avatar"]["equipped"][slot] = item["id"]
         status.value = f"Ausgerüstet: {item['name']}"
         status.color = theme.get("success", "#22C55E")
-        save_db(db)
+        if persist:
+            save_db(db)
 
     wallet_text = ft.Text("", size=16, weight="bold", color=theme["gold"])
     preview_text = ft.Text("", size=13, color=ui["text"], text_align=ft.TextAlign.CENTER)
