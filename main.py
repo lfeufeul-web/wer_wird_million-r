@@ -1249,6 +1249,40 @@ def _avatar_image_source(asset_name: str | None) -> str | bytes | None:
     return asset_name
 
 
+def _avatar_collect(folder: str) -> list[tuple[str, str]]:
+    items: list[tuple[str, str]] = []
+    try:
+        for f in os.listdir(folder):
+            full = os.path.join(folder, f)
+            if not os.path.isfile(full):
+                continue
+            stem, ext = os.path.splitext(f)
+            if ext.lower() in (".png", ".webp", ".jpg", ".jpeg"):
+                norm_stem = unicodedata.normalize("NFKD", stem).encode("ascii", "ignore").decode("ascii")
+                norm_stem = re.sub(r"[^a-z0-9]+", "", norm_stem.lower())
+                items.append((f, norm_stem))
+    except Exception:
+        pass
+    return items
+
+
+def _resolve_avatar_top_overlay(top_id: str, gender: str) -> str | None:
+    tokens_by_top = {
+        "top_basic": ["avatartshirtweiss", "avatartshirtweis", "avatartshirtwei", "avatartshirtwhite", "tshirtweiss", "tshirtwei", "tshirt"],
+        "top_neon": ["avatarneonjacket", "neonjacket"],
+    }
+    token_list = tokens_by_top.get(top_id, [])
+    if not token_list:
+        return None
+    folder = os.path.join("assets", "avatar", "oberteil")
+    files = _avatar_collect(folder)
+    for token in token_list:
+        for fname, nstem in files:
+            if nstem == token or nstem.startswith(token):
+                return os.path.join(folder, fname)
+    return None
+
+
 def uses_themed_game(theme: dict) -> bool:
     return theme.get("game_layout") == "themed" and bool(theme.get("game_bg"))
 
@@ -4194,18 +4228,6 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
     gender = user["avatar"].get("gender", "male")
     base_img = _resolve_avatar_base_image(gender)
     equipped = user["avatar"]["equipped"]
-    yaw_cos = math.cos(math.radians(angle_deg % 360))
-    is_front = yaw_cos >= 0
-    width_factor = 0.33 + 0.67 * abs(yaw_cos)
-    render_w = max(26, int(size * width_factor))
-    x_offset = int((size - render_w) / 2)
-
-    top_id = equipped.get("top", "")
-    pants_id = equipped.get("pants", "")
-    top_color = _avatar_piece_color(top_id, theme, theme.get("accent", "#10B981"))
-    pants_color = _avatar_piece_color(pants_id, theme, "#334155")
-    shoes_color = _avatar_piece_color(equipped.get("shoes", ""), theme, "#111827")
-    acc_color = _avatar_piece_color(equipped.get("accessory", ""), theme, theme.get("gold", "#F59E0B"))
     if not base_img:
         return ft.Container(
             width=size,
@@ -4214,123 +4236,35 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
             content=ft.Text("Avatarbild fehlt", color=theme_txt(theme, "secondary"), size=12),
         )
     image_src = _avatar_image_source(base_img)
-
-    canvas_w = 328.0
-    canvas_h = 492.0
+    top_overlay_path = _resolve_avatar_top_overlay(equipped.get("top", ""), gender)
+    top_overlay_src = _avatar_image_source(top_overlay_path) if top_overlay_path else None
     img_h = int(size * 0.84)
-    scale_x = render_w / canvas_w
-    scale_y = img_h / canvas_h
-    top_x1, top_y1, top_x2, top_y2 = _avatar_top_box(gender, top_id)
-    pant_x1, pant_y1, pant_x2, pant_y2 = _avatar_pants_box(gender, pants_id)
-
-    shirt_left = x_offset + int(top_x1 * scale_x)
-    shirt_top = int(top_y1 * scale_y)
-    shirt_w = max(16, int((top_x2 - top_x1) * scale_x))
-    shirt_h = max(20, int((top_y2 - top_y1) * scale_y))
-
-    pant_left = x_offset + int(pant_x1 * scale_x)
-    pant_top = int(pant_y1 * scale_y)
-    pant_w = max(18, int((pant_x2 - pant_x1) * scale_x))
-    pant_h = max(24, int((pant_y2 - pant_y1) * scale_y))
-    pant_half = max(8, int((pant_w - 4) / 2))
-    shoe_w = max(10, int(pant_half * 0.95))
-    shoe_top = min(img_h - 16, pant_top + pant_h - 8)
-    shade = "#2b2b2b66" if not is_front else "#ffffff22"
-
-    outfit_overlay = ft.Stack(
-        [
-            ft.Container(
-                left=shirt_left,
-                top=shirt_top,
-                width=shirt_w,
-                height=shirt_h,
-                border_radius=12,
-                bgcolor=f"#66{top_color[1:]}" if top_color.startswith("#") else "#6666ccff",
-                border=ft.border.Border.all(1, "#00000033"),
-            ),
-            ft.Container(
-                left=pant_left,
-                top=pant_top,
-                width=pant_half,
-                height=pant_h,
-                border_radius=6,
-                bgcolor=f"#66{pants_color[1:]}" if pants_color.startswith("#") else "#66334155",
-            ),
-            ft.Container(
-                left=pant_left + pant_half + 4,
-                top=pant_top,
-                width=pant_half,
-                height=pant_h,
-                border_radius=6,
-                bgcolor=f"#66{pants_color[1:]}" if pants_color.startswith("#") else "#66334155",
-            ),
-            ft.Container(
-                left=pant_left,
-                top=shoe_top,
-                width=shoe_w,
-                height=int(size * 0.05),
-                border_radius=6,
-                bgcolor=f"#99{shoes_color[1:]}" if shoes_color.startswith("#") else "#99111827",
-            ),
-            ft.Container(
-                left=pant_left + pant_half + 4,
-                top=shoe_top,
-                width=shoe_w,
-                height=int(size * 0.05),
-                border_radius=6,
-                bgcolor=f"#99{shoes_color[1:]}" if shoes_color.startswith("#") else "#99111827",
-            ),
-            ft.Container(
-                left=shirt_left + max(2, int(shirt_w * 0.33)),
-                top=int(size * 0.35),
-                width=max(8, int(shirt_w * 0.22)),
-                height=max(4, int(size * 0.05)),
-                border_radius=8,
-                bgcolor=acc_color if equipped.get("accessory") != "acc_none" else "#00000000",
-                shadow=ft.BoxShadow(blur_radius=8, color=f"#66{acc_color[1:]}" if acc_color.startswith("#") else "#66ffffff"),
-            ),
-            ft.Container(
-                left=x_offset,
-                top=0,
-                width=render_w,
-                height=int(size * 0.84),
-                bgcolor=shade,
-                border_radius=10,
-            ),
-            ft.Container(
-                left=int(size * 0.44),
-                top=int(size * 0.02),
-                content=ft.Text("RÜCKEN" if not is_front else "", size=9, color="#ffffffaa"),
-            ),
-        ],
-        width=size,
-        height=int(size * 0.84),
-    )
-
     return ft.Container(
         width=size,
-        height=int(size * 0.84),
+        height=img_h,
         content=ft.Stack(
             [
-                ft.Container(
-                    left=x_offset,
-                    top=0,
-                    width=render_w,
-                    height=int(size * 0.84),
-                    content=ft.Image(
-                        src=image_src or base_img,
-                        width=render_w,
-                        height=int(size * 0.84),
-                        fit=ft.BoxFit.CONTAIN,
-                        gapless_playback=True,
-                        anti_alias=True,
-                        error_content=ft.Text("Avatarbild lädt nicht", color=theme_txt(theme, "secondary"), size=12),
-                    ),
+                ft.Image(
+                    src=image_src or base_img,
+                    width=size,
+                    height=img_h,
+                    fit=ft.BoxFit.CONTAIN,
+                    gapless_playback=True,
+                    anti_alias=True,
+                    error_content=ft.Text("Avatarbild lädt nicht", color=theme_txt(theme, "secondary"), size=12),
                 ),
-                outfit_overlay,
+                ft.Image(
+                    src=top_overlay_src,
+                    width=size,
+                    height=img_h,
+                    fit=ft.BoxFit.CONTAIN,
+                    gapless_playback=True,
+                    anti_alias=True,
+                    visible=bool(top_overlay_src),
+                ),
             ],
             width=size,
-            height=int(size * 0.84),
+            height=img_h,
         ),
     )
 
@@ -4348,7 +4282,6 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
     theme = get_theme(state)
     ui = theme_ui_palette(theme)
     slot_state = {"value": "top"}
-    angle_state = {"value": 0.0}
     status = ft.Text("", size=12, color=theme_txt(theme, "secondary"))
 
     def buy_item(item: dict):
@@ -4381,8 +4314,6 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
     preview_figure = ft.Container(alignment=ft.Alignment(0, 0))
     gender_row = ft.Row(spacing=8, alignment=ft.MainAxisAlignment.CENTER)
     item_list = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
-    rotate_text = ft.Text("", size=12, color=theme_txt(theme, "secondary"))
-    rotate_slider = ft.Slider(min=0, max=360, divisions=24, value=0, expand=True)
     slot_dropdown = ft.Dropdown(
         label="Kategorie",
         value=slot_state["value"],
@@ -4399,8 +4330,7 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
         ensure_avatar_defaults(user)
         wallet_text.value = f"Guthaben: {int(user.get('stats', {}).get('wallet_balance', 0))} €"
         preview_text.value = _avatar_preview_text(user, theme)
-        preview_figure.content = build_avatar_figure(user, theme, size=260, angle_deg=angle_state["value"])
-        rotate_text.value = f"Drehung: {int(angle_state['value'])}°"
+        preview_figure.content = build_avatar_figure(user, theme, size=260)
 
         gender_buttons = []
         for g_key, g_label in AVATAR_GENDER_OPTIONS:
@@ -4465,19 +4395,7 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
         render()
         page.update()
 
-    def on_rotate_change(e):
-        angle_state["value"] = float(e.control.value or 0.0)
-        render()
-        page.update()
-
-    def rotate_step(delta: float):
-        angle_state["value"] = (float(angle_state["value"]) + delta) % 360.0
-        rotate_slider.value = angle_state["value"]
-        render()
-        page.update()
-
     slot_dropdown.on_select = on_slot_change
-    rotate_slider.on_change = on_rotate_change
     render()
 
     page.controls.clear()
@@ -4541,16 +4459,6 @@ def show_avatar_wardrobe(page: ft.Page, state: dict, back_to_main: bool = True):
                                                             alignment=ft.Alignment(0, 0),
                                                         ),
                                                         preview_text,
-                                                        ft.Row(
-                                                            [
-                                                                _theme_action_button("↺", theme, lambda e: rotate_step(-15), width=64),
-                                                                rotate_slider,
-                                                                _theme_action_button("↻", theme, lambda e: rotate_step(15), width=64),
-                                                            ],
-                                                            alignment=ft.MainAxisAlignment.CENTER,
-                                                            spacing=8,
-                                                        ),
-                                                        ft.Row([rotate_text], alignment=ft.MainAxisAlignment.CENTER),
                                                     ],
                                                     spacing=8,
                                                     expand=True,
