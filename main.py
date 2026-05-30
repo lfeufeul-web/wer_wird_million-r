@@ -7647,6 +7647,17 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
             do_delete()
             return
 
+        dlg_ref: dict[str, ft.AlertDialog | None] = {"dlg": None}
+
+        def on_cancel(ev):
+            if dlg_ref["dlg"] is not None:
+                close_page_dialog(page, dlg_ref["dlg"])
+
+        def on_confirm_delete(ev):
+            if dlg_ref["dlg"] is not None:
+                close_page_dialog(page, dlg_ref["dlg"])
+            do_delete()
+
         dlg = ft.AlertDialog(
             modal=True,
             bgcolor=theme.get("panel", "#1f2937"),
@@ -7655,20 +7666,13 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                 "Diese Kategorie enthält Inhalte. Wirklich mit allen Fragen löschen?",
                 color=theme_txt(theme, "secondary"),
             ),
+            actions=[
+                ft.TextButton("Abbrechen", on_click=on_cancel, style=ft.ButtonStyle(color=theme_txt(theme, "secondary"))),
+                ft.ElevatedButton("Löschen", on_click=on_confirm_delete, style=ft.ButtonStyle(bgcolor=theme["danger"], color="white")),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
         )
-
-        def on_cancel(ev):
-            close_page_dialog(page, dlg)
-
-        def on_confirm_delete(ev):
-            close_page_dialog(page, dlg)
-            do_delete()
-
-        dlg.actions = [
-            ft.TextButton("Abbrechen", on_click=on_cancel, style=ft.ButtonStyle(color=theme_txt(theme, "secondary"))),
-            ft.ElevatedButton("Löschen", on_click=on_confirm_delete, style=ft.ButtonStyle(bgcolor=theme["danger"], color="white")),
-        ]
-        dlg.actions_alignment = ft.MainAxisAlignment.END
+        dlg_ref["dlg"] = dlg
         open_page_dialog(page, dlg)
 
     def back_to_hub(e):
