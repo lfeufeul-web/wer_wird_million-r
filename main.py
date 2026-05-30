@@ -1640,6 +1640,7 @@ def update_game_stats(correct: int, answered: int, money: str, money_level_idx: 
     if email and email in db["users"]:
         u = db["users"][email]["stats"]
         update_stats_block(u, correct, answered, money, money_level_idx, won, jokers_used)
+        u["shop_coins"] = u.get("shop_coins", 0) + _coins_for_money_level(money_level_idx)
         history = db["users"][email].setdefault("game_history", [])
         history.append(build_game_history_entry(correct, answered, money, money_level_idx, won, jokers_used))
         db["users"][email]["game_history"] = history[-30:]
@@ -6523,6 +6524,21 @@ def _game_portal_back_overlay() -> ft.Container:
     )
 
 
+def _coins_for_money_level(money_level_idx: int) -> int:
+    if money_level_idx < 0:
+        return 0
+    steps = max(len(MONEY_LEVELS) - 1, 1)
+    return max(1, int(round(1 + (money_level_idx * 99 / steps))))
+
+
+def _shop_price_coins(item: dict) -> int:
+    raw = int(item.get("price", 0))
+    if raw <= 0:
+        return 0
+    # Legacy prices were in euro-space; coins use a smaller progression.
+    return max(1, raw // 1000)
+
+
 def show_portal_stats(page: ft.Page, state: dict):
     db = load_db()
     theme = get_theme(state)
@@ -6573,6 +6589,7 @@ def show_portal_stats(page: ft.Page, state: dict):
                                     ft.Text(f"Deine Punkte-Quiz-Spiele: {u_stats.get('points_quiz_games_played', 0)}", color="white"),
                                     ft.Text(f"Deine kompletten Punkte-Quiz-Runden: {u_stats.get('points_quiz_finished_games', 0)}", color="white"),
                                     ft.Text(f"Deine bewerteten Punkte-Quiz-Fragen: {u_stats.get('points_quiz_questions_judged', 0)}", color="white"),
+                                    ft.Text(f"Deine Spiel-Münzen: {u_stats.get('shop_coins', 0)}", color=theme["gold"], weight="bold"),
                                 ],
                                 spacing=8,
                                 scroll=ft.ScrollMode.AUTO,
@@ -6614,7 +6631,7 @@ def show_portal_settings(page: ft.Page, state: dict):
                                     _theme_action_button("Allgemeine Statistik", theme, lambda e: show_portal_stats(e.page, state), width=280),
                                     _theme_action_button("Design auswählen", theme, lambda e: show_design_view(e.page, state), width=280),
                                     _theme_action_button("Shop", theme, lambda e: e.page.go("/shop") if logged_in else show_login_view(e.page, state), width=280),
-                                    _theme_action_button("Anmelden", theme, lambda e: show_login_view(e.page, state), width=280, bg=theme["success"]) if not logged_in else ft.Container(),
+                                    _theme_action_button("Anmelden", theme, lambda e: show_login_view(e.page, state), width=280, bg=theme["success"]) if not logged_in else _theme_action_button(f"Profil: {email}", theme, lambda e: show_login_view(e.page, state), width=280, bg=theme["success"]),
                                     _theme_action_button("Abmelden", theme, lambda e: e.page.run_task(_do_logout, e.page, state), width=280, bg=theme["danger"]) if logged_in else ft.Container(),
                                     ft.Text(f"Konto: {email}" if logged_in else "Nicht eingeloggt", size=12, color=theme_txt(theme, "secondary")),
                                     ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
@@ -6644,6 +6661,17 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
     page_w, _ = _page_size(page)
     mobile = page_w < 940
     logged_in = bool(state.get("current_user_email"))
+    email = state.get("current_user_email")
+    avatar_preview = ft.Text("👤", size=18)
+    if logged_in:
+        try:
+            db = load_db()
+            user_info = db.get("users", {}).get(email)
+            if user_info:
+                ensure_avatar_defaults(user_info)
+                avatar_preview = build_avatar_figure(user_info, theme, size=36)
+        except Exception:
+            avatar_preview = ft.Text("👤", size=18)
     hero = ft.Container(
         width=min(860, int(page_w - 24)),
         padding=ft.Padding(28, 26, 28, 26),
@@ -6736,6 +6764,24 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
                         spacing=24,
                         alignment=ft.MainAxisAlignment.CENTER,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ),
+                ft.Container(
+                    top=20,
+                    right=20,
+                    content=ft.Container(
+                        bgcolor="#00000095",
+                        border_radius=14,
+                        border=ft.border.Border.all(1, theme["border"]),
+                        padding=ft.Padding(10, 8, 10, 8),
+                        on_click=lambda e: show_login_view(e.page, state),
+                        content=ft.Row(
+                            [
+                                avatar_preview,
+                                ft.Text((email or "Anmelden"), size=12, color="white", weight="bold"),
+                            ],
+                            spacing=6,
+                        ),
                     ),
                 ),
             ],
@@ -6976,6 +7022,7 @@ def start_points_quiz_session(page: ft.Page, state: dict, quiz: dict, teams: lis
         "teams": teams,
         "current_team_idx": 0,
         "used_cells": [],
+        "correct_judged": 0,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "finished": False,
     }
@@ -7191,6 +7238,8 @@ def show_points_quiz_question(page: ft.Page, state: dict):
     def resolve_question(correct: bool):
         delta = int(question.get("points", 0)) * (1 if correct else -1)
         current_team["score"] += delta
+        if correct:
+            session["correct_judged"] = session.get("correct_judged", 0) + 1
         key = _points_cell_key(active["cat_idx"], active["q_idx"])
         if key not in session["used_cells"]:
             session["used_cells"].append(key)
@@ -7329,6 +7378,7 @@ def show_points_quiz_summary(page: ft.Page, state: dict, finished_early: bool):
             ensure_stats_defaults(u_stats)
             u_stats["points_quiz_games_played"] = u_stats.get("points_quiz_games_played", 0) + 1
             u_stats["points_quiz_questions_judged"] = u_stats.get("points_quiz_questions_judged", 0) + judged
+            u_stats["shop_coins"] = u_stats.get("shop_coins", 0) + session.get("correct_judged", 0)
             if not finished_early:
                 u_stats["points_quiz_finished_games"] = u_stats.get("points_quiz_finished_games", 0) + 1
         save_db(db)
@@ -9037,7 +9087,7 @@ def show_login_view(page: ft.Page, state: dict):
                             ft.Container(height=10),
                             ft.TextButton(
                                 "Zurueck",
-                                on_click=lambda e: show_stats(e.page, state),
+                                on_click=lambda e: open_main_menu(e.page, state),
                                 style=ft.ButtonStyle(color="white"),
                             )
                         ], alignment=ft.MainAxisAlignment.CENTER,
@@ -10880,9 +10930,9 @@ def show_shop_screen(page: ft.Page, state: dict):
             pass
 
     async def on_buy_theme(e, item):
-        price = item["price"]
-        if user["stats"].get("wallet_balance", 0) >= price:
-            user["stats"]["wallet_balance"] -= price
+        price = _shop_price_coins(item)
+        if user["stats"].get("shop_coins", 0) >= price:
+            user["stats"]["shop_coins"] -= price
             user.setdefault("unlocked_themes", ["classic", "neon_nexus"]).append(item["id"])
             save_db(db)
             build_shop()
@@ -10890,23 +10940,10 @@ def show_shop_screen(page: ft.Page, state: dict):
             await flash_insufficient_funds(e.control)
 
     async def on_buy_title(e, item):
-        price = item["price"]
-        if user["stats"].get("wallet_balance", 0) >= price:
-            user["stats"]["wallet_balance"] -= price
+        price = _shop_price_coins(item)
+        if user["stats"].get("shop_coins", 0) >= price:
+            user["stats"]["shop_coins"] -= price
             user.setdefault("unlocked_titles", ["Neuling"]).append(item["id"])
-            save_db(db)
-            build_shop()
-        else:
-            await flash_insufficient_funds(e.control)
-
-    async def on_buy_avatar_item(e, item):
-        price = int(item.get("price", 0))
-        owned = user.get("avatar", {}).get("owned_items", [])
-        if item["id"] in owned:
-            return
-        if user["stats"].get("wallet_balance", 0) >= price:
-            user["stats"]["wallet_balance"] -= price
-            user.setdefault("avatar", default_avatar_profile()).setdefault("owned_items", []).append(item["id"])
             save_db(db)
             build_shop()
         else:
@@ -10926,42 +10963,34 @@ def show_shop_screen(page: ft.Page, state: dict):
         save_db(db)
         build_shop()
 
-    def on_equip_avatar_item(e, item):
-        ensure_avatar_defaults(user)
-        if item["id"] not in user["avatar"]["owned_items"]:
-            return
-        user["avatar"]["equipped"][item["slot"]] = item["id"]
-        save_db(db)
-        build_shop()
-
     def build_shop():
         ensure_unlocked_themes(user)
         unlocked_themes = user.get("unlocked_themes", ["classic", "neon_nexus"])
         unlocked_titles = user.get("unlocked_titles", ["Neuling"])
         current_theme = user.get("settings", {}).get("theme", "classic")
         current_title = user.get("active_title", "Neuling")
-        wallet = user["stats"].get("wallet_balance", 0)
+        coins = user["stats"].get("shop_coins", 0)
         ensure_avatar_defaults(user)
-        owned_avatar = set(user["avatar"].get("owned_items", []))
-        equipped_avatar = user["avatar"].get("equipped", {})
+        avatar_open = bool(state.get("shop_avatar_section_open", False))
 
         card_w = 430 if _page_size(page)[0] > 980 else 330
         theme_cards = []
         for t in SHOP_CATALOG["themes"]:
             is_unlocked = t["id"] in unlocked_themes
             is_equipped = current_theme == t["id"]
+            price_coins = _shop_price_coins(t)
             if is_equipped:
                 btn = ft.ElevatedButton("Ausgerüstet", disabled=True, color="green")
             elif is_unlocked:
                 btn = ft.ElevatedButton("Ausrüsten", on_click=lambda e, tid=t["id"]: on_equip_theme(e, tid))
             else:
-                btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: page.run_task(on_buy_theme, e, itm))
+                btn = ft.ElevatedButton(f"{price_coins} Münzen", on_click=lambda e, itm=t: page.run_task(on_buy_theme, e, itm))
             
             theme_cards.append(ft.Container(
                 content=ft.Column(
                     [
                         ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")),
-                        ft.Row([ft.Text(f"Preis: {t['price']} €", size=12, color=theme_txt(theme, "secondary")), ft.Container(expand=True), btn]),
+                        ft.Row([ft.Text(f"Preis: {price_coins} Münzen", size=12, color=theme_txt(theme, "secondary")), ft.Container(expand=True), btn]),
                     ],
                     spacing=6,
                 ),
@@ -10973,18 +11002,19 @@ def show_shop_screen(page: ft.Page, state: dict):
         for t in SHOP_CATALOG["titles"]:
             is_unlocked = t["id"] in unlocked_titles
             is_equipped = current_title == t["id"]
+            price_coins = _shop_price_coins(t)
             if is_equipped:
                 btn = ft.ElevatedButton("Ausgerüstet", disabled=True, color="green")
             elif is_unlocked:
                 btn = ft.ElevatedButton("Ausrüsten", on_click=lambda e, tid=t["id"]: on_equip_title(e, tid))
             else:
-                btn = ft.ElevatedButton(f"{t['price']} € Kaufen", on_click=lambda e, itm=t: page.run_task(on_buy_title, e, itm))
+                btn = ft.ElevatedButton(f"{price_coins} Münzen", on_click=lambda e, itm=t: page.run_task(on_buy_title, e, itm))
             
             title_cards.append(ft.Container(
                 content=ft.Column(
                     [
                         ft.Text(t["name"], size=16, weight="bold", color=theme_txt(theme, "primary")),
-                        ft.Row([ft.Text(f"Preis: {t['price']} €", size=12, color=theme_txt(theme, "secondary")), ft.Container(expand=True), btn]),
+                        ft.Row([ft.Text(f"Preis: {price_coins} Münzen", size=12, color=theme_txt(theme, "secondary")), ft.Container(expand=True), btn]),
                     ],
                     spacing=6,
                 ),
@@ -10992,38 +11022,36 @@ def show_shop_screen(page: ft.Page, state: dict):
                 padding=10, border_radius=10, bgcolor=theme["panel"], border=ft.border.Border.all(1, theme["border"])
             ))
 
-        avatar_cards = []
-        for item in SHOP_CATALOG.get("avatar_items", []):
-            owned = item["id"] in owned_avatar
-            equipped = equipped_avatar.get(item["slot"]) == item["id"]
-            if equipped:
-                btn = ft.ElevatedButton("Ausgerüstet", disabled=True)
-            elif owned:
-                btn = ft.ElevatedButton("Ausrüsten", on_click=lambda e, it=item: on_equip_avatar_item(e, it))
-            else:
-                btn = ft.ElevatedButton(f"{item['price']} € Kaufen", on_click=lambda e, it=item: page.run_task(on_buy_avatar_item, e, it))
-            avatar_cards.append(
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Text(f"{item.get('icon', '•')} {item['name']}", size=15, weight="bold", color=theme_txt(theme, "primary")),
-                            ft.Row(
-                                [
-                                    ft.Text(f"Slot: {item['slot']} · Preis: {item['price']} €", size=12, color=theme_txt(theme, "secondary")),
-                                    ft.Container(expand=True),
-                                    btn,
-                                ]
-                            ),
-                        ],
-                        spacing=6,
-                    ),
-                    width=card_w,
-                    padding=10,
-                    border_radius=8,
-                    bgcolor=theme["panel"],
-                    border=ft.border.Border.all(1, theme["border"]),
-                )
-            )
+        avatar_cards = [
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text("Avatar-Designs", size=16, weight="bold", color=theme_txt(theme, "primary")),
+                        ft.Text("Bald verfügbar - neue Outfits und Kleidungssets.", size=12, color=theme_txt(theme, "secondary")),
+                    ],
+                    spacing=4,
+                ),
+                width=card_w,
+                padding=10,
+                border_radius=8,
+                bgcolor=theme["panel"],
+                border=ft.border.Border.all(1, theme["border"]),
+            ),
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text("Kleidung & Accessoires", size=16, weight="bold", color=theme_txt(theme, "primary")),
+                        ft.Text("Shop-Käufe für den Avatar sind aktuell deaktiviert.", size=12, color=theme_txt(theme, "secondary")),
+                    ],
+                    spacing=4,
+                ),
+                width=card_w,
+                padding=10,
+                border_radius=8,
+                bgcolor=theme["panel"],
+                border=ft.border.Border.all(1, theme["border"]),
+            ),
+        ]
 
         themes_wrap = ft.Row(theme_cards, wrap=True, spacing=10, run_spacing=10, alignment=ft.MainAxisAlignment.CENTER)
         titles_wrap = ft.Row(title_cards, wrap=True, spacing=10, run_spacing=10, alignment=ft.MainAxisAlignment.CENTER)
@@ -11049,9 +11077,9 @@ def show_shop_screen(page: ft.Page, state: dict):
                                 content=ft.Column([
                                     ft.Row([
                                         ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
-                                        ft.Text("In-Game Shop", size=24, weight="bold", color="white"),
+                                        ft.Text("Shop", size=24, weight="bold", color="white"),
                                         ft.Container(expand=True),
-                                        ft.Text(f"Kontostand: {wallet} €", size=20, weight="bold", color=theme["gold"]),
+                                        ft.Text(f"Kontostand: {coins} Münzen", size=20, weight="bold", color=theme["gold"]),
                                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                                     ft.Divider(color=theme["border"]),
                                     ft.Text("🎨 Designs", size=20, weight="bold", color="white"),
@@ -11062,13 +11090,18 @@ def show_shop_screen(page: ft.Page, state: dict):
                                     ft.Divider(color=theme["border"]),
                                     ft.Row(
                                         [
-                                            ft.Text("🧍 Avatar-Items", size=20, weight="bold", color="white"),
+                                            ft.Text("🧍 Avatar", size=20, weight="bold", color="white"),
                                             ft.Container(expand=True),
-                                            _theme_action_button("Garderobe", theme, lambda e: show_avatar_wardrobe(e.page, state, back_to_main=False), width=160),
+                                            _theme_action_button(
+                                                "Ausklappen" if not avatar_open else "Einklappen",
+                                                theme,
+                                                lambda e: state.update({"shop_avatar_section_open": not avatar_open}) or build_shop(),
+                                                width=160,
+                                            ),
                                         ],
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
-                                    avatar_wrap,
+                                    avatar_wrap if avatar_open else ft.Text("Avatar-Design und Kleidung: bald verfügbar.", color=theme_txt(theme, "secondary")),
                                 ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=10),
                             ),
                         ),
