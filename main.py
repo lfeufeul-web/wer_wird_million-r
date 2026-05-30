@@ -1162,12 +1162,42 @@ def _resolve_avatar_base_image(gender: str) -> str | None:
     except Exception:
         pass
 
-    # 1) First try assets directly
-    for stem in preferred_stems:
+    def find_in_folder(folder: str, stem: str) -> str | None:
+        # exact with known extensions
         for ext in exts:
             name = f"{stem}{ext}"
-            if os.path.exists(os.path.join("assets", name)):
+            if os.path.exists(os.path.join(folder, name)):
                 return name
+        # exact without extension
+        if os.path.exists(os.path.join(folder, stem)):
+            return stem
+        # best-effort startswith match
+        try:
+            files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+        except Exception:
+            files = []
+        for f in files:
+            if f.lower().startswith(stem.lower()):
+                return f
+        return None
+
+    # For every preferred stem, check assets first, then root; only then move to next stem.
+    for stem in preferred_stems:
+        in_assets = find_in_folder("assets", stem)
+        if in_assets:
+            return in_assets
+        in_root = find_in_folder(".", stem)
+        if in_root:
+            dest_name = in_root if "." in os.path.basename(in_root) else f"{stem}.png"
+            src = in_root
+            dst = os.path.join("assets", dest_name)
+            if not os.path.exists(dst):
+                try:
+                    shutil.copy2(src, dst)
+                except Exception:
+                    pass
+            if os.path.exists(dst):
+                return dest_name
 
     # 2) Fallback: root files (with or without extension) -> copy into assets
     root_files = []
@@ -4132,14 +4162,10 @@ def _avatar_piece_icon(user: dict, slot: str) -> str:
 def _avatar_preview_text(user: dict, theme: dict) -> str:
     ensure_avatar_defaults(user)
     gender = user["avatar"].get("gender", "diverse")
-    base = avatar_base_emoji(gender)
-    top = _avatar_piece_icon(user, "top")
-    pants = _avatar_piece_icon(user, "pants")
-    shoes = _avatar_piece_icon(user, "shoes")
-    accessory = _avatar_piece_icon(user, "accessory")
     theme_key = _theme_key_from_theme(theme) or "classic"
     scene = avatar_scene(theme_key)
-    return f"{scene}\n{base} {top} {pants} {shoes} {accessory}"
+    gender_label = {"male": "Männlich", "female": "Weiblich", "diverse": "Divers"}.get(gender, "Divers")
+    return f"{scene}\nTyp: {gender_label}"
 
 
 def _avatar_piece_color(item_id: str, theme: dict, fallback: str) -> str:
@@ -4161,123 +4187,120 @@ def build_avatar_figure(user: dict, theme: dict, size: int = 110, angle_deg: flo
     gender = user["avatar"].get("gender", "male")
     base_img = _resolve_avatar_base_image(gender)
     equipped = user["avatar"]["equipped"]
-    turn = max(-1.0, min(1.0, math.sin(math.radians(angle_deg))))
-    front = 1.0 - abs(turn) * 0.35
-    base_skin = "#E7C8A0"
+    yaw_cos = math.cos(math.radians(angle_deg % 360))
+    is_front = yaw_cos >= 0
+    width_factor = 0.33 + 0.67 * abs(yaw_cos)
+    render_w = max(26, int(size * width_factor))
+    x_offset = int((size - render_w) / 2)
+
     top_color = _avatar_piece_color(equipped.get("top", ""), theme, theme.get("accent", "#10B981"))
     pants_color = _avatar_piece_color(equipped.get("pants", ""), theme, "#334155")
     shoes_color = _avatar_piece_color(equipped.get("shoes", ""), theme, "#111827")
     acc_color = _avatar_piece_color(equipped.get("accessory", ""), theme, theme.get("gold", "#F59E0B"))
-
-    head_w = max(20, int(size * 0.30 * front))
-    torso_w = max(24, int(size * 0.36 * front))
-    leg_w = max(10, int(size * 0.14 * front))
-    shoe_w = max(12, int(size * 0.16 * front))
-
-    eye_shift = int(turn * 4)
-    head = ft.Container(
-        width=head_w,
-        height=int(size * 0.30),
-        border_radius=999,
-        border=ft.border.Border.all(1, "#1F2937"),
-        gradient=ft.LinearGradient(
-            begin=ft.Alignment(-1, -1),
-            end=ft.Alignment(1, 1),
-            colors=["#F6D8B8", "#E7C8A0", "#C9A27B"],
-        ),
-        content=ft.Stack(
-            [
-                ft.Container(width=max(2, int(head_w * 0.16)), height=max(2, int(size * 0.03)), left=max(2, int(head_w * 0.26) + eye_shift), top=max(2, int(size * 0.11)), border_radius=99, bgcolor="#1f2937"),
-                ft.Container(width=max(2, int(head_w * 0.16)), height=max(2, int(size * 0.03)), left=max(2, int(head_w * 0.54) + eye_shift), top=max(2, int(size * 0.11)), border_radius=99, bgcolor="#1f2937"),
-            ]
-        ),
-    )
-
-    shoulder = ft.Container(
-        width=max(12, int(size * 0.10)),
-        height=int(size * 0.20),
-        bgcolor=_avatar_piece_color(equipped.get("top", ""), theme, "#1E3A8A"),
-        border_radius=10,
-    )
-    shoulder_opposite = ft.Container(
-        width=max(8, int(size * 0.08)),
-        height=int(size * 0.18),
-        bgcolor=_avatar_piece_color(equipped.get("top", ""), theme, "#1E3A8A"),
-        border_radius=10,
-        opacity=0.65,
-    )
-    torso = ft.Container(
-        width=torso_w,
-        height=int(size * 0.30),
-        border_radius=10,
-        border=ft.border.Border.all(1, "#1F2937"),
-        gradient=ft.LinearGradient(
-            begin=ft.Alignment(-1, -1),
-            end=ft.Alignment(1, 1),
-            colors=[top_color, "#1f2937"],
-        ),
-        content=ft.Container(
-            content=ft.Text("✦", size=max(8, int(size * 0.09)), color="#ffffff99"),
-            alignment=ft.Alignment(0, -0.5),
-        ),
-    )
-    torso_row = ft.Row(
-        [shoulder, torso, shoulder_opposite] if turn >= 0 else [shoulder_opposite, torso, shoulder],
-        spacing=3,
-        alignment=ft.MainAxisAlignment.CENTER,
-    )
-
-    leg_left = ft.Container(width=leg_w, height=int(size * 0.26), border_radius=6, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[pants_color, "#111827"]))
-    leg_right = ft.Container(width=leg_w, height=int(size * 0.26), border_radius=6, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[pants_color, "#0f172a"]))
-    legs = ft.Row([leg_left, leg_right], spacing=4, alignment=ft.MainAxisAlignment.CENTER)
-
-    shoes = ft.Row(
-        [
-            ft.Container(width=shoe_w, height=int(size * 0.07), border_radius=5, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[shoes_color, "#020617"])),
-            ft.Container(width=shoe_w, height=int(size * 0.07), border_radius=5, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[shoes_color, "#020617"])),
-        ],
-        spacing=4,
-        alignment=ft.MainAxisAlignment.CENTER,
-    )
-    accessory = ft.Container(
-        width=max(10, int(size * 0.18)),
-        height=max(4, int(size * 0.05)),
-        bgcolor=acc_color if equipped.get("accessory") != "acc_none" else "#00000000",
-        border_radius=8,
-        shadow=ft.BoxShadow(blur_radius=8, color=f"#66{acc_color[1:]}" if acc_color.startswith("#") else "#66ffffff"),
-    )
-
-    body = ft.Column(
-        [head, accessory, torso_row, legs, shoes],
-        spacing=2,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        alignment=ft.MainAxisAlignment.CENTER,
-        tight=True,
-    )
-    if base_img:
-        outfit_overlay = ft.Stack(
-            [
-                ft.Container(left=int(size * 0.36), top=int(size * 0.30), width=int(size * 0.30), height=int(size * 0.24), border_radius=12, bgcolor=f"#99{top_color[1:]}" if top_color.startswith("#") else "#9966ccff"),
-                ft.Container(left=int(size * 0.40), top=int(size * 0.54), width=int(size * 0.10), height=int(size * 0.22), border_radius=6, bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155"),
-                ft.Container(left=int(size * 0.52), top=int(size * 0.54), width=int(size * 0.10), height=int(size * 0.22), border_radius=6, bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155"),
-                ft.Container(left=int(size * 0.40), top=int(size * 0.76), width=int(size * 0.12), height=int(size * 0.05), border_radius=6, bgcolor=f"#CC{shoes_color[1:]}" if shoes_color.startswith("#") else "#cc111827"),
-                ft.Container(left=int(size * 0.52), top=int(size * 0.76), width=int(size * 0.12), height=int(size * 0.05), border_radius=6, bgcolor=f"#CC{shoes_color[1:]}" if shoes_color.startswith("#") else "#cc111827"),
-            ],
+    if not base_img:
+        return ft.Container(
             width=size,
             height=int(size * 0.84),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Text("Avatarbild fehlt", color=theme_txt(theme, "secondary"), size=12),
         )
-        body = ft.Stack(
+
+    shirt_left = int(size * 0.33 + x_offset * 0.08)
+    shirt_w = max(16, int(render_w * 0.42))
+    leg_w = max(8, int(render_w * 0.15))
+    leg_gap = max(2, int(render_w * 0.05))
+    leg_left = int(size * 0.39 + x_offset * 0.12)
+    leg_right = leg_left + leg_w + leg_gap
+    shoe_w = max(10, int(render_w * 0.17))
+    shade = "#2b2b2b66" if not is_front else "#ffffff22"
+
+    outfit_overlay = ft.Stack(
+        [
+            ft.Container(
+                left=shirt_left,
+                top=int(size * 0.27),
+                width=shirt_w,
+                height=int(size * 0.24),
+                border_radius=12,
+                bgcolor=f"#AA{top_color[1:]}" if top_color.startswith("#") else "#AA66ccff",
+                border=ft.border.Border.all(1, "#00000033"),
+            ),
+            ft.Container(
+                left=leg_left,
+                top=int(size * 0.52),
+                width=leg_w,
+                height=int(size * 0.24),
+                border_radius=6,
+                bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155",
+            ),
+            ft.Container(
+                left=leg_right,
+                top=int(size * 0.52),
+                width=leg_w,
+                height=int(size * 0.24),
+                border_radius=6,
+                bgcolor=f"#AA{pants_color[1:]}" if pants_color.startswith("#") else "#aa334155",
+            ),
+            ft.Container(
+                left=leg_left,
+                top=int(size * 0.76),
+                width=shoe_w,
+                height=int(size * 0.05),
+                border_radius=6,
+                bgcolor=f"#CC{shoes_color[1:]}" if shoes_color.startswith("#") else "#cc111827",
+            ),
+            ft.Container(
+                left=leg_right,
+                top=int(size * 0.76),
+                width=shoe_w,
+                height=int(size * 0.05),
+                border_radius=6,
+                bgcolor=f"#CC{shoes_color[1:]}" if shoes_color.startswith("#") else "#cc111827",
+            ),
+            ft.Container(
+                left=shirt_left + max(2, int(shirt_w * 0.33)),
+                top=int(size * 0.35),
+                width=max(8, int(shirt_w * 0.22)),
+                height=max(4, int(size * 0.05)),
+                border_radius=8,
+                bgcolor=acc_color if equipped.get("accessory") != "acc_none" else "#00000000",
+                shadow=ft.BoxShadow(blur_radius=8, color=f"#66{acc_color[1:]}" if acc_color.startswith("#") else "#66ffffff"),
+            ),
+            ft.Container(
+                left=x_offset,
+                top=0,
+                width=render_w,
+                height=int(size * 0.84),
+                bgcolor=shade,
+                border_radius=10,
+            ),
+            ft.Container(
+                left=int(size * 0.44),
+                top=int(size * 0.02),
+                content=ft.Text("RÜCKEN" if not is_front else "", size=9, color="#ffffffaa"),
+            ),
+        ],
+        width=size,
+        height=int(size * 0.84),
+    )
+
+    return ft.Container(
+        width=size,
+        height=int(size * 0.84),
+        content=ft.Stack(
             [
-                ft.Image(src=base_img, width=size, height=int(size * 0.84), fit=ft.BoxFit.CONTAIN),
+                ft.Container(
+                    left=x_offset,
+                    top=0,
+                    width=render_w,
+                    height=int(size * 0.84),
+                    content=ft.Image(src=base_img, width=render_w, height=int(size * 0.84), fit=ft.BoxFit.FILL),
+                ),
                 outfit_overlay,
             ],
             width=size,
             height=int(size * 0.84),
-        )
-    return ft.Container(
-        content=body,
-        rotate=ft.Rotate(math.radians(angle_deg) * 0.30, alignment=ft.Alignment(0, 0)),
-        animate_rotation=ft.Animation(240, ft.AnimationCurve.EASE_OUT),
+        ),
     )
 
 
