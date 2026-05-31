@@ -7058,8 +7058,9 @@ def show_points_quiz_board(page: ft.Page, state: dict):
         return
     used_cells = set(session.get("used_cells", []))
     theme = get_theme(state)
-    page_w, _ = _page_size(page)
+    page_w, page_h = _page_size(page)
     is_mobile = page_w < 980
+    is_landscape_mobile = page_w < 1180 and page_w > page_h
     current_team = teams[session.get("current_team_idx", 0) % len(teams)]
     total_cells = _points_quiz_total_cells(quiz)
     used_count = _points_quiz_used_cells(session)
@@ -7088,10 +7089,10 @@ def show_points_quiz_board(page: ft.Page, state: dict):
 
     categories = quiz.get("categories", [])
     cat_count = len(categories)
-    label_w = 96
-    cell_w = 180
-    cell_h = 66
-    spacing = 10
+    label_w = 84 if is_landscape_mobile else (88 if is_mobile else 96)
+    cell_w = 150 if is_landscape_mobile else (160 if is_mobile else 180)
+    cell_h = 58 if is_landscape_mobile else (62 if is_mobile else 66)
+    spacing = 8 if is_mobile else 10
     board_width = label_w + (cat_count * cell_w) + (cat_count * spacing)
 
     header_row = ft.Row(
@@ -7104,7 +7105,7 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                 border=ft.border.Border.all(1.2, theme["accent"]),
                 alignment=ft.Alignment(0, 0),
                 padding=8,
-                content=ft.Text(cat.get("name", "Kategorie"), size=15, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                content=ft.Text(cat.get("name", "Kategorie"), size=13 if is_mobile else 15, weight="bold", color="white", text_align=ft.TextAlign.CENTER, max_lines=2, no_wrap=False),
             )
             for cat in categories
         ],
@@ -7122,7 +7123,7 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                 bgcolor="#07110D",
                 border=ft.border.Border.all(1.2, theme["border"]),
                 alignment=ft.Alignment(0, 0),
-                content=ft.Text(str(points), size=24, weight="w900", color=theme["gold"]),
+                content=ft.Text(str(points), size=20 if is_mobile else 24, weight="w900", color=theme["gold"]),
             )
         ]
         for cat_idx, cat in enumerate(categories):
@@ -7138,7 +7139,7 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                     border=ft.border.Border.all(1.2, theme["border"]),
                     alignment=ft.Alignment(0, 0),
                     on_click=None if is_used else (lambda e, c=cat_idx, q=q_idx: open_points_question(e.page, state, c, q)),
-                    content=ft.Text("Bereits gespielt" if is_used else f"{question.get('points', points)} Punkte", size=15, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                    content=ft.Text("Bereits gespielt" if is_used else f"{question.get('points', points)} Punkte", size=13 if is_mobile else 15, weight="bold", color="white", text_align=ft.TextAlign.CENTER, max_lines=2, no_wrap=False),
                 )
             )
         grid_rows.append(ft.Row(row_controls, spacing=spacing, wrap=False))
@@ -7253,6 +7254,10 @@ def show_points_quiz_question(page: ft.Page, state: dict):
         show_points_quiz_board(page, state)
         return
     theme = get_theme(state)
+    page_w, _ = _page_size(page)
+    panel_width = min(860, max(320, int(page_w - 36)))
+    solution_width = min(panel_width - 40, max(260, int(page_w - 48)))
+    btn_width = 210 if page_w < 900 else 240
     teams = session.get("teams", [])
     current_team = teams[session.get("current_team_idx", 0) % len(teams)]
     question = active["question"]
@@ -7303,7 +7308,7 @@ def show_points_quiz_question(page: ft.Page, state: dict):
                         alignment=ft.Alignment(0, 0),
                         padding=18,
                         content=ft.Container(
-                            width=860,
+                            width=panel_width,
                             padding=26,
                             border_radius=24,
                             bgcolor="#08120DE8",
@@ -7313,10 +7318,10 @@ def show_points_quiz_question(page: ft.Page, state: dict):
                                     ft.Text(active["category_name"], size=15, color=theme["gold"], weight="bold"),
                                     ft.Text(f"{question.get('points', 0)} Punkte für {current_team['name']}", size=18, color="white", weight="bold"),
                                     ft.Container(height=8),
-                                    ft.Text(question.get("question", "Frage"), size=28, color="white", text_align=ft.TextAlign.CENTER, weight="w900"),
+                                    ft.Text(question.get("question", "Frage"), size=22 if page_w < 900 else 28, color="white", text_align=ft.TextAlign.CENTER, weight="w900"),
                                     ft.Container(height=18),
                                     ft.Container(
-                                        width=min(760, int(_page_size(page)[0] - 48)),
+                                        width=solution_width,
                                         padding=14,
                                         border_radius=16,
                                         bgcolor="#0B1A14",
@@ -7345,8 +7350,8 @@ def show_points_quiz_question(page: ft.Page, state: dict):
                                     ),
                                     ft.Row(
                                         [
-                                            _game_menu_button("Richtig beantwortet", lambda e: resolve_question(True), theme["success"], width=240, height=48),
-                                            _game_menu_button("Falsch beantwortet", lambda e: resolve_question(False), theme["danger"], width=240, height=48),
+                                            _game_menu_button("Richtig beantwortet", lambda e: resolve_question(True), theme["success"], width=btn_width, height=48),
+                                            _game_menu_button("Falsch beantwortet", lambda e: resolve_question(False), theme["danger"], width=btn_width, height=48),
                                         ],
                                         alignment=ft.MainAxisAlignment.CENTER,
                                         spacing=16,
@@ -7373,6 +7378,9 @@ def show_points_quiz_answer_screen(page: ft.Page, state: dict):
         show_points_quiz_board(page, state)
         return
     theme = get_theme(state)
+    page_w, _ = _page_size(page)
+    panel_width = min(900, max(320, int(page_w - 36)))
+    btn_width = 190 if page_w < 900 else 220
     teams = session.get("teams", [])
     current_idx = session.get("current_team_idx", 0)
     current_team = teams[current_idx % len(teams)]
@@ -7399,7 +7407,7 @@ def show_points_quiz_answer_screen(page: ft.Page, state: dict):
                         alignment=ft.Alignment(0, 0),
                         padding=18,
                         content=ft.Container(
-                            width=900,
+                            width=panel_width,
                             padding=28,
                             border_radius=24,
                             bgcolor="#08120DE8",
@@ -7412,7 +7420,7 @@ def show_points_quiz_answer_screen(page: ft.Page, state: dict):
                                     ft.Text("Richtige Antwort", size=16, weight="bold", color=theme["gold"]),
                                     ft.Text(active["question"].get("answer", ""), size=22, color="white", text_align=ft.TextAlign.CENTER),
                                     ft.Container(height=12),
-                                    _game_menu_button("Weiter", continue_after_result, theme["accent"], width=220, height=48),
+                                    _game_menu_button("Weiter", continue_after_result, theme["accent"], width=btn_width, height=48),
                                 ],
                                 spacing=10,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -7457,6 +7465,9 @@ def show_points_quiz_summary(page: ft.Page, state: dict, finished_early: bool):
         state["points_quiz_session"] = session
 
     theme = get_theme(state)
+    page_w, _ = _page_size(page)
+    panel_width = min(760, max(320, int(page_w - 36)))
+    score_width = min(420, max(250, panel_width - 80))
     teams = sorted(session.get("teams", []), key=lambda team: team.get("score", 0), reverse=True)
     top_score = teams[0]["score"] if teams else 0
     winners = [team["name"] for team in teams if team.get("score", 0) == top_score]
@@ -7478,7 +7489,7 @@ def show_points_quiz_summary(page: ft.Page, state: dict, finished_early: bool):
                         alignment=ft.Alignment(0, 0),
                         padding=20,
                         content=ft.Container(
-                            width=760,
+                            width=panel_width,
                             padding=28,
                             border_radius=24,
                             bgcolor="#08120DE8",
@@ -7501,7 +7512,7 @@ def show_points_quiz_summary(page: ft.Page, state: dict, finished_early: bool):
                                             ],
                                             spacing=10,
                                         ),
-                                        width=420,
+                                        width=score_width,
                                         padding=16,
                                         bgcolor=theme["panel"],
                                         border_radius=16,
@@ -7557,6 +7568,14 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
             pass
     force_close_all_dialogs(page)
     theme = get_theme(state)
+    page_w, page_h = _page_size(page)
+    is_compact = page_w < 900
+    is_landscape_mobile = page_w < 1100 and page_w > page_h
+    title_field_width = min(420, max(260, int(page_w - 56)))
+    category_field_width = 190 if is_compact else 220
+    category_stack_height = 70 if is_compact else 74
+    action_btn_width = 190 if is_compact else 220
+    action_btn_small_width = 160 if is_compact else 180
     editing_quiz = state.get("editing_points_quiz")
     if quiz_id and isinstance(editing_quiz, dict) and editing_quiz.get("id") == quiz_id:
         quiz = editing_quiz
@@ -7570,7 +7589,7 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
     title_field = ft.TextField(
         label="Titel des Punkte-Quiz",
         value=quiz.get("title", ""),
-        width=420,
+        width=title_field_width,
         bgcolor=theme["question_bg"],
         color=theme["question_text"],
         border_color=theme["border"],
@@ -7603,7 +7622,7 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         field = ft.TextField(
             label=f"Kategorie {idx + 1}",
             value=category.get("name", ""),
-            width=220,
+            width=category_field_width,
             bgcolor=theme["question_bg"],
             color=theme["question_text"],
             border_color=theme["border"],
@@ -7695,8 +7714,8 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                 width=min(430, int(_page_size(page)[0] - 44)),
                 padding=ft.Padding(24, 20, 24, 18),
                 border_radius=20,
-                bgcolor="#6A0000",
-                border=ft.border.Border.all(1.2, theme["danger"]),
+                bgcolor=theme["question_bg"],
+                border=ft.border.Border.all(1.2, theme["border"]),
                 shadow=ft.BoxShadow(blur_radius=18, color="#66000000", spread_radius=0),
                 content=ft.Column(
                     [
@@ -7704,12 +7723,12 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                         ft.Text(
                             "Diese Kategorie enthält Inhalte. Wirklich mit allen Fragen löschen?",
                             size=14,
-                            color="#FDE8E8",
+                            color=theme_txt(theme, "secondary"),
                             text_align=ft.TextAlign.LEFT,
                         ),
                         ft.Row(
                             [
-                                _game_menu_button("Abbrechen", on_cancel, "#7F1D1D", width=148, height=40),
+                                _game_menu_button("Abbrechen", on_cancel, theme["panel"], width=148, height=40),
                                 _game_menu_button("Löschen", on_confirm_delete, theme["danger"], width=148, height=40),
                             ],
                             alignment=ft.MainAxisAlignment.CENTER,
@@ -7738,9 +7757,9 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         save_quiz(mark_finished=points_quiz_is_playable(state.get("editing_points_quiz", quiz)))
         show_points_quiz_hub(page, state)
 
-    cell_label_w = 120
-    cell_btn_w = 180
-    table_spacing = 8
+    cell_label_w = 100 if is_landscape_mobile else (92 if is_compact else 120)
+    cell_btn_w = 150 if is_landscape_mobile else (140 if is_compact else 180)
+    table_spacing = 6 if is_compact else 8
     category_count = len(quiz.get("categories", []))
     table_width = cell_label_w + (category_count * cell_btn_w) + (category_count * table_spacing)
     header_labels = [
@@ -7809,12 +7828,12 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                                                     ),
                                                 ),
                                             ],
-                                            width=220,
-                                            height=74,
+                                            width=category_field_width,
+                                            height=category_stack_height,
                                         )
                                         for idx, field in enumerate(category_fields)
                                     ] + [
-                                        _game_menu_button("+ Kategorie", add_category, theme["accent"], width=180, height=42)
+                                        _game_menu_button("+ Kategorie", add_category, theme["accent"], width=action_btn_small_width, height=42)
                                     ],
                                     spacing=10,
                                     wrap=True,
@@ -7860,9 +7879,9 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                                 ),
                                 ft.Row(
                                     [
-                                        _game_menu_button("Speichern / Zurück", back_to_hub, theme["success"], width=220, height=42),
-                                        _game_menu_button("Jetzt spielen", play_quiz, theme["gold"], width=220, height=42),
-                                        _game_menu_button("Fertig", finish_quiz, theme["accent"], width=180, height=42),
+                                        _game_menu_button("Speichern / Zurück", back_to_hub, theme["success"], width=action_btn_width, height=42),
+                                        _game_menu_button("Jetzt spielen", play_quiz, theme["gold"], width=action_btn_width, height=42),
+                                        _game_menu_button("Fertig", finish_quiz, theme["accent"], width=action_btn_small_width, height=42),
                                     ],
                                     spacing=12,
                                     alignment=ft.MainAxisAlignment.CENTER,
@@ -7884,6 +7903,10 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
 
 def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx: int):
     theme = get_theme(state)
+    page_w, _ = _page_size(page)
+    panel_width = min(760, max(320, int(page_w - 36)))
+    field_width = max(260, panel_width - 64)
+    btn_width = 180 if page_w < 900 else 220
     quiz = state.get("editing_points_quiz")
     if not quiz:
         show_points_quiz_hub(page, state)
@@ -7899,7 +7922,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         multiline=True,
         min_lines=3,
         max_lines=5,
-        width=620,
+        width=field_width,
         bgcolor=theme["question_bg"],
         color=theme["question_text"],
         border_color=theme["border"],
@@ -7910,7 +7933,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         multiline=True,
         min_lines=2,
         max_lines=4,
-        width=620,
+        width=field_width,
         bgcolor=theme["question_bg"],
         color=theme["question_text"],
         border_color=theme["border"],
@@ -7944,7 +7967,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
                         alignment=ft.Alignment(0, 0),
                         padding=20,
                         content=ft.Container(
-                            width=760,
+                            width=panel_width,
                             padding=24,
                             bgcolor="#08120DE8",
                             border_radius=22,
@@ -7956,8 +7979,8 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
                                     answer_field,
                                     ft.Row(
                                         [
-                                            _game_menu_button("Speichern", save_cell, theme["success"], width=220, height=42),
-                                            _game_menu_button("Zurück", lambda e: show_points_quiz_editor(page, state, quiz.get("id")), theme["danger"], width=220, height=42),
+                                            _game_menu_button("Speichern", save_cell, theme["success"], width=btn_width, height=42),
+                                            _game_menu_button("Zurück", lambda e: show_points_quiz_editor(page, state, quiz.get("id")), theme["danger"], width=btn_width, height=42),
                                         ],
                                         spacing=12,
                                         alignment=ft.MainAxisAlignment.CENTER,
