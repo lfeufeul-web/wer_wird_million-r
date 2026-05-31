@@ -7549,7 +7549,10 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         show_login_view(page, state)
         return
     theme = get_theme(state)
-    if quiz_id:
+    editing_quiz = state.get("editing_points_quiz")
+    if quiz_id and isinstance(editing_quiz, dict) and editing_quiz.get("id") == quiz_id:
+        quiz = editing_quiz
+    elif quiz_id:
         quiz = find_points_quiz(get_user_points_quizzes(state), quiz_id) or new_empty_points_quiz()
     else:
         quiz = new_empty_points_quiz()
@@ -7580,6 +7583,13 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
             if idx < len(category_fields):
                 label.value = (category_fields[idx].value or f"K{idx + 1}").strip() or f"K{idx + 1}"
                 label.update()
+
+    def _question_preview(entry: dict) -> str:
+        question = str(entry.get("question", "")).strip()
+        if not question:
+            return "Ausfüllen"
+        short = question[:26] + ("..." if len(question) > 26 else "")
+        return f"Bearbeiten\n{short}"
 
     def _build_category_field(idx: int, category: dict) -> ft.TextField:
         field = ft.TextField(
@@ -7650,14 +7660,34 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
         dlg_ref: dict[str, ft.AlertDialog | None] = {"dlg": None}
 
         def on_cancel(ev):
-            if dlg_ref["dlg"] is not None:
-                close_page_dialog(page, dlg_ref["dlg"])
-            force_close_all_dialogs(page)
+            dlg_local = dlg_ref["dlg"]
+            if dlg_local is not None:
+                try:
+                    dlg_local.open = False
+                except Exception:
+                    pass
+                try:
+                    if dlg_local in page.overlay:
+                        page.overlay.remove(dlg_local)
+                except Exception:
+                    pass
+            page.dialog = None
+            page.update()
 
         def on_confirm_delete(ev):
-            if dlg_ref["dlg"] is not None:
-                close_page_dialog(page, dlg_ref["dlg"])
-            force_close_all_dialogs(page)
+            dlg_local = dlg_ref["dlg"]
+            if dlg_local is not None:
+                try:
+                    dlg_local.open = False
+                except Exception:
+                    pass
+                try:
+                    if dlg_local in page.overlay:
+                        page.overlay.remove(dlg_local)
+                except Exception:
+                    pass
+            page.dialog = None
+            page.update()
             do_delete()
 
         dlg = ft.AlertDialog(
@@ -7716,7 +7746,7 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
             ready = bool(str(entry.get("question", "")).strip() and str(entry.get("answer", "")).strip())
             row_controls.append(
                 _game_menu_button(
-                    "Bearbeiten" if ready else "Ausfüllen",
+                    _question_preview(entry),
                     lambda e, c=cat_idx, q=q_idx: show_points_quiz_cell_editor(page, state, c, q),
                     theme["success"] if ready else theme["accent"],
                     width=cell_btn_w,
@@ -7876,7 +7906,11 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         quiz_local = state.get("editing_points_quiz", quiz)
         quiz_local["categories"][cat_idx]["questions"][q_idx]["question"] = question_field.value.strip()
         quiz_local["categories"][cat_idx]["questions"][q_idx]["answer"] = answer_field.value.strip()
-        state["editing_points_quiz"] = quiz_local
+        state["editing_points_quiz"] = upsert_points_quiz(
+            state,
+            quiz_local,
+            mark_finished=not bool(quiz_local.get("is_draft", True)),
+        )
         show_points_quiz_editor(page, state, quiz_local.get("id"))
 
     page.controls.clear()
