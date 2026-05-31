@@ -9322,8 +9322,10 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         page.snack_bar.open = True
         page.update()
 
-    question_picker = ft.FilePicker(on_result=lambda ev: _import_picker_files(ev, "question"))
-    answer_picker = ft.FilePicker(on_result=lambda ev: _import_picker_files(ev, "answer"))
+    question_picker = ft.FilePicker()
+    answer_picker = ft.FilePicker()
+    question_picker.on_result = lambda ev: _import_picker_files(ev, "question")
+    answer_picker.on_result = lambda ev: _import_picker_files(ev, "answer")
     page.overlay.append(question_picker)
     page.overlay.append(answer_picker)
     state["_points_quiz_question_media_picker"] = question_picker
