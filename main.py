@@ -7282,8 +7282,198 @@ def new_points_quiz_id() -> str:
     return f"points_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
 
 
+POINTS_QUIZ_MEDIA_DIR = os.path.join("assets", "points_quiz_media")
+POINTS_QUIZ_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+POINTS_QUIZ_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v", ".avi", ".mkv"}
+POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS = sorted(POINTS_QUIZ_IMAGE_EXTENSIONS | POINTS_QUIZ_VIDEO_EXTENSIONS)
+
+
+def _points_quiz_media_kind(filename: str) -> str | None:
+    ext = os.path.splitext(str(filename or ""))[1].lower()
+    if ext in POINTS_QUIZ_IMAGE_EXTENSIONS:
+        return "image"
+    if ext in POINTS_QUIZ_VIDEO_EXTENSIONS:
+        return "video"
+    return None
+
+
+def _sanitize_filename_part(value: str) -> str:
+    clean = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value or "").strip())
+    return clean.strip("._-") or "file"
+
+
+def _points_quiz_media_target_dir(quiz_id: str) -> tuple[str, str]:
+    safe_quiz = _sanitize_filename_part(quiz_id or "quiz")
+    abs_dir = os.path.join(POINTS_QUIZ_MEDIA_DIR, safe_quiz)
+    rel_dir = f"points_quiz_media/{safe_quiz}"
+    os.makedirs(abs_dir, exist_ok=True)
+    return abs_dir, rel_dir
+
+
+def _store_points_quiz_media_from_path(source_path: str, quiz_id: str, display_name: str | None = None) -> dict | None:
+    if not source_path or not os.path.isfile(source_path):
+        return None
+    original_name = display_name or os.path.basename(source_path)
+    kind = _points_quiz_media_kind(original_name) or _points_quiz_media_kind(source_path)
+    if not kind:
+        return None
+    ext = os.path.splitext(original_name)[1].lower() or os.path.splitext(source_path)[1].lower()
+    if ext not in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS:
+        return None
+    abs_dir, rel_dir = _points_quiz_media_target_dir(quiz_id)
+    base = _sanitize_filename_part(os.path.splitext(original_name)[0])
+    unique_name = f"{base}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
+    target_abs = os.path.join(abs_dir, unique_name)
+    try:
+        shutil.copy2(source_path, target_abs)
+    except Exception:
+        return None
+    return {
+        "src": f"{rel_dir}/{unique_name}",
+        "kind": kind,
+        "name": original_name,
+    }
+
+
+def _store_points_quiz_media_from_data(raw_data, filename: str, quiz_id: str) -> dict | None:
+    kind = _points_quiz_media_kind(filename)
+    if not kind:
+        return None
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS:
+        return None
+    data = raw_data
+    if isinstance(data, str):
+        payload = data
+        if payload.startswith("data:") and "," in payload:
+            payload = payload.split(",", 1)[1]
+        try:
+            data = base64.b64decode(payload)
+        except Exception:
+            return None
+    if not isinstance(data, (bytes, bytearray)) or not data:
+        return None
+    abs_dir, rel_dir = _points_quiz_media_target_dir(quiz_id)
+    base = _sanitize_filename_part(os.path.splitext(filename)[0])
+    unique_name = f"{base}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
+    target_abs = os.path.join(abs_dir, unique_name)
+    try:
+        with open(target_abs, "wb") as f:
+            f.write(bytes(data))
+    except Exception:
+        return None
+    return {
+        "src": f"{rel_dir}/{unique_name}",
+        "kind": kind,
+        "name": filename,
+    }
+
+
+def _normalize_points_quiz_media_item(raw_item) -> dict | None:
+    src = ""
+    kind = ""
+    name = ""
+    if isinstance(raw_item, str):
+        src = raw_item.strip()
+    elif isinstance(raw_item, dict):
+        src = str(raw_item.get("src", "")).strip()
+        kind = str(raw_item.get("kind", "")).strip().lower()
+        name = str(raw_item.get("name", "")).strip()
+    if not src:
+        return None
+    inferred_kind = _points_quiz_media_kind(src)
+    if kind not in {"image", "video"}:
+        kind = inferred_kind or "image"
+    if not name:
+        name = os.path.basename(src) or ("Bild" if kind == "image" else "Video")
+    return {"src": src, "kind": kind, "name": name}
+
+
+def _normalize_points_quiz_media_list(raw_items) -> list[dict]:
+    items = []
+    seen: set[str] = set()
+    for raw_item in list(raw_items or []):
+        item = _normalize_points_quiz_media_item(raw_item)
+        if not item:
+            continue
+        src = str(item.get("src", "")).strip()
+        if not src or src in seen:
+            continue
+        seen.add(src)
+        items.append(item)
+    return items
+
+
+def _build_points_quiz_media_gallery(items: list[dict], max_width: int, card_width: int = 240, card_height: int = 150) -> ft.Control:
+    normalized_items = _normalize_points_quiz_media_list(items)
+    if not normalized_items:
+        return ft.Container(height=0)
+
+    cards: list[ft.Control] = []
+    for item in normalized_items:
+        src = item.get("src", "")
+        kind = item.get("kind", "image")
+        label = item.get("name", os.path.basename(src))
+        if kind == "video":
+            if FletVideo and VideoMedia and PlaylistMode:
+                media = FletVideo(
+                    width=card_width,
+                    height=card_height,
+                    playlist=[VideoMedia(src)],
+                    autoplay=False,
+                    muted=True,
+                    fit=ft.BoxFit.COVER,
+                    show_controls=True,
+                    aspect_ratio=16 / 9,
+                )
+            else:
+                media = ft.Container(
+                    width=card_width,
+                    height=card_height,
+                    bgcolor="#00000088",
+                    border_radius=10,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Text("Video", color="white", weight="bold"),
+                )
+        else:
+            media = ft.Image(src=src, width=card_width, height=card_height, fit=ft.BoxFit.COVER, border_radius=10)
+
+        cards.append(
+            ft.Container(
+                width=card_width,
+                padding=6,
+                border_radius=12,
+                bgcolor="#08120DE0",
+                border=ft.border.Border.all(1, "#2A3A32"),
+                content=ft.Column(
+                    [
+                        media,
+                        ft.Text(label, size=11, color="#D1D5DB", max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                    ],
+                    spacing=4,
+                ),
+            )
+        )
+
+    return ft.Container(
+        width=max_width,
+        content=ft.Row(cards, wrap=True, spacing=8, run_spacing=8, alignment=ft.MainAxisAlignment.CENTER),
+    )
+
+
+def _cleanup_points_quiz_cell_media_pickers(page: ft.Page, state: dict):
+    for key in ("_points_quiz_question_media_picker", "_points_quiz_answer_media_picker"):
+        picker = state.pop(key, None)
+        if picker is not None:
+            try:
+                while picker in page.overlay:
+                    page.overlay.remove(picker)
+            except Exception:
+                pass
+
+
 def _blank_points_question(points: int) -> dict:
-    return {"points": points, "question": "", "answer": "", "used": False}
+    return {"points": points, "question": "", "answer": "", "question_media": [], "answer_media": [], "used": False}
 
 
 def _default_points_category(index: int) -> dict:
@@ -7310,6 +7500,8 @@ def normalize_points_quiz(quiz: dict) -> dict:
                 "points": points,
                 "question": str(raw_q.get("question", "")).strip(),
                 "answer": str(raw_q.get("answer", "")).strip(),
+                "question_media": _normalize_points_quiz_media_list(raw_q.get("question_media", [])),
+                "answer_media": _normalize_points_quiz_media_list(raw_q.get("answer_media", [])),
             })
         result_categories.append({"name": name, "questions": questions})
     normalized["categories"] = result_categories
@@ -7744,6 +7936,14 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
 def show_points_quiz_hub(page: ft.Page, state: dict):
     _set_resize_view(state, show_points_quiz_hub)
     _sync_page_route(page, "/points")
+    _cleanup_points_quiz_cell_media_pickers(page, state)
+    stale_delete_overlay = state.pop("_points_quiz_delete_overlay", None)
+    if stale_delete_overlay is not None:
+        try:
+            while stale_delete_overlay in page.overlay:
+                page.overlay.remove(stale_delete_overlay)
+        except Exception:
+            pass
     theme = get_theme(state)
     ui = theme_ui_palette(theme)
     logged_in = bool(state.get("current_user_email"))
@@ -8242,6 +8442,8 @@ def show_points_quiz_question(page: ft.Page, state: dict):
     teams = session.get("teams", [])
     current_team = teams[session.get("current_team_idx", 0) % len(teams)]
     question = active["question"]
+    question_media = _normalize_points_quiz_media_list(question.get("question_media", []))
+    answer_media = _normalize_points_quiz_media_list(question.get("answer_media", []))
 
     active.setdefault("solution_revealed", False)
 
@@ -8300,6 +8502,12 @@ def show_points_quiz_question(page: ft.Page, state: dict):
                                     ft.Text(f"{question.get('points', 0)} Punkte für {current_team['name']}", size=18, color="white", weight="bold"),
                                     ft.Container(height=8),
                                     ft.Text(question.get("question", "Frage"), size=22 if page_w < 900 else 28, color="white", text_align=ft.TextAlign.CENTER, weight="w900"),
+                                    _build_points_quiz_media_gallery(
+                                        question_media,
+                                        max_width=panel_width - 48,
+                                        card_width=230 if page_w < 900 else 260,
+                                        card_height=130 if page_w < 900 else 150,
+                                    ),
                                     ft.Container(height=18),
                                     ft.Container(
                                         width=solution_width,
@@ -8315,6 +8523,12 @@ def show_points_quiz_question(page: ft.Page, state: dict):
                                                     size=18 if active.get("solution_revealed") else 15,
                                                     color="white",
                                                     text_align=ft.TextAlign.CENTER,
+                                                ),
+                                                _build_points_quiz_media_gallery(
+                                                    answer_media if active.get("solution_revealed") else [],
+                                                    max_width=solution_width - 24,
+                                                    card_width=220 if page_w < 900 else 240,
+                                                    card_height=120 if page_w < 900 else 140,
                                                 ),
                                             ],
                                             spacing=8,
@@ -8521,25 +8735,81 @@ def confirm_delete_points_quiz(page: ft.Page, state: dict, quiz_id: str):
     theme = get_theme(state)
     quiz = find_points_quiz(get_user_points_quizzes(state), quiz_id)
     title = quiz.get("title", "Punkte-Quiz") if quiz else "Punkte-Quiz"
+    old_overlay = state.pop("_points_quiz_delete_overlay", None)
+    if old_overlay is not None:
+        try:
+            while old_overlay in page.overlay:
+                page.overlay.remove(old_overlay)
+        except Exception:
+            pass
 
-    def do_delete(e):
-        close_page_dialog(page, dlg)
+    overlay_ref = [None]
+
+    def _close_popup():
+        overlay = overlay_ref[0]
+        if state.get("_points_quiz_delete_overlay") is overlay:
+            state.pop("_points_quiz_delete_overlay", None)
+        if overlay is not None:
+            try:
+                while overlay in page.overlay:
+                    page.overlay.remove(overlay)
+            except Exception:
+                pass
+        page.update()
+
+    def _cancel(ev):
+        _close_popup()
+
+    def _confirm_delete(ev):
+        _close_popup()
         delete_points_quiz(state, quiz_id)
         show_points_quiz_hub(page, state)
 
-    dlg = ft.AlertDialog(
-        title=ft.Text("Punkte-Quiz löschen?"),
-        content=ft.Text(f'"{title}" wirklich löschen?', color=theme_txt(theme, "secondary")),
-        actions=[
-            ft.TextButton("Abbrechen", on_click=lambda e: close_page_dialog(page, dlg)),
-            ft.TextButton("Löschen", on_click=do_delete),
-        ],
+    overlay = ft.Container(
+        expand=True,
+        bgcolor="#000000B8",
+        alignment=ft.Alignment(0, 0),
+        on_click=_cancel,
+        content=ft.Container(
+            width=min(430, int(_page_size(page)[0] - 44)),
+            padding=ft.Padding(24, 20, 24, 18),
+            border_radius=20,
+            bgcolor=theme["question_bg"],
+            border=ft.border.Border.all(1.2, theme["border"]),
+            shadow=ft.BoxShadow(blur_radius=18, color="#66000000", spread_radius=0),
+            on_click=lambda e: None,
+            content=ft.Column(
+                [
+                    ft.Text("Punkte-Quiz löschen?", size=20, weight="w900", color="white"),
+                    ft.Text(
+                        f'"{title}" wirklich löschen?',
+                        size=14,
+                        color=theme_txt(theme, "secondary"),
+                        text_align=ft.TextAlign.LEFT,
+                    ),
+                    ft.Row(
+                        [
+                            _game_menu_button("Abbrechen", _cancel, theme["panel"], width=148, height=40),
+                            _game_menu_button("Löschen", _confirm_delete, theme["danger"], width=148, height=40),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=10,
+                    ),
+                ],
+                tight=True,
+                spacing=16,
+            ),
+        ),
     )
-    open_page_dialog(page, dlg)
+    overlay_ref[0] = overlay
+    state["_points_quiz_delete_overlay"] = overlay
+    page.overlay.append(overlay)
+    page.update()
 
 
 def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
     _set_resize_view(state, show_points_quiz_editor, quiz_id)
+    _cleanup_points_quiz_cell_media_pickers(page, state)
     if not state.get("current_user_email"):
         show_login_view(page, state)
         return
@@ -8597,10 +8867,15 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
 
     def _question_preview(entry: dict) -> str:
         question = str(entry.get("question", "")).strip()
+        question_media_count = len(_normalize_points_quiz_media_list(entry.get("question_media", [])))
+        answer_media_count = len(_normalize_points_quiz_media_list(entry.get("answer_media", [])))
         if not question:
             return "Ausfüllen"
         short = question[:26] + ("..." if len(question) > 26 else "")
-        return f"Bearbeiten\n{short}"
+        media_hint = ""
+        if question_media_count or answer_media_count:
+            media_hint = f"\n🖼️{question_media_count} / 🎬{answer_media_count}"
+        return f"Bearbeiten\n{short}{media_hint}"
 
     def _build_category_field(idx: int, category: dict) -> ft.TextField:
         field = ft.TextField(
@@ -8892,6 +9167,8 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
     panel_width = min(760, max(320, int(page_w - 36)))
     field_width = max(260, panel_width - 64)
     btn_width = 180 if page_w < 900 else 220
+    media_card_width = 170 if page_w < 900 else 200
+    media_card_height = 96 if page_w < 900 else 112
     quiz = state.get("editing_points_quiz")
     if not quiz:
         show_points_quiz_hub(page, state)
@@ -8900,6 +9177,10 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
     state["editing_points_quiz"] = quiz
     category = quiz["categories"][cat_idx]
     entry = dict(category["questions"][q_idx])
+    question_media = _normalize_points_quiz_media_list(entry.get("question_media", []))
+    answer_media = _normalize_points_quiz_media_list(entry.get("answer_media", []))
+
+    _cleanup_points_quiz_cell_media_pickers(page, state)
 
     question_field = ft.TextField(
         label="Frage",
@@ -8923,6 +9204,155 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         color=theme["question_text"],
         border_color=theme["border"],
     )
+    question_media_column = ft.Column(spacing=8)
+    answer_media_column = ft.Column(spacing=8)
+
+    def _media_thumb(item: dict) -> ft.Control:
+        src = str(item.get("src", "")).strip()
+        kind = item.get("kind", "image")
+        if kind == "video":
+            if FletVideo and VideoMedia:
+                return ft.Container(
+                    width=media_card_width,
+                    height=media_card_height,
+                    border_radius=10,
+                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                    content=FletVideo(
+                        width=media_card_width,
+                        height=media_card_height,
+                        playlist=[VideoMedia(src)],
+                        autoplay=False,
+                        muted=True,
+                        fit=ft.BoxFit.COVER,
+                        show_controls=False,
+                        aspect_ratio=16 / 9,
+                    ),
+                )
+            return ft.Container(
+                width=media_card_width,
+                height=media_card_height,
+                border_radius=10,
+                bgcolor="#111827",
+                alignment=ft.Alignment(0, 0),
+                content=ft.Text("Video", color="white", weight="bold"),
+            )
+        return ft.Image(src=src, width=media_card_width, height=media_card_height, fit=ft.BoxFit.COVER, border_radius=10)
+
+    def _build_media_rows(items: list[dict], kind: str) -> list[ft.Control]:
+        if not items:
+            return [ft.Text("Noch keine Medien hinzugefügt.", size=12, color=theme_txt(theme, "secondary"))]
+
+        rows: list[ft.Control] = []
+        for idx, item in enumerate(items):
+            rows.append(
+                ft.Container(
+                    padding=8,
+                    border_radius=12,
+                    bgcolor=theme["panel"],
+                    border=ft.border.Border.all(1, theme["border"]),
+                    content=ft.Row(
+                        [
+                            _media_thumb(item),
+                            ft.Column(
+                                [
+                                    ft.Text(item.get("name", "Datei"), size=12, color="white", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                                    ft.Text("Bild" if item.get("kind") == "image" else "Video", size=11, color=theme_txt(theme, "secondary")),
+                                    _game_menu_button(
+                                        "Entfernen",
+                                        lambda e, i=idx, t=kind: _remove_media_item(t, i),
+                                        theme["danger"],
+                                        width=110,
+                                        height=34,
+                                    ),
+                                ],
+                                spacing=6,
+                                expand=True,
+                                alignment=ft.MainAxisAlignment.START,
+                            ),
+                        ],
+                        spacing=10,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                    ),
+                )
+            )
+        return rows
+
+    def _refresh_media_lists(update_page: bool = True):
+        question_media_column.controls = _build_media_rows(question_media, "question")
+        answer_media_column.controls = _build_media_rows(answer_media, "answer")
+        if update_page:
+            page.update()
+
+    def _remove_media_item(target: str, index: int):
+        items = question_media if target == "question" else answer_media
+        if 0 <= index < len(items):
+            items.pop(index)
+            _refresh_media_lists(update_page=True)
+
+    def _import_picker_files(event, target: str):
+        picked_files = list((event.files or []))
+        if not picked_files:
+            return
+        quiz_id = str(quiz.get("id") or new_points_quiz_id())
+        target_items = question_media if target == "question" else answer_media
+        imported = 0
+        failed = 0
+        for picked in picked_files:
+            item = None
+            picked_name = str(getattr(picked, "name", "") or "datei")
+            picked_path = str(getattr(picked, "path", "") or "")
+            if picked_path:
+                item = _store_points_quiz_media_from_path(picked_path, quiz_id, picked_name)
+            if item is None:
+                picked_bytes = getattr(picked, "bytes", None)
+                if picked_bytes:
+                    item = _store_points_quiz_media_from_data(picked_bytes, picked_name, quiz_id)
+            if item is not None:
+                target_items.append(item)
+                imported += 1
+            else:
+                failed += 1
+        _refresh_media_lists(update_page=False)
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text(
+                f"{imported} Datei(en) hinzugefügt." if failed == 0 else f"{imported} hinzugefügt, {failed} nicht unterstützt.",
+            ),
+            bgcolor=theme["success"] if failed == 0 else theme["danger"],
+        )
+        page.snack_bar.open = True
+        page.update()
+
+    question_picker = ft.FilePicker(on_result=lambda ev: _import_picker_files(ev, "question"))
+    answer_picker = ft.FilePicker(on_result=lambda ev: _import_picker_files(ev, "answer"))
+    page.overlay.append(question_picker)
+    page.overlay.append(answer_picker)
+    state["_points_quiz_question_media_picker"] = question_picker
+    state["_points_quiz_answer_media_picker"] = answer_picker
+
+    def _open_picker(picker: ft.FilePicker):
+        try:
+            picker.pick_files(
+                dialog_title="Dateien für Punkte-Quiz auswählen",
+                allow_multiple=True,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=[ext.lstrip(".") for ext in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS],
+                with_data=True,
+            )
+        except TypeError:
+            picker.pick_files(
+                dialog_title="Dateien für Punkte-Quiz auswählen",
+                allow_multiple=True,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=[ext.lstrip(".") for ext in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS],
+            )
+        except Exception:
+            page.snack_bar = ft.SnackBar(content=ft.Text("Dateiauswahl konnte nicht geöffnet werden."))
+            page.snack_bar.open = True
+            page.update()
+
+    def back_to_editor(e):
+        _cleanup_points_quiz_cell_media_pickers(page, state)
+        show_points_quiz_editor(page, state, quiz.get("id"))
 
     def save_cell(e):
         if not (question_field.value or "").strip() or not (answer_field.value or "").strip():
@@ -8933,12 +9363,17 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         quiz_local = state.get("editing_points_quiz", quiz)
         quiz_local["categories"][cat_idx]["questions"][q_idx]["question"] = question_field.value.strip()
         quiz_local["categories"][cat_idx]["questions"][q_idx]["answer"] = answer_field.value.strip()
+        quiz_local["categories"][cat_idx]["questions"][q_idx]["question_media"] = _normalize_points_quiz_media_list(question_media)
+        quiz_local["categories"][cat_idx]["questions"][q_idx]["answer_media"] = _normalize_points_quiz_media_list(answer_media)
         state["editing_points_quiz"] = upsert_points_quiz(
             state,
             quiz_local,
             mark_finished=not bool(quiz_local.get("is_draft", True)),
         )
+        _cleanup_points_quiz_cell_media_pickers(page, state)
         show_points_quiz_editor(page, state, quiz_local.get("id"))
+
+    _refresh_media_lists(update_page=False)
 
     page.controls.clear()
     page.add(
@@ -8961,11 +9396,53 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
                                 [
                                     ft.Text(f"{category['name']} · {POINTS_QUIZ_POINT_VALUES[q_idx]} Punkte", size=24, weight="w900", color="white"),
                                     question_field,
+                                    ft.Container(
+                                        width=field_width,
+                                        padding=10,
+                                        border_radius=14,
+                                        bgcolor=theme["panel"],
+                                        border=ft.border.Border.all(1, theme["border"]),
+                                        content=ft.Column(
+                                            [
+                                                ft.Row(
+                                                    [
+                                                        ft.Text("Medien zur Frage", size=14, weight="bold", color="white", expand=True),
+                                                        _game_menu_button("Datei hinzufügen", lambda e: _open_picker(question_picker), theme["accent"], width=160, height=34),
+                                                    ],
+                                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                ),
+                                                ft.Text("Bilder/Videos werden unter der Frage angezeigt.", size=11, color=theme_txt(theme, "secondary")),
+                                                question_media_column,
+                                            ],
+                                            spacing=8,
+                                        ),
+                                    ),
                                     answer_field,
+                                    ft.Container(
+                                        width=field_width,
+                                        padding=10,
+                                        border_radius=14,
+                                        bgcolor=theme["panel"],
+                                        border=ft.border.Border.all(1, theme["border"]),
+                                        content=ft.Column(
+                                            [
+                                                ft.Row(
+                                                    [
+                                                        ft.Text("Medien zur Lösung", size=14, weight="bold", color="white", expand=True),
+                                                        _game_menu_button("Datei hinzufügen", lambda e: _open_picker(answer_picker), theme["accent"], width=160, height=34),
+                                                    ],
+                                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                ),
+                                                ft.Text("Diese Medien werden erst nach dem Aufdecken der Lösung sichtbar.", size=11, color=theme_txt(theme, "secondary")),
+                                                answer_media_column,
+                                            ],
+                                            spacing=8,
+                                        ),
+                                    ),
                                     ft.Row(
                                         [
                                             _game_menu_button("Speichern", save_cell, theme["success"], width=btn_width, height=42),
-                                            _game_menu_button("Zurück", lambda e: show_points_quiz_editor(page, state, quiz.get("id")), theme["danger"], width=btn_width, height=42),
+                                            _game_menu_button("Zurück", back_to_editor, theme["danger"], width=btn_width, height=42),
                                         ],
                                         spacing=12,
                                         alignment=ft.MainAxisAlignment.CENTER,
