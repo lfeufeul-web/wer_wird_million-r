@@ -7659,35 +7659,25 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
 
         dlg_ref: dict[str, ft.AlertDialog | None] = {"dlg": None}
 
-        def on_cancel(ev):
+        def _close_delete_dialog_hard():
             dlg_local = dlg_ref["dlg"]
             if dlg_local is not None:
                 try:
-                    dlg_local.open = False
+                    close_page_dialog(page, dlg_local)
                 except Exception:
                     pass
-                try:
-                    if dlg_local in page.overlay:
-                        page.overlay.remove(dlg_local)
-                except Exception:
-                    pass
-            page.dialog = None
-            page.update()
+            try:
+                close_all_dialogs(page)
+            except Exception:
+                pass
+            force_close_all_dialogs(page)
+
+        def on_cancel(ev):
+            _close_delete_dialog_hard()
+            show_points_quiz_editor(page, state, local_quiz.get("id"))
 
         def on_confirm_delete(ev):
-            dlg_local = dlg_ref["dlg"]
-            if dlg_local is not None:
-                try:
-                    dlg_local.open = False
-                except Exception:
-                    pass
-                try:
-                    if dlg_local in page.overlay:
-                        page.overlay.remove(dlg_local)
-                except Exception:
-                    pass
-            page.dialog = None
-            page.update()
+            _close_delete_dialog_hard()
             do_delete()
 
         dlg = ft.AlertDialog(
