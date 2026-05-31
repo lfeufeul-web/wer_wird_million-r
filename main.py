@@ -7474,15 +7474,24 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
         pick_call = picker.pick_files(
             dialog_title="Dateien für Punkte-Quiz auswählen",
             allow_multiple=True,
+            with_data=True,
             file_type=ft.FilePickerFileType.CUSTOM,
             allowed_extensions=extensions,
         )
     except TypeError:
-        pick_call = picker.pick_files(
-            allow_multiple=True,
-            file_type=ft.FilePickerFileType.CUSTOM,
-            allowed_extensions=extensions,
-        )
+        try:
+            pick_call = picker.pick_files(
+                allow_multiple=True,
+                with_data=True,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=extensions,
+            )
+        except TypeError:
+            pick_call = picker.pick_files(
+                allow_multiple=True,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=extensions,
+            )
     except Exception as ex:
         return [], 0, f"Dateiauswahl konnte nicht geöffnet werden: {ex}"
 
@@ -7491,9 +7500,7 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
     if not picked_files:
         return [], 0, None
 
-    _abs_dir, rel_dir = _points_quiz_media_target_dir(quiz_id)
-    upload_jobs = []
-    picked_with_items = []
+    added_items: list[dict] = []
     invalid_count = 0
 
     for picked in picked_files:
@@ -7509,66 +7516,70 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
         if ext not in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS:
             invalid_count += 1
             continue
-        base = _sanitize_filename_part(os.path.splitext(original_name)[0])
-        unique_name = f"{base}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
-        rel_src = f"{rel_dir}/{unique_name}"
-        item = {"src": rel_src, "kind": kind, "name": original_name}
-        picked_with_items.append((picked, item))
-        try:
-            upload_jobs.append(
-                ft.FilePickerUploadFile(
-                    name=original_name,
-                    upload_url=page.get_upload_url(rel_src, 600),
-                )
-            )
-        except Exception:
-            upload_jobs = []
-            break
 
-    if not picked_with_items:
-        return [], invalid_count, None
-
-    uploaded_items: list[dict] = []
-    upload_failed = False
-
-    if upload_jobs:
-        try:
-            upload_call = picker.upload(upload_jobs)
-        except TypeError:
-            upload_call = picker.upload(files=upload_jobs)
-        except Exception:
-            upload_call = None
-            upload_failed = True
-
-        if upload_call is not None:
-            try:
-                if inspect.isawaitable(upload_call):
-                    await upload_call
-                uploaded_items = [item for _picked, item in picked_with_items]
-            except Exception:
-                upload_failed = True
-        else:
-            upload_failed = True
-    else:
-        upload_failed = True
-
-    if upload_failed:
-        for picked, item in picked_with_items:
+        item = None
+        picked_bytes = getattr(picked, "bytes", None)
+        if picked_bytes:
+            item = _store_points_quiz_media_from_data(picked_bytes, original_name, quiz_id)
+        if item is None:
             picked_path = str(getattr(picked, "path", "") or "")
             if picked_path:
-                fallback_item = _store_points_quiz_media_from_path(
+                item = _store_points_quiz_media_from_path(
                     picked_path,
                     quiz_id=quiz_id,
-                    display_name=item.get("name"),
+                    display_name=original_name,
                 )
-                if fallback_item:
-                    uploaded_items.append(fallback_item)
-                else:
-                    invalid_count += 1
-            else:
-                invalid_count += 1
+        if item is not None:
+            added_items.append(item)
+        else:
+            invalid_count += 1
 
-    return _normalize_points_quiz_media_list(uploaded_items), invalid_count, None
+    if added_items:
+        return _normalize_points_quiz_media_list(added_items), invalid_count, None
+
+    # Last fallback for older picker variants: try upload API when bytes/path were unavailable.
+    try:
+        _abs_dir, rel_dir = _points_quiz_media_target_dir(quiz_id)
+        upload_jobs = []
+        expected_items = []
+        for picked in picked_files:
+            original_name = str(getattr(picked, "name", "") or "").strip()
+            if not original_name:
+                continue
+            ext = os.path.splitext(original_name)[1].lower()
+            if ext not in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS:
+                continue
+            kind = _points_quiz_media_kind(original_name) or "image"
+            base = _sanitize_filename_part(os.path.splitext(original_name)[0])
+            unique_name = f"{base}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
+            rel_src = f"{rel_dir}/{unique_name}"
+            expected_items.append({"src": rel_src, "kind": kind, "name": original_name})
+            try:
+                upload_jobs.append(
+                    ft.FilePickerUploadFile(
+                        id=getattr(picked, "id", None),
+                        name=original_name,
+                        upload_url=page.get_upload_url(rel_src, 600),
+                    )
+                )
+            except TypeError:
+                upload_jobs.append(
+                    ft.FilePickerUploadFile(
+                        name=original_name,
+                        upload_url=page.get_upload_url(rel_src, 600),
+                    )
+                )
+        if not upload_jobs:
+            return [], invalid_count, None
+        try:
+            upload_call = picker.upload(files=upload_jobs)
+        except TypeError:
+            upload_call = picker.upload(upload_jobs)
+        if inspect.isawaitable(upload_call):
+            await upload_call
+        return _normalize_points_quiz_media_list(expected_items), invalid_count, None
+    except Exception:
+        return [], invalid_count, "Dateien konnten nicht übernommen werden. Bitte erneut versuchen."
 
 
 def _blank_points_question(points: int) -> dict:
@@ -9303,8 +9314,8 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         color=theme["question_text"],
         border_color=theme["border"],
     )
-    question_media_column = ft.Column(spacing=8)
-    answer_media_column = ft.Column(spacing=8)
+    question_media_column = ft.Column(spacing=8, width=field_width)
+    answer_media_column = ft.Column(spacing=8, width=field_width)
 
     def _media_plus_button(on_click):
         return ft.Container(
@@ -9353,7 +9364,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
 
     def _build_media_rows(items: list[dict], kind: str) -> list[ft.Control]:
         if not items:
-            return [ft.Text("Noch keine Medien hinzugefügt.", size=12, color=theme_txt(theme, "secondary"))]
+            return []
 
         rows: list[ft.Control] = []
         for idx, item in enumerate(items):
@@ -9489,21 +9500,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
                                             vertical_alignment=ft.CrossAxisAlignment.START,
                                         ),
                                     ),
-                                    ft.Container(
-                                        width=field_width,
-                                        padding=10,
-                                        border_radius=14,
-                                        bgcolor=theme["panel"],
-                                        border=ft.border.Border.all(1, theme["border"]),
-                                        content=ft.Column(
-                                            [
-                                                ft.Text("Medien zur Frage", size=14, weight="bold", color="white", expand=True),
-                                                ft.Text("Bilder/Videos werden unter der Frage angezeigt.", size=11, color=theme_txt(theme, "secondary")),
-                                                question_media_column,
-                                            ],
-                                            spacing=8,
-                                        ),
-                                    ),
+                                    question_media_column,
                                     ft.Container(
                                         width=field_width,
                                         content=ft.Row(
@@ -9515,21 +9512,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
                                             vertical_alignment=ft.CrossAxisAlignment.START,
                                         ),
                                     ),
-                                    ft.Container(
-                                        width=field_width,
-                                        padding=10,
-                                        border_radius=14,
-                                        bgcolor=theme["panel"],
-                                        border=ft.border.Border.all(1, theme["border"]),
-                                        content=ft.Column(
-                                            [
-                                                ft.Text("Medien zur Lösung", size=14, weight="bold", color="white", expand=True),
-                                                ft.Text("Diese Medien werden erst nach dem Aufdecken der Lösung sichtbar.", size=11, color=theme_txt(theme, "secondary")),
-                                                answer_media_column,
-                                            ],
-                                            spacing=8,
-                                        ),
-                                    ),
+                                    answer_media_column,
                                     ft.Row(
                                         [
                                             _game_menu_button("Speichern", save_cell, theme["success"], width=btn_width, height=42),
