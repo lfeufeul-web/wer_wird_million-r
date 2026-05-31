@@ -7462,14 +7462,113 @@ def _build_points_quiz_media_gallery(items: list[dict], max_width: int, card_wid
 
 
 def _cleanup_points_quiz_cell_media_pickers(page: ft.Page, state: dict):
-    for key in ("_points_quiz_question_media_picker", "_points_quiz_answer_media_picker"):
-        picker = state.pop(key, None)
-        if picker is not None:
+    # Legacy cleanup hook; old picker-controls are no longer used.
+    state.pop("_points_quiz_question_media_picker", None)
+    state.pop("_points_quiz_answer_media_picker", None)
+
+
+async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tuple[list[dict], int, str | None]:
+    picker = ft.FilePicker()
+    extensions = [ext.lstrip(".") for ext in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS]
+    try:
+        pick_call = picker.pick_files(
+            dialog_title="Dateien für Punkte-Quiz auswählen",
+            allow_multiple=True,
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=extensions,
+        )
+    except TypeError:
+        pick_call = picker.pick_files(
+            allow_multiple=True,
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=extensions,
+        )
+    except Exception as ex:
+        return [], 0, f"Dateiauswahl konnte nicht geöffnet werden: {ex}"
+
+    picked_files = await pick_call if inspect.isawaitable(pick_call) else pick_call
+    picked_files = list(picked_files or [])
+    if not picked_files:
+        return [], 0, None
+
+    _abs_dir, rel_dir = _points_quiz_media_target_dir(quiz_id)
+    upload_jobs = []
+    picked_with_items = []
+    invalid_count = 0
+
+    for picked in picked_files:
+        original_name = str(getattr(picked, "name", "") or "").strip()
+        if not original_name:
+            invalid_count += 1
+            continue
+        kind = _points_quiz_media_kind(original_name)
+        if not kind:
+            invalid_count += 1
+            continue
+        ext = os.path.splitext(original_name)[1].lower()
+        if ext not in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS:
+            invalid_count += 1
+            continue
+        base = _sanitize_filename_part(os.path.splitext(original_name)[0])
+        unique_name = f"{base}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
+        rel_src = f"{rel_dir}/{unique_name}"
+        item = {"src": rel_src, "kind": kind, "name": original_name}
+        picked_with_items.append((picked, item))
+        try:
+            upload_jobs.append(
+                ft.FilePickerUploadFile(
+                    name=original_name,
+                    upload_url=page.get_upload_url(rel_src, 600),
+                )
+            )
+        except Exception:
+            upload_jobs = []
+            break
+
+    if not picked_with_items:
+        return [], invalid_count, None
+
+    uploaded_items: list[dict] = []
+    upload_failed = False
+
+    if upload_jobs:
+        try:
+            upload_call = picker.upload(upload_jobs)
+        except TypeError:
+            upload_call = picker.upload(files=upload_jobs)
+        except Exception:
+            upload_call = None
+            upload_failed = True
+
+        if upload_call is not None:
             try:
-                while picker in page.overlay:
-                    page.overlay.remove(picker)
+                if inspect.isawaitable(upload_call):
+                    await upload_call
+                uploaded_items = [item for _picked, item in picked_with_items]
             except Exception:
-                pass
+                upload_failed = True
+        else:
+            upload_failed = True
+    else:
+        upload_failed = True
+
+    if upload_failed:
+        for picked, item in picked_with_items:
+            picked_path = str(getattr(picked, "path", "") or "")
+            if picked_path:
+                fallback_item = _store_points_quiz_media_from_path(
+                    picked_path,
+                    quiz_id=quiz_id,
+                    display_name=item.get("name"),
+                )
+                if fallback_item:
+                    uploaded_items.append(fallback_item)
+                else:
+                    invalid_count += 1
+            else:
+                invalid_count += 1
+
+    return _normalize_points_quiz_media_list(uploaded_items), invalid_count, None
 
 
 def _blank_points_question(points: int) -> dict:
@@ -9188,7 +9287,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         multiline=True,
         min_lines=3,
         max_lines=5,
-        width=field_width,
+        expand=True,
         bgcolor=theme["question_bg"],
         color=theme["question_text"],
         border_color=theme["border"],
@@ -9199,13 +9298,27 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         multiline=True,
         min_lines=2,
         max_lines=4,
-        width=field_width,
+        expand=True,
         bgcolor=theme["question_bg"],
         color=theme["question_text"],
         border_color=theme["border"],
     )
     question_media_column = ft.Column(spacing=8)
     answer_media_column = ft.Column(spacing=8)
+
+    def _media_plus_button(on_click):
+        return ft.Container(
+            width=36,
+            height=36,
+            border_radius=18,
+            bgcolor=theme["accent"],
+            border=ft.border.Border.all(1.2, theme["gold"]),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Text("+", size=22, weight="w900", color="white"),
+            on_click=on_click,
+            tooltip="Datei hinzufügen",
+            shadow=ft.BoxShadow(blur_radius=8, color="#44000000"),
+        )
 
     def _media_thumb(item: dict) -> ft.Control:
         src = str(item.get("src", "")).strip()
@@ -9289,68 +9402,36 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
             items.pop(index)
             _refresh_media_lists(update_page=True)
 
-    def _import_picker_files(event, target: str):
-        picked_files = list((event.files or []))
-        if not picked_files:
-            return
-        quiz_id = str(quiz.get("id") or new_points_quiz_id())
+    async def _pick_media_for_target(target: str):
         target_items = question_media if target == "question" else answer_media
-        imported = 0
-        failed = 0
-        for picked in picked_files:
-            item = None
-            picked_name = str(getattr(picked, "name", "") or "datei")
-            picked_path = str(getattr(picked, "path", "") or "")
-            if picked_path:
-                item = _store_points_quiz_media_from_path(picked_path, quiz_id, picked_name)
-            if item is None:
-                picked_bytes = getattr(picked, "bytes", None)
-                if picked_bytes:
-                    item = _store_points_quiz_media_from_data(picked_bytes, picked_name, quiz_id)
-            if item is not None:
-                target_items.append(item)
-                imported += 1
-            else:
-                failed += 1
+        quiz_id = str(quiz.get("id") or new_points_quiz_id())
+        added_items, failed, error_msg = await _points_quiz_pick_and_upload_media(page, quiz_id)
+        if error_msg:
+            page.snack_bar = ft.SnackBar(content=ft.Text(error_msg), bgcolor=theme["danger"])
+            page.snack_bar.open = True
+            page.update()
+            return
+        if not added_items and failed == 0:
+            return
+        target_items.extend(added_items)
+        target_items[:] = _normalize_points_quiz_media_list(target_items)
         _refresh_media_lists(update_page=False)
         page.snack_bar = ft.SnackBar(
             content=ft.Text(
-                f"{imported} Datei(en) hinzugefügt." if failed == 0 else f"{imported} hinzugefügt, {failed} nicht unterstützt.",
+                f"{len(added_items)} Datei(en) hinzugefügt."
+                if failed == 0
+                else f"{len(added_items)} hinzugefügt, {failed} nicht unterstützt.",
             ),
             bgcolor=theme["success"] if failed == 0 else theme["danger"],
         )
         page.snack_bar.open = True
         page.update()
 
-    question_picker = ft.FilePicker()
-    answer_picker = ft.FilePicker()
-    question_picker.on_result = lambda ev: _import_picker_files(ev, "question")
-    answer_picker.on_result = lambda ev: _import_picker_files(ev, "answer")
-    page.overlay.append(question_picker)
-    page.overlay.append(answer_picker)
-    state["_points_quiz_question_media_picker"] = question_picker
-    state["_points_quiz_answer_media_picker"] = answer_picker
+    def add_question_media(e):
+        e.page.run_task(_pick_media_for_target, "question")
 
-    def _open_picker(picker: ft.FilePicker):
-        try:
-            picker.pick_files(
-                dialog_title="Dateien für Punkte-Quiz auswählen",
-                allow_multiple=True,
-                file_type=ft.FilePickerFileType.CUSTOM,
-                allowed_extensions=[ext.lstrip(".") for ext in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS],
-                with_data=True,
-            )
-        except TypeError:
-            picker.pick_files(
-                dialog_title="Dateien für Punkte-Quiz auswählen",
-                allow_multiple=True,
-                file_type=ft.FilePickerFileType.CUSTOM,
-                allowed_extensions=[ext.lstrip(".") for ext in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS],
-            )
-        except Exception:
-            page.snack_bar = ft.SnackBar(content=ft.Text("Dateiauswahl konnte nicht geöffnet werden."))
-            page.snack_bar.open = True
-            page.update()
+    def add_answer_media(e):
+        e.page.run_task(_pick_media_for_target, "answer")
 
     def back_to_editor(e):
         _cleanup_points_quiz_cell_media_pickers(page, state)
@@ -9397,7 +9478,17 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
                             content=ft.Column(
                                 [
                                     ft.Text(f"{category['name']} · {POINTS_QUIZ_POINT_VALUES[q_idx]} Punkte", size=24, weight="w900", color="white"),
-                                    question_field,
+                                    ft.Container(
+                                        width=field_width,
+                                        content=ft.Row(
+                                            [
+                                                question_field,
+                                                _media_plus_button(add_question_media),
+                                            ],
+                                            spacing=8,
+                                            vertical_alignment=ft.CrossAxisAlignment.START,
+                                        ),
+                                    ),
                                     ft.Container(
                                         width=field_width,
                                         padding=10,
@@ -9406,20 +9497,24 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
                                         border=ft.border.Border.all(1, theme["border"]),
                                         content=ft.Column(
                                             [
-                                                ft.Row(
-                                                    [
-                                                        ft.Text("Medien zur Frage", size=14, weight="bold", color="white", expand=True),
-                                                        _game_menu_button("Datei hinzufügen", lambda e: _open_picker(question_picker), theme["accent"], width=160, height=34),
-                                                    ],
-                                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                                ),
+                                                ft.Text("Medien zur Frage", size=14, weight="bold", color="white", expand=True),
                                                 ft.Text("Bilder/Videos werden unter der Frage angezeigt.", size=11, color=theme_txt(theme, "secondary")),
                                                 question_media_column,
                                             ],
                                             spacing=8,
                                         ),
                                     ),
-                                    answer_field,
+                                    ft.Container(
+                                        width=field_width,
+                                        content=ft.Row(
+                                            [
+                                                answer_field,
+                                                _media_plus_button(add_answer_media),
+                                            ],
+                                            spacing=8,
+                                            vertical_alignment=ft.CrossAxisAlignment.START,
+                                        ),
+                                    ),
                                     ft.Container(
                                         width=field_width,
                                         padding=10,
@@ -9428,13 +9523,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
                                         border=ft.border.Border.all(1, theme["border"]),
                                         content=ft.Column(
                                             [
-                                                ft.Row(
-                                                    [
-                                                        ft.Text("Medien zur Lösung", size=14, weight="bold", color="white", expand=True),
-                                                        _game_menu_button("Datei hinzufügen", lambda e: _open_picker(answer_picker), theme["accent"], width=160, height=34),
-                                                    ],
-                                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                                ),
+                                                ft.Text("Medien zur Lösung", size=14, weight="bold", color="white", expand=True),
                                                 ft.Text("Diese Medien werden erst nach dem Aufdecken der Lösung sichtbar.", size=11, color=theme_txt(theme, "secondary")),
                                                 answer_media_column,
                                             ],
@@ -13204,4 +13293,4 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    ft.run(main, assets_dir="assets")
+    ft.run(main, assets_dir="assets", upload_dir="assets")
