@@ -1385,6 +1385,24 @@ def _page_size(page: ft.Page) -> tuple[float, float]:
     return float(w or 1100), float(h or 720)
 
 
+def _set_resize_view(state: dict, renderer, *args, **kwargs):
+    state["_resize_renderer"] = renderer
+    state["_resize_args"] = args
+    state["_resize_kwargs"] = kwargs
+
+
+def _run_resize_view(page: ft.Page, state: dict) -> bool:
+    renderer = state.get("_resize_renderer")
+    if not callable(renderer):
+        return False
+    try:
+        renderer(page, state, *(state.get("_resize_args") or ()), **(state.get("_resize_kwargs") or {}))
+        return True
+    except Exception as ex:
+        print(f"Resize rerender error: {ex}")
+        return False
+
+
 def _is_video_background(src: str | None) -> bool:
     return bool(src) and str(src).lower().endswith(".mp4")
 
@@ -1569,12 +1587,6 @@ def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay
 
 def _set_themed_game_resize(page: ft.Page, state: dict):
     state["_themed_game_active"] = True
-
-    def on_resize(_e):
-        if state.get("_themed_game_active") and uses_themed_game(get_theme(state)):
-            render_game_screen(page, state)
-
-    page.on_resize = on_resize
 
 
 def _clear_themed_game_resize(state: dict):
@@ -5781,6 +5793,7 @@ def _game_menu_button(
 
 def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
     """Spiel starten: fortsetzen, Standard-Quiz oder eigene Quizzes."""
+    _set_resize_view(state, show_game_start_menu, saved)
     theme = get_theme(state)
     ui = theme_ui_palette(theme)
     logged_in = bool(state.get("current_user_email"))
@@ -6655,6 +6668,7 @@ def show_portal_settings(page: ft.Page, state: dict):
 
 def open_wwm_main_menu(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
+    _set_resize_view(state, open_wwm_main_menu)
     page.controls.clear()
     page.add(build_welcome_view(page, state))
     page.update()
@@ -6663,7 +6677,8 @@ def open_wwm_main_menu(page: ft.Page, state: dict):
 def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
     theme = get_theme(state)
     page_w, _ = _page_size(page)
-    mobile = page_w < 940
+    mobile = page_w < 760
+    compact = page_w < 1080
     logged_in = bool(state.get("current_user_email"))
     email = state.get("current_user_email")
     avatar_preview = ft.Text("👤", size=18)
@@ -6673,12 +6688,17 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
             user_info = db.get("users", {}).get(email)
             if user_info:
                 ensure_avatar_defaults(user_info)
-                avatar_preview = build_avatar_figure(user_info, theme, size=36)
+                avatar_preview = build_avatar_figure(user_info, theme, size=30 if compact else 36)
         except Exception:
             avatar_preview = ft.Text("👤", size=18)
+    hero_width = min(860, max(300, int(page_w - 24)))
+    card_width = min(360, max(260, int(page_w - 28))) if mobile else min(340, max(280, int((page_w - 78) / 2))) if compact else 360
+    card_height = 220 if compact else 250
+    action_btn_w = 170 if page_w < 900 else 200
+    profile_max_w = min(280, max(180, int(page_w - 40)))
     hero = ft.Container(
-        width=min(860, int(page_w - 24)),
-        padding=ft.Padding(28, 26, 28, 26),
+        width=hero_width,
+        padding=ft.Padding(24, 22, 24, 22) if compact else ft.Padding(28, 26, 28, 26),
         bgcolor="#08120DE0",
         border_radius=28,
         border=ft.border.Border.all(1.5, theme.get("border", "#17432C")),
@@ -6686,11 +6706,12 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         content=ft.Column(
             [
                 ft.Text("QUIZ ARENA", size=18, weight="bold", color=theme.get("accent", "#10B981")),
-                ft.Text("Wähle deinen Spielmodus", size=34, weight="w900", color="white"),
+                ft.Text("Wähle deinen Spielmodus", size=28 if compact else 34, weight="w900", color="white", text_align=ft.TextAlign.CENTER),
                 ft.Text(
                     "Klassisches Wer wird Millionär oder ein Team-basiertes Punkte-Quiz mit Kategorien, Tafel und Live-Wertung.",
-                    size=14,
+                    size=13 if compact else 14,
                     color=theme_txt(theme, "secondary"),
+                    text_align=ft.TextAlign.CENTER,
                 ),
             ],
             spacing=6,
@@ -6701,19 +6722,19 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
 
     def portal_card(title: str, subtitle: str, accent: str, icon: str, on_click):
         return ft.Container(
-            width=360 if not mobile else min(420, int(page_w - 28)),
-            height=250,
+            width=card_width,
+            height=card_height,
             border_radius=26,
             on_click=on_click,
             bgcolor="#07110DDF",
             border=ft.border.Border.all(1.6, accent),
             shadow=ft.BoxShadow(blur_radius=24, color=f"#44{accent[1:]}", spread_radius=1),
-            padding=ft.Padding(24, 22, 24, 22),
+            padding=ft.Padding(20, 18, 20, 18) if compact else ft.Padding(24, 22, 24, 22),
             content=ft.Column(
                 [
-                    ft.Text(icon, size=42),
-                    ft.Text(title, size=28, weight="w900", color="white"),
-                    ft.Text(subtitle, size=14, color=theme_txt(theme, "secondary")),
+                    ft.Text(icon, size=36 if compact else 42),
+                    ft.Text(title, size=24 if compact else 28, weight="w900", color="white"),
+                    ft.Text(subtitle, size=13 if compact else 14, color=theme_txt(theme, "secondary")),
                     ft.Container(expand=True),
                     ft.Row(
                         [
@@ -6739,15 +6760,17 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
             portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: e.page.go("/wwm")),
             portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: e.page.go("/points")),
         ],
-        spacing=18,
+        spacing=18 if not compact else 14,
+        run_spacing=18,
+        wrap=True,
         alignment=ft.MainAxisAlignment.CENTER,
     )
 
     general_actions = ft.Row(
         [
-            _game_menu_button("Einstellungen", lambda e: show_portal_settings(e.page, state), theme["accent"], width=200, height=40),
-            _game_menu_button("Shop", lambda e: e.page.go("/shop") if logged_in else show_login_view(e.page, state), theme["gold"], width=140, height=40),
-            _game_menu_button("Anmelden" if not logged_in else "Profil", lambda e: show_login_view(e.page, state), theme["success"], width=160, height=40),
+            _game_menu_button("Einstellungen", lambda e: show_portal_settings(e.page, state), theme["accent"], width=action_btn_w, height=40),
+            _game_menu_button("Shop", lambda e: e.page.go("/shop") if logged_in else show_login_view(e.page, state), theme["gold"], width=140 if page_w >= 900 else 150, height=40),
+            _game_menu_button("Anmelden" if not logged_in else "Profil", lambda e: show_login_view(e.page, state), theme["success"], width=150 if page_w >= 900 else 160, height=40),
         ],
         alignment=ft.MainAxisAlignment.CENTER,
         spacing=10,
@@ -6760,13 +6783,20 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         border=ft.border.Border.all(1, theme["border"]),
         padding=ft.Padding(10, 8, 10, 8),
         on_click=lambda e: show_login_view(e.page, state),
+        width=profile_max_w,
         content=ft.Row(
             [
                 avatar_preview,
-                ft.Text((email or "Anmelden"), size=12, color="white", weight="bold"),
+                ft.Text((email or "Anmelden"), size=12, color="white", weight="bold", expand=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
             ],
             spacing=6,
         ),
+    )
+
+    header_row = ft.Row(
+        [profile_chip],
+        alignment=ft.MainAxisAlignment.CENTER if mobile else ft.MainAxisAlignment.END,
+        wrap=True,
     )
 
     return ft.Container(
@@ -6777,16 +6807,15 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
                 ft.Container(
                     expand=True,
                     alignment=ft.Alignment(0, 0),
-                    padding=20,
+                    padding=16 if compact else 20,
                     content=ft.Column(
-                        ([profile_chip] if mobile else []) + [hero, general_actions, cards],
-                        spacing=24,
-                        alignment=ft.MainAxisAlignment.CENTER,
+                        [header_row, hero, general_actions, cards],
+                        spacing=18 if compact else 24,
+                        alignment=ft.MainAxisAlignment.START,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         scroll=ft.ScrollMode.AUTO,
                     ),
                 ),
-                ft.Container(top=20, right=20, content=profile_chip, visible=not mobile),
             ],
             expand=True,
         ),
@@ -6794,6 +6823,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
 
 
 def show_points_quiz_hub(page: ft.Page, state: dict):
+    _set_resize_view(state, show_points_quiz_hub)
     theme = get_theme(state)
     ui = theme_ui_palette(theme)
     logged_in = bool(state.get("current_user_email"))
@@ -6915,6 +6945,7 @@ def show_points_quiz_hub(page: ft.Page, state: dict):
 
 
 def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict):
+    _set_resize_view(state, show_points_quiz_team_setup, quiz)
     quiz = normalize_points_quiz(quiz)
     if not points_quiz_is_playable(quiz):
         page.snack_bar = ft.SnackBar(content=ft.Text("Dieses Punkte-Quiz ist noch nicht vollständig ausgefüllt."))
@@ -7047,6 +7078,7 @@ def _points_cell_key(cat_idx: int, q_idx: int) -> str:
 
 
 def show_points_quiz_board(page: ft.Page, state: dict):
+    _set_resize_view(state, show_points_quiz_board)
     session = state.get("points_quiz_session")
     if not session:
         show_points_quiz_hub(page, state)
@@ -7248,6 +7280,7 @@ def open_points_question(page: ft.Page, state: dict, cat_idx: int, q_idx: int):
 
 
 def show_points_quiz_question(page: ft.Page, state: dict):
+    _set_resize_view(state, show_points_quiz_question)
     session = state.get("points_quiz_session")
     active = state.get("active_points_question")
     if not session or not active:
@@ -7372,6 +7405,7 @@ def show_points_quiz_question(page: ft.Page, state: dict):
 
 
 def show_points_quiz_answer_screen(page: ft.Page, state: dict):
+    _set_resize_view(state, show_points_quiz_answer_screen)
     session = state.get("points_quiz_session")
     active = state.get("active_points_question")
     if not session or not active:
@@ -7437,6 +7471,7 @@ def show_points_quiz_answer_screen(page: ft.Page, state: dict):
 
 
 def show_points_quiz_summary(page: ft.Page, state: dict, finished_early: bool):
+    _set_resize_view(state, show_points_quiz_summary, finished_early)
     session = state.get("points_quiz_session")
     if not session:
         show_points_quiz_hub(page, state)
@@ -7556,6 +7591,7 @@ def confirm_delete_points_quiz(page: ft.Page, state: dict, quiz_id: str):
 
 
 def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
+    _set_resize_view(state, show_points_quiz_editor, quiz_id)
     if not state.get("current_user_email"):
         show_login_view(page, state)
         return
@@ -7902,6 +7938,7 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
 
 
 def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx: int):
+    _set_resize_view(state, show_points_quiz_cell_editor, cat_idx, q_idx)
     theme = get_theme(state)
     page_w, _ = _page_size(page)
     panel_width = min(760, max(320, int(page_w - 36)))
@@ -8111,6 +8148,7 @@ def _age_button(label: str, data: str, color: str, on_click, theme: dict | None 
 # ---------- Open main menu ----------
 def open_main_menu(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
+    _set_resize_view(state, open_main_menu)
     page.controls.clear()
     page.add(build_game_portal_view(page, state))
     page.update()
@@ -11696,6 +11734,16 @@ def main(page: ft.Page):
             open_main_menu(page, app_state)
 
     page.on_route_change = on_route_change
+
+    def on_resize(e):
+        if app_state.get("_themed_game_active") and uses_themed_game(get_theme(app_state)):
+            render_game_screen(page, app_state)
+            return
+        if _run_resize_view(page, app_state):
+            return
+        on_route_change(None)
+
+    page.on_resize = on_resize
 
     # Show main menu immediately so the page is not blank while init runs.
     # We mark app_state so that restore_remembered_login can signal whether
