@@ -1403,6 +1403,14 @@ def _run_resize_view(page: ft.Page, state: dict) -> bool:
         return False
 
 
+def _sync_page_route(page: ft.Page, route: str):
+    try:
+        if getattr(page, "route", None) != route:
+            page.route = route
+    except Exception:
+        pass
+
+
 def _is_video_background(src: str | None) -> bool:
     return bool(src) and str(src).lower().endswith(".mp4")
 
@@ -6676,6 +6684,7 @@ def show_portal_settings(page: ft.Page, state: dict):
 def open_wwm_main_menu(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
     _set_resize_view(state, open_wwm_main_menu)
+    _sync_page_route(page, "/wwm")
     page.controls.clear()
     page.add(build_welcome_view(page, state))
     page.update()
@@ -6826,6 +6835,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
 
 def show_points_quiz_hub(page: ft.Page, state: dict):
     _set_resize_view(state, show_points_quiz_hub)
+    _sync_page_route(page, "/points")
     theme = get_theme(state)
     ui = theme_ui_palette(theme)
     logged_in = bool(state.get("current_user_email"))
@@ -8160,6 +8170,7 @@ def _age_button(label: str, data: str, color: str, on_click, theme: dict | None 
 def open_main_menu(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
     _set_resize_view(state, open_main_menu)
+    _sync_page_route(page, "/")
     page.controls.clear()
     page.add(build_game_portal_view(page, state))
     page.update()
