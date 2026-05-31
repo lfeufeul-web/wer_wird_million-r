@@ -5327,7 +5327,14 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     menu_card_icon = theme.get("accent", "#10B981")
     page_w, _page_h = _page_size(page)
     is_mobile = page_w < 900
-    tile_w = max(160, int((page_w - 52) / 2)) if is_mobile else 265
+    compact = page_w < 1180
+    title_size = 32 if page_w < 760 else (36 if compact else 38)
+    subtitle_size = 12 if compact else 13
+    hero_width = min(600, max(300, int(page_w - 24)))
+    avatar_size = 68 if compact else 86
+    tile_w = max(148, int((page_w - 52) / 2)) if is_mobile else (225 if compact else 265)
+    small_card_h = 88 if compact else 95
+    tall_card_h = 188 if compact else 205
 
     def on_logout(e):
         state["current_user_email"] = None
@@ -5361,10 +5368,10 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             content=ft.Text(
                 "🔒" if locked else icon_name,
                 color=accent_color,
-                size=24 if is_tall else 20
+                size=(22 if compact else 24) if is_tall else (18 if compact else 20)
             ),
-            width=48 if is_tall else 42,
-            height=48 if is_tall else 42,
+            width=(44 if compact else 48) if is_tall else (38 if compact else 42),
+            height=(44 if compact else 48) if is_tall else (38 if compact else 42),
             shape=ft.BoxShape.CIRCLE,
             bgcolor=None,
             border=ft.border.Border.all(1, accent_color),
@@ -5377,11 +5384,11 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                 ft.Container(expand=True),
                 ft.Row([
                     ft.Column([
-                        ft.Text(title, size=22, weight="bold", color="white"),
-                        ft.Text(desc, size=13, color="#8B9A90")
+                        ft.Text(title, size=20 if compact else 22, weight="bold", color="white"),
+                        ft.Text(desc, size=12 if compact else 13, color="#8B9A90")
                     ], spacing=2, tight=True),
                     ft.Container(expand=True),
-                    ft.Text("▶", color="white", size=22)
+                    ft.Text("▶", color="white", size=20 if compact else 22)
                 ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, expand=True)
             
@@ -5392,10 +5399,10 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                 icon_ctrl,
                 ft.Container(width=10),
                 ft.Column([
-                    ft.Text(title, size=16, weight="bold", color="white"),
-                    ft.Text(desc, size=11, color="#8F949D" if not locked else "#E06B6B")
+                    ft.Text(title, size=15 if compact else 16, weight="bold", color="white"),
+                    ft.Text(desc, size=10 if compact else 11, color="#8F949D" if not locked else "#E06B6B")
                 ], spacing=2, tight=True, expand=True),
-                ft.Text("▶" if not locked else "🔒", color="#4A505A" if locked else "white", size=18)
+                ft.Text("▶" if not locked else "🔒", color="#4A505A" if locked else "white", size=16 if compact else 18)
             ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
             
         # The main card Container
@@ -5405,7 +5412,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             width=width,
             height=height,
             border_radius=18 if is_tall else 16,
-            padding=ft.Padding(24, 20, 24, 20) if is_tall else ft.Padding(18, 14, 18, 14),
+            padding=ft.Padding(20, 16, 20, 16) if (is_tall and compact) else (ft.Padding(24, 20, 24, 20) if is_tall else ft.Padding(16, 12, 16, 12) if compact else ft.Padding(18, 14, 18, 14)),
             border=ft.border.Border.all(1.2, border_color),
             shadow=ft.BoxShadow(
                 blur_radius=15,
@@ -5477,7 +5484,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             avatar_box = ft.Container(
                 content=ft.Column(
                     [
-                        build_avatar_figure(user_info, theme, size=86),
+                        build_avatar_figure(user_info, theme, size=avatar_size),
                         ft.Text(avatar_scene(_theme_key_from_theme(theme) or "classic"), size=10, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
                         ft.Text(f"Hallo, {username}", size=12, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
                     ],
@@ -5518,14 +5525,14 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             ),
             ft.Container(height=8),
             # Title
-            ft.Text("WER WIRD", size=24, weight="bold", color="white"),
-            ft.Text("MILLIONÄR?", size=38, weight="w900", color=theme.get("accent", "#10B981")),
+            ft.Text("WER WIRD", size=20 if compact else 24, weight="bold", color="white"),
+            ft.Text("MILLIONÄR?", size=title_size, weight="w900", color=theme.get("accent", "#10B981"), text_align=ft.TextAlign.CENTER),
             ft.Container(height=4),
             # Subtitle
-            ft.Text("Teste dein Wissen. Werde Millionär.", size=13, color=theme_txt(theme, "secondary"))
+            ft.Text("Teste dein Wissen. Werde Millionär.", size=subtitle_size, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER)
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
-        width=min(600, int(page_w - 24)),
-        padding=ft.Padding(32, 28, 32, 28),
+        width=hero_width,
+        padding=ft.Padding(26, 22, 26, 22) if compact else ft.Padding(32, 28, 32, 28),
         border_radius=24,
         bgcolor="#070A08",
         border=ft.border.Border.all(1.5, theme.get("border", "#0E2919")),
@@ -5564,8 +5571,8 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         bg_hex=menu_card_bg,
         glow_hex=menu_card_glow,
         on_click=(lambda e: show_game_start_menu(e.page, state, saved_game)) if saved_game else (lambda e: start_new_game(e.page, state)),
-        width=tile_w if is_mobile else 265,
-        height=205,
+        width=tile_w if is_mobile else (225 if compact else 265),
+        height=tall_card_h,
         is_tall=True
     )
 
@@ -5578,7 +5585,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         glow_hex=menu_card_glow,
         on_click=lambda e: show_settings_view(e.page, state),
         width=tile_w,
-        height=95
+        height=small_card_h
     )
     
     if logged_in:
@@ -5591,7 +5598,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             glow_hex=menu_card_glow,
             on_click=lambda e: e.page.go("/shop"),
             width=tile_w,
-            height=95
+            height=small_card_h
         )
     else:
         card_shop = create_hover_card(
@@ -5603,7 +5610,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             glow_hex=menu_card_glow,
             on_click=lambda e: show_login_view(e.page, state),
             width=tile_w,
-            height=95
+            height=small_card_h
         )
         
     card_daily = create_hover_card(
@@ -5616,7 +5623,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         on_click=lambda e: e.page.go("/daily") if logged_in else show_login_view(e.page, state),
         locked=not logged_in,
         width=tile_w,
-        height=95
+        height=small_card_h
     )
     
     card_achievements = create_hover_card(
@@ -5629,7 +5636,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         on_click=lambda e: e.page.go("/achievements") if logged_in else show_login_view(e.page, state),
         locked=not logged_in,
         width=tile_w,
-        height=95
+        height=small_card_h
     )
 
     if is_mobile:
@@ -6793,12 +6800,6 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         ),
     )
 
-    header_row = ft.Row(
-        [profile_chip],
-        alignment=ft.MainAxisAlignment.CENTER if mobile else ft.MainAxisAlignment.END,
-        wrap=True,
-    )
-
     return ft.Container(
         expand=True,
         content=ft.Stack(
@@ -6809,13 +6810,14 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
                     alignment=ft.Alignment(0, 0),
                     padding=16 if compact else 20,
                     content=ft.Column(
-                        [header_row, hero, general_actions, cards],
+                        ([ft.Row([profile_chip], alignment=ft.MainAxisAlignment.CENTER, wrap=True)] if mobile else []) + [hero, general_actions, cards],
                         spacing=18 if compact else 24,
                         alignment=ft.MainAxisAlignment.START,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         scroll=ft.ScrollMode.AUTO,
                     ),
                 ),
+                ft.Container(top=18, right=18, content=profile_chip, visible=not mobile),
             ],
             expand=True,
         ),
@@ -7126,6 +7128,8 @@ def show_points_quiz_board(page: ft.Page, state: dict):
     cell_h = 58 if is_landscape_mobile else (62 if is_mobile else 66)
     spacing = 8 if is_mobile else 10
     board_width = label_w + (cat_count * cell_w) + (cat_count * spacing)
+    frame_width = min(max(board_width + 36, 470), max(320, int(page_w - 24)))
+    score_width = min(420, max(250, frame_width - 28))
 
     header_row = ft.Row(
         [ft.Container(width=label_w)] + [
@@ -7186,7 +7190,10 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                     ft.Container(
                         expand=True,
                         padding=ft.Padding(14, 14, 14, 14),
-                        content=ft.Column(
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Container(
+                            width=frame_width,
+                            content=ft.Column(
                             [
                                 ft.Column(
                                     [
@@ -7212,7 +7219,7 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                                     spacing=10,
                                 ),
                                 ft.Container(
-                                    expand=True,
+                                    width=frame_width,
                                     padding=16,
                                     bgcolor="#08120DE0",
                                     border_radius=20,
@@ -7230,7 +7237,7 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                                             ),
                                             ft.Container(height=12),
                                             ft.Container(
-                                                width=min(420, int(_page_size(page)[0] - 56)),
+                                                width=score_width,
                                                 padding=14,
                                                 bgcolor="#08120DE0",
                                                 border_radius=16,
@@ -7245,11 +7252,14 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                                             ),
                                         ],
                                         spacing=8,
+                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                     ),
                                 ),
                             ],
                             spacing=16,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             scroll=ft.ScrollMode.AUTO,
+                        ),
                         ),
                     ),
                 ],
@@ -8050,6 +8060,7 @@ def start_new_game(page: ft.Page, state: dict, force_new: bool = False):
 
 def show_age_selection(page: ft.Page, state: dict):
     """Reset state and ask for age group (standard quiz)."""
+    _set_resize_view(state, show_age_selection)
     reset_game_timer(state)
     theme = get_theme(state)
     ui = theme_ui_palette(theme)
@@ -8322,6 +8333,7 @@ def _start_question_timer(page: ft.Page, state: dict):
 
 def render_game_screen(page: ft.Page, state: dict):
     """Unified game UI: timer, question, answers, status, jokers; classic + neon_nexus."""
+    _set_resize_view(state, render_game_screen)
     if state["question_index"] >= len(state["questions"]):
         _show_win_screen(page, state)
         return
@@ -8339,6 +8351,11 @@ def render_game_screen(page: ft.Page, state: dict):
     total_q = len(state["questions"])
     page_w, page_h = _page_size(page)
     is_mobile = page_w < 720
+    ui_scale = min(1.0, max(0.72, page_w / 1280))
+
+    def sc(value: int, minimum: int = 1) -> int:
+        return max(minimum, int(value * ui_scale))
+
     is_nexus = theme.get("label") == "Neon Nexus"
     if is_mobile and is_nexus:
         is_nexus = False
@@ -8433,19 +8450,19 @@ def render_game_screen(page: ft.Page, state: dict):
         _is_nexus = theme.get("label") == "Neon Nexus"
 
         letter_ctrl = ft.Container(width=42) if _is_nexus else ft.Container(
-            content=ft.Text(letter, size=13, weight="bold", color="white"),
-            width=30, height=30,
-            border_radius=15,
+            content=ft.Text(letter, size=sc(13, 10), weight="bold", color="white"),
+            width=sc(30, 22), height=sc(30, 22),
+            border_radius=sc(15, 11),
             bgcolor=color,
             alignment=ft.Alignment(0, 0),
         )
 
         inner = ft.Row([
             letter_ctrl,
-            ft.Text(text, size=14 if is_mobile else 15,
+            ft.Text(text, size=sc(14 if is_mobile else 15, 11),
                     color=answer_text_color, weight="bold", expand=True,
                     max_lines=2, no_wrap=False),
-        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        ], spacing=sc(8, 6), vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         box = ft.Container(
             content=inner,
@@ -8453,11 +8470,11 @@ def render_game_screen(page: ft.Page, state: dict):
             on_click=handle_answer,
             bgcolor=answer_bg,
             border_radius=10,
-            padding=ft.Padding(10, 10, 10, 10),
+            padding=ft.Padding(sc(10, 8), sc(10, 8), sc(10, 8), sc(10, 8)),
             border=answer_border_default,
             expand=True,
             visible=idx not in hidden,
-            height=None if _is_nexus else (56 if not is_mobile else 50),
+            height=None if _is_nexus else sc(56 if not is_mobile else 50, 42),
         )
         def on_hover(e):
             if answers_disabled[0]:
@@ -8488,7 +8505,7 @@ def render_game_screen(page: ft.Page, state: dict):
 
     timer_text = ft.Text(
         "∞" if not time_pressure_enabled else str(sec),
-        size=16, weight="bold",
+        size=sc(16, 12), weight="bold",
         color="#FFFFFF" if is_nexus else (
             theme_txt(theme, "primary") if not time_pressure_enabled
             else ("#C62828" if sec <= 10 else theme_txt(theme, "primary"))
@@ -8633,13 +8650,13 @@ def render_game_screen(page: ft.Page, state: dict):
     pause_btn_border = ft.border.Border.all(2, theme.get("accent", theme["danger"])) if has_video_bg else None
     exit_btn = ft.Container(
         content=ft.Row([
-            ft.Text("🚪", size=12, color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
-            ft.Text("Pause", size=12, weight="bold", color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
-        ], spacing=5, tight=True),
+            ft.Text("🚪", size=sc(12, 10), color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
+            ft.Text("Pause", size=sc(12, 10), weight="bold", color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
+        ], spacing=sc(5, 4), tight=True),
         on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
         bgcolor=pause_btn_bg,
         border_radius=6,
-        padding=ft.Padding(12, 7, 12, 7),
+        padding=ft.Padding(sc(12, 9), sc(7, 6), sc(12, 9), sc(7, 6)),
         border=pause_btn_border,
     )
 
@@ -8649,31 +8666,31 @@ def render_game_screen(page: ft.Page, state: dict):
         ft.Container(
             content=ft.Row([
                 ft.Container(content=timer_bar, expand=True),
-                ft.Container(content=timer_text, width=36, alignment=ft.Alignment(1, 0)),
-            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Container(content=timer_text, width=sc(36, 28), alignment=ft.Alignment(1, 0)),
+            ], spacing=sc(8, 6), vertical_alignment=ft.CrossAxisAlignment.CENTER),
             expand=True,
             bgcolor=question_bg_color,
             border_radius=6,
-            padding=ft.Padding(10, 7, 10, 7),
+            padding=ft.Padding(sc(10, 8), sc(7, 6), sc(10, 8), sc(7, 6)),
             border=classic_panel_border,
         ),
-    ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    ], spacing=sc(10, 8), vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     # Question panel
     question_panel = ft.Container(
         content=ft.Column([
             ft.Container(
-                content=ft.Text(f"FRAGE {q_num}", size=11, weight="bold", color="#001a0a"),
+                content=ft.Text(f"FRAGE {q_num}", size=sc(11, 9), weight="bold", color="#001a0a"),
                 bgcolor=theme["gold"], border_radius=4,
-                padding=ft.Padding(8, 3, 8, 3), alignment=ft.Alignment(0, 0),
+                padding=ft.Padding(sc(8, 6), sc(3, 2), sc(8, 6), sc(3, 2)), alignment=ft.Alignment(0, 0),
             ),
-            ft.Text(question, size=16 if is_mobile else 18, weight="bold",
+            ft.Text(question, size=sc(16 if is_mobile else 18, 13), weight="bold",
                     color=question_text_color, text_align=ft.TextAlign.CENTER,
                     max_lines=4, no_wrap=False),
         ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         bgcolor=question_bg_color,
         border_radius=10,
-        padding=ft.Padding(16, 12, 16, 12),
+        padding=ft.Padding(sc(16, 12), sc(12, 10), sc(16, 12), sc(12, 10)),
         border=classic_panel_border,
     )
 
