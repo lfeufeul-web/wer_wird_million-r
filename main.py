@@ -7548,6 +7548,14 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
     if not state.get("current_user_email"):
         show_login_view(page, state)
         return
+    stale_delete_overlay = state.pop("_points_quiz_category_delete_overlay", None)
+    if stale_delete_overlay is not None:
+        try:
+            while stale_delete_overlay in page.overlay:
+                page.overlay.remove(stale_delete_overlay)
+        except Exception:
+            pass
+    force_close_all_dialogs(page)
     theme = get_theme(state)
     editing_quiz = state.get("editing_points_quiz")
     if quiz_id and isinstance(editing_quiz, dict) and editing_quiz.get("id") == quiz_id:
@@ -7657,45 +7665,65 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
             do_delete()
             return
 
-        dlg_ref: dict[str, ft.AlertDialog | None] = {"dlg": None}
+        overlay_ref: list[ft.Container | None] = [None]
 
-        def _close_delete_dialog_hard():
-            dlg_local = dlg_ref["dlg"]
-            if dlg_local is not None:
+        def _close_delete_popup():
+            overlay = overlay_ref[0] or state.get("_points_quiz_category_delete_overlay")
+            overlay_ref[0] = None
+            if state.get("_points_quiz_category_delete_overlay") is overlay:
+                state.pop("_points_quiz_category_delete_overlay", None)
+            if overlay is not None:
                 try:
-                    close_page_dialog(page, dlg_local)
+                    while overlay in page.overlay:
+                        page.overlay.remove(overlay)
                 except Exception:
                     pass
-            try:
-                close_all_dialogs(page)
-            except Exception:
-                pass
-            force_close_all_dialogs(page)
+            page.update()
 
         def on_cancel(ev):
-            _close_delete_dialog_hard()
-            show_points_quiz_editor(page, state, local_quiz.get("id"))
+            _close_delete_popup()
 
         def on_confirm_delete(ev):
-            _close_delete_dialog_hard()
+            _close_delete_popup()
             do_delete()
 
-        dlg = ft.AlertDialog(
-            modal=True,
-            bgcolor=theme.get("panel", "#1f2937"),
-            title=ft.Text("Kategorie löschen?", color=theme_txt(theme, "primary"), weight="bold"),
-            content=ft.Text(
-                "Diese Kategorie enthält Inhalte. Wirklich mit allen Fragen löschen?",
-                color=theme_txt(theme, "secondary"),
+        overlay = ft.Container(
+            expand=True,
+            bgcolor="#000000B8",
+            alignment=ft.Alignment(0, 0),
+            content=ft.Container(
+                width=min(520, int(_page_size(page)[0] - 36)),
+                padding=24,
+                border_radius=22,
+                bgcolor="#5E0000",
+                border=ft.border.Border.all(1.5, theme["danger"]),
+                shadow=ft.BoxShadow(blur_radius=24, color="#66000000", spread_radius=1),
+                content=ft.Column(
+                    [
+                        ft.Text("Kategorie löschen?", size=22, weight="w900", color="white"),
+                        ft.Text(
+                            "Diese Kategorie enthält Inhalte. Wirklich mit allen Fragen löschen?",
+                            size=15,
+                            color="#FDE8E8",
+                            text_align=ft.TextAlign.LEFT,
+                        ),
+                        ft.Row(
+                            [
+                                _game_menu_button("Abbrechen", on_cancel, "#7F1D1D", width=170, height=42),
+                                _game_menu_button("Löschen", on_confirm_delete, theme["danger"], width=170, height=42),
+                            ],
+                            alignment=ft.MainAxisAlignment.END,
+                            spacing=12,
+                        ),
+                    ],
+                    spacing=18,
+                ),
             ),
-            actions=[
-                ft.TextButton("Abbrechen", on_click=on_cancel, style=ft.ButtonStyle(color=theme_txt(theme, "secondary"))),
-                ft.ElevatedButton("Löschen", on_click=on_confirm_delete, style=ft.ButtonStyle(bgcolor=theme["danger"], color="white")),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
         )
-        dlg_ref["dlg"] = dlg
-        open_page_dialog(page, dlg)
+        overlay_ref[0] = overlay
+        state["_points_quiz_category_delete_overlay"] = overlay
+        page.overlay.append(overlay)
+        page.update()
 
     def back_to_hub(e):
         save_quiz(mark_finished=False)
