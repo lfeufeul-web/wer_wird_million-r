@@ -1870,146 +1870,993 @@ POINTS_QUIZ_MIN_CATEGORIES = 2
 POINTS_QUIZ_MAX_CATEGORIES = 12
 POINTS_QUIZ_MIN_TEAMS = 2
 POINTS_QUIZ_MAX_TEAMS = 6
+POINTS_QUIZ_AGE_OPTIONS = [
+    ("young", "6 - 10 Jahre"),
+    ("mid", "11 - 16 Jahre"),
+    ("old", "Ab 16 Jahre"),
+]
+
 POINTS_QUIZ_RANDOM_BANK = {
-    "Englisch": [
-        {"question": "Wie lautet die englische Übersetzung von 'Apfel'?", "answer": "Apple."},
-        {"question": "Welches englische Wort bedeutet 'Freund'?", "answer": "Friend."},
-        {"question": "Wie heißt 'Buch' auf Englisch?", "answer": "Book."},
-        {"question": "Was ist die Vergangenheitsform von 'go'?", "answer": "Went."},
-        {"question": "Wie lautet die Steigerung von 'good'?", "answer": "Better."},
-        {"question": "Welcher Artikel passt zu 'hour': 'a' oder 'an'?", "answer": "An hour."},
-        {"question": "Wie heißt 'Schule' auf Englisch?", "answer": "School."},
-        {"question": "Wie lautet das englische Wort für 'Frage'?", "answer": "Question."},
-        {"question": "Was bedeutet 'because' auf Deutsch?", "answer": "Weil."},
-        {"question": "Wie heißt die Mehrzahl von 'child'?", "answer": "Children."},
-    ],
-    "Sport": [
-        {"question": "Wie viele Spieler stehen bei einer Fußballmannschaft gleichzeitig auf dem Feld?", "answer": "11 Spieler."},
-        {"question": "Was passiert bei einer roten Karte im Fußball?", "answer": "Der Spieler muss das Spielfeld verlassen und darf nicht zurückkehren."},
-        {"question": "Wie viele Punkte ist ein Freiwurf im Basketball wert?", "answer": "Einen Punkt."},
-        {"question": "Wie lang ist ein Marathon ungefähr?", "answer": "42,195 Kilometer."},
-        {"question": "In welcher Sportart gibt es einen 'Ass' als direkten Punktgewinn beim Aufschlag?", "answer": "Zum Beispiel im Tennis oder Volleyball."},
-        {"question": "Wie nennt man im Handball den Bereich direkt vor dem Tor, den nur der Torwart betreten darf?", "answer": "Den Torraum beziehungsweise den 6-Meter-Raum."},
-        {"question": "Wie viele Ringe hat das olympische Symbol?", "answer": "Fünf."},
-        {"question": "Wie nennt man beim Fußball den Strafstoß vom Punkt?", "answer": "Elfmeter."},
-        {"question": "Welche Farbe hat die Mittellinie beim Schwimmen im Wettkampfbecken nicht?", "answer": "Sie hat keine feste Farbe; Markierungen sind je nach Bahn unterschiedlich."},
-        {"question": "Welche Sportart ist mit Wimbledon eng verbunden?", "answer": "Tennis."},
-    ],
-    "Biologie": [
-        {"question": "Welches Organ pumpt das Blut durch den Körper?", "answer": "Das Herz."},
-        {"question": "Welches Gas atmen Menschen hauptsächlich ein?", "answer": "Sauerstoff."},
-        {"question": "Wie nennt man den grünen Farbstoff der Pflanzen?", "answer": "Chlorophyll."},
-        {"question": "Welcher Teil der Zelle enthält meistens die Erbinformation?", "answer": "Der Zellkern."},
-        {"question": "Wie heißt der Vorgang, bei dem Pflanzen mit Licht Energie gewinnen?", "answer": "Fotosynthese."},
-        {"question": "Welche Blutkörperchen helfen besonders bei der Abwehr von Krankheitserregern?", "answer": "Die weißen Blutkörperchen."},
-        {"question": "Wie nennt man den Prozess, bei dem sich Zellen teilen?", "answer": "Mitose (allgemein Zellteilung)."},
-        {"question": "Welche Blutgruppe gilt als Universalspender bei roten Blutkörperchen?", "answer": "0 negativ."},
-        {"question": "Welche Einheit wird oft für die Erbinformation verwendet?", "answer": "DNA-Basenpaare beziehungsweise Gene als Informationseinheiten."},
-        {"question": "Wie heißt der Muskel, der vor allem für die Atmung wichtig ist?", "answer": "Das Zwerchfell."},
-    ],
-    "Geschichte": [
-        {"question": "In welchem Land standen die Pyramiden von Gizeh?", "answer": "In Ägypten."},
-        {"question": "Wer war der erste Bundeskanzler der Bundesrepublik Deutschland?", "answer": "Konrad Adenauer."},
-        {"question": "Wie hieß die Mauer, die Berlin von 1961 bis 1989 teilte?", "answer": "Die Berliner Mauer."},
-        {"question": "In welchem Jahr fiel die Berliner Mauer?", "answer": "1989."},
-        {"question": "Welche berühmten Schiffe nutzte Christoph Kolumbus auf seiner Reise 1492?", "answer": "Santa Maria, Nina und Pinta."},
-        {"question": "Wie hieß die Epoche, in der Kunst, Wissenschaft und Denken in Europa stark aufblühten?", "answer": "Die Renaissance."},
-        {"question": "Wie hieß das geteilte Deutschland von 1949 bis 1990 im Osten?", "answer": "DDR."},
-        {"question": "Welche Stadt war Hauptstadt des Römischen Reiches?", "answer": "Rom."},
-        {"question": "Wie nennt man die industrielle Umwälzung ab dem 18. Jahrhundert?", "answer": "Industrielle Revolution."},
-        {"question": "Welches Reich wurde von Julius Caesar stark geprägt?", "answer": "Das Römische Reich."},
-    ],
-    "Geografie": [
-        {"question": "Wie heißt die Hauptstadt von Frankreich?", "answer": "Paris."},
-        {"question": "Welcher Kontinent ist der größte der Erde?", "answer": "Asien."},
-        {"question": "Welcher Fluss fließt durch Köln?", "answer": "Der Rhein."},
-        {"question": "Welches Gebirge trennt Europa und Asien in Russland traditionell voneinander?", "answer": "Der Ural."},
-        {"question": "Wie heißt die größte Wüste der Welt?", "answer": "Die Antarktis ist die größte Wüste; die Sahara ist die größte heiße Wüste."},
-        {"question": "Welcher Ozean liegt zwischen Amerika und Europa/Afrika?", "answer": "Der Atlantische Ozean."},
-        {"question": "Durch welche Stadt fließt die Donau nicht: Wien, Budapest oder Madrid?", "answer": "Madrid."},
-        {"question": "Welches Land hat die Hauptstadt Oslo?", "answer": "Norwegen."},
-        {"question": "Welches Meer liegt zwischen Europa und Afrika?", "answer": "Das Mittelmeer."},
-        {"question": "Wie heißt der höchste Berg der Erde?", "answer": "Mount Everest."},
-    ],
-    "Musik": [
-        {"question": "Wie viele Linien hat ein Notensystem?", "answer": "Fünf Linien."},
-        {"question": "Wie nennt man ein sehr schnelles Musiktempo auf Italienisch oft?", "answer": "Presto."},
-        {"question": "Welches Instrument hat in der Regel 88 Tasten?", "answer": "Das Klavier."},
-        {"question": "Wie nennt man eine Gruppe von Musikern mit Streich-, Blas- und Schlaginstrumenten?", "answer": "Orchester."},
-        {"question": "Welches Symbol erhöht einen Ton um einen Halbton?", "answer": "Das Kreuz."},
-        {"question": "Wie heißt die Pause von vier Schlägen im 4/4-Takt?", "answer": "Ganze Pause."},
-        {"question": "Wie nennt man die Lautstärkeangabe für leise in der Musik?", "answer": "Piano."},
-        {"question": "Wie viele Saiten hat eine klassische Violine üblicherweise?", "answer": "Vier."},
-        {"question": "Welche Note liegt im Deutschen direkt nach A?", "answer": "H."},
-        {"question": "Wie heißt ein Musikstück für zwei Ausführende?", "answer": "Duett."},
-    ],
-    "Mathe": [
-        {"question": "Was ist 7 mal 8?", "answer": "56."},
-        {"question": "Wie viele Grad hat ein rechter Winkel?", "answer": "90 Grad."},
-        {"question": "Wie lautet das Ergebnis von 12 + 19?", "answer": "31."},
-        {"question": "Wie nennt man das Ergebnis einer Multiplikation?", "answer": "Produkt."},
-        {"question": "Wie viele Seiten hat ein Hexagon?", "answer": "Sechs Seiten."},
-        {"question": "Was ist die Quadratwurzel von 144?", "answer": "12."},
-        {"question": "Wie viel ist 15 Prozent von 200?", "answer": "30."},
-        {"question": "Wie lautet 9 hoch 2?", "answer": "81."},
-        {"question": "Wie viele Minuten sind 2,5 Stunden?", "answer": "150 Minuten."},
-        {"question": "Was ist das Ergebnis von 1000 minus 275?", "answer": "725."},
-    ],
-    "Physik": [
-        {"question": "Wie heißt die Kraft, die Dinge nach unten zieht?", "answer": "Gravitation beziehungsweise Schwerkraft."},
-        {"question": "Welche Einheit hat die elektrische Spannung?", "answer": "Volt."},
-        {"question": "Wie schnell ist Licht im Vakuum ungefähr?", "answer": "Etwa 300.000 Kilometer pro Sekunde."},
-        {"question": "Wie nennt man den Übergang von flüssig zu gasförmig?", "answer": "Verdampfen."},
-        {"question": "Welche Einheit misst die Frequenz?", "answer": "Hertz."},
-        {"question": "Wie heißt das Messgerät für elektrische Stromstärke?", "answer": "Amperemeter."},
-        {"question": "Was ist der Nullpunkt der Celsius-Skala beim Gefrieren von Wasser?", "answer": "0 Grad Celsius."},
-    ],
-    "Chemie": [
-        {"question": "Wie lautet das chemische Symbol für Wasserstoff?", "answer": "H."},
-        {"question": "Wie heißt die chemische Formel von Wasser?", "answer": "H2O."},
-        {"question": "Welches Gas brauchen wir zum Atmen?", "answer": "Sauerstoff."},
-        {"question": "Wie nennt man Stoffe mit pH-Wert kleiner als 7?", "answer": "Säuren."},
-        {"question": "Wie heißt das bekannteste Kochsalz chemisch?", "answer": "Natriumchlorid."},
-        {"question": "Welches Element hat das Symbol Fe?", "answer": "Eisen."},
-        {"question": "Welches Teilchen ist negativ geladen?", "answer": "Das Elektron."},
-    ],
-    "Informatik": [
-        {"question": "Wofür steht die Abkürzung CPU?", "answer": "Central Processing Unit."},
-        {"question": "Wie heißt das Zahlensystem mit nur 0 und 1?", "answer": "Binärsystem."},
-        {"question": "Welche Taste nutzt man oft zum Löschen links vom Cursor?", "answer": "Backspace."},
-        {"question": "Was ist ein Browser?", "answer": "Ein Programm zum Anzeigen von Webseiten."},
-        {"question": "Wofür steht die Abkürzung URL?", "answer": "Uniform Resource Locator."},
-        {"question": "Wie nennt man Schadsoftware allgemein?", "answer": "Malware."},
-        {"question": "Wie nennt man eine Sicherungskopie von Daten?", "answer": "Backup."},
-    ],
-    "Deutsch": [
-        {"question": "Wie heißt die Grundform eines Verbs?", "answer": "Infinitiv."},
-        {"question": "Was ist das Gegenteil von 'laut'?", "answer": "Leise."},
-        {"question": "Wie heißt die Mehrzahl von 'Haus'?", "answer": "Häuser."},
-        {"question": "Welches Satzzeichen beendet eine Frage?", "answer": "Das Fragezeichen."},
-        {"question": "Was ist ein Synonym für 'beginnen'?", "answer": "Anfangen."},
-        {"question": "Welche Wortart ist 'schnell'?", "answer": "Adjektiv."},
-        {"question": "Wie nennt man Wörter mit gleicher Bedeutung?", "answer": "Synonyme."},
-    ],
-    "Politik & Gesellschaft": [
-        {"question": "Wie oft findet die Bundestagswahl regulär statt?", "answer": "Alle vier Jahre."},
-        {"question": "Wie heißt das Parlament in Deutschland?", "answer": "Der Deutsche Bundestag."},
-        {"question": "Was bedeutet Demokratie im Kern?", "answer": "Volksherrschaft beziehungsweise politische Teilhabe der Bürger."},
-        {"question": "Welche Farbe hat eine typische Fußgängerampel für 'Gehen'?", "answer": "Grün."},
-        {"question": "Wie nennt man Regeln, die in einem Staat gelten?", "answer": "Gesetze."},
-        {"question": "Was ist ein Kompromiss?", "answer": "Eine Einigung, bei der beide Seiten Zugeständnisse machen."},
-        {"question": "Wie nennt man den Zusammenschluss mehrerer Staaten in Europa?", "answer": "Europäische Union."},
-    ],
-    "Allgemeinwissen": [
-        {"question": "Wie viele Tage hat ein Schaltjahr?", "answer": "366 Tage."},
-        {"question": "Welche Farbe entsteht aus Blau und Gelb?", "answer": "Grün."},
-        {"question": "Wie viele Kontinente gibt es üblicherweise?", "answer": "Sieben."},
-        {"question": "Welcher Monat hat normalerweise 28 Tage?", "answer": "Der Februar."},
-        {"question": "Welcher Planet ist als 'roter Planet' bekannt?", "answer": "Mars."},
-        {"question": "Wie viele Minuten hat ein Tag?", "answer": "1440."},
-        {"question": "Welche Himmelsrichtung liegt gegenüber von Westen?", "answer": "Osten."},
-    ],
+    "young": {
+        "Englisch": {
+            20: [
+                {"question": "Wie heißt 'Katze' auf Englisch?", "answer": "Cat."},
+                {"question": "Wie heißt 'Haus' auf Englisch?", "answer": "House."},
+                {"question": "Wie heißt 'Schule' auf Englisch?", "answer": "School."},
+                {"question": "Wie heißt 'Wasser' auf Englisch?", "answer": "Water."},
+            ],
+            40: [
+                {"question": "Wie heißt die Mehrzahl von 'dog'?", "answer": "Dogs."},
+                {"question": "Wie heißt die Mehrzahl von 'book'?", "answer": "Books."},
+                {"question": "Wie heißt 'Ich bin' auf Englisch?", "answer": "I am."},
+                {"question": "Wie heißt 'Wir sind' auf Englisch?", "answer": "We are."},
+            ],
+            60: [
+                {"question": "Setze richtig ein: 'She ___ my friend.'", "answer": "Is."},
+                {"question": "Setze richtig ein: 'They ___ in class.'", "answer": "Are."},
+                {"question": "Was ist die Vergangenheit von 'play'?", "answer": "Played."},
+                {"question": "Wie fragt man auf Englisch: 'Wie heißt du?'", "answer": "What is your name?"},
+            ],
+            80: [
+                {"question": "Setze ein: 'He ___ not like milk.'", "answer": "Does."},
+                {"question": "Welche Form ist richtig: 'a apple' oder 'an apple'?", "answer": "An apple."},
+                {"question": "Was ist die Steigerung von 'small'?", "answer": "Smaller."},
+                {"question": "Was ist die Steigerung von 'happy'?", "answer": "Happier."},
+            ],
+            100: [
+                {"question": "Bilde den Satz im Present Progressive: 'Ich lese gerade.'", "answer": "I am reading."},
+                {"question": "Setze richtig ein: 'Yesterday we ___ to school.'", "answer": "Went."},
+                {"question": "Welche Form ist korrekt: 'There is' oder 'There are' bei mehreren Dingen?", "answer": "There are."},
+                {"question": "Übersetze: 'Wenn es regnet, bleiben wir drinnen.'", "answer": "If it rains, we stay inside."},
+            ],
+        },
+        "Sport": {
+            20: [
+                {"question": "Wie heißt ein bekannter Ballsport mit Toren?", "answer": "Fußball."},
+                {"question": "Mit welchem Körperteil wirft man beim Basketball meistens?", "answer": "Mit den Händen."},
+                {"question": "Wie viele Spieler hat eine Fußballmannschaft auf dem Feld?", "answer": "11."},
+                {"question": "Welche Farbe hat oft eine Sieger-Medaille für Platz 1?", "answer": "Gold."},
+            ],
+            40: [
+                {"question": "Wie viele Punkte bringt ein Freiwurf im Basketball?", "answer": "1 Punkt."},
+                {"question": "Wie nennt man den Startsprung beim Schwimmen?", "answer": "Startsprung vom Block."},
+                {"question": "Wie viele Halbzeiten hat ein Fußballspiel?", "answer": "2."},
+                {"question": "Wie viele Sätze gewinnt man meist im Tischtennis-Spiel?", "answer": "3 Gewinnsaetze (best of 5)."},
+            ],
+            60: [
+                {"question": "Wie lang ist ein Marathon?", "answer": "42,195 Kilometer."},
+                {"question": "Wie nennt man den Strafstoß im Fußball?", "answer": "Elfmeter."},
+                {"question": "Wie viele Spieler hat ein Volleyball-Team auf dem Feld?", "answer": "6."},
+                {"question": "Was bedeutet ein 'Ass' im Tennis?", "answer": "Direkter Punkt durch Aufschlag."},
+            ],
+            80: [
+                {"question": "Wie heißt die olympische Mehrkampf-Sportart aus 10 Disziplinen?", "answer": "Zehnkampf."},
+                {"question": "Wie oft finden Olympische Sommerspiele regulär statt?", "answer": "Alle 4 Jahre."},
+                {"question": "Wie viele Minuten dauert ein Handballspiel im Erwachsenenbereich?", "answer": "60 Minuten."},
+                {"question": "Wie heißt die Linie im Basketball, von der man 3 Punkte werfen kann?", "answer": "Dreierlinie."},
+            ],
+            100: [
+                {"question": "Welche Kartenfarbe steht im Fußball für Feldverweis?", "answer": "Rot."},
+                {"question": "Wie viele Meter ist ein Elfmeter vom Tor entfernt?", "answer": "11 Meter."},
+                {"question": "Wie heißt die Technik, bei der man im Hochsprung rücklings springt?", "answer": "Fosbury-Flop."},
+                {"question": "Welches Land gewann die FIFA-WM 2014?", "answer": "Deutschland."},
+            ],
+        },
+        "Natur & Tiere": {
+            20: [
+                {"question": "Welches Tier sagt 'Miau'?", "answer": "Die Katze."},
+                {"question": "Welches Tier gibt Milch: Kuh oder Löwe?", "answer": "Kuh."},
+                {"question": "Wie heißt das große graue Tier mit Rüssel?", "answer": "Elefant."},
+                {"question": "Welches Insekt sammelt Honig?", "answer": "Die Biene."},
+            ],
+            40: [
+                {"question": "Wie nennt man ein Tier, das im Wasser und an Land lebt?", "answer": "Amphib."},
+                {"question": "Was fressen Kühe hauptsächlich?", "answer": "Gras."},
+                {"question": "Wie heißen junge Hunde?", "answer": "Welpen."},
+                {"question": "Welcher Vogel kann nicht fliegen und lebt am Südpol?", "answer": "Pinguin."},
+            ],
+            60: [
+                {"question": "Wie nennt man den Lebensraum vieler Tiere und Pflanzen?", "answer": "Oekosystem."},
+                {"question": "Wie heißt die Schutzhülle eines Eies?", "answer": "Eierschale."},
+                {"question": "Was brauchen Pflanzen außer Wasser zum Wachsen?", "answer": "Licht."},
+                {"question": "Wie nennt man Tiere, die nur Pflanzen fressen?", "answer": "Pflanzenfresser."},
+            ],
+            80: [
+                {"question": "Wie heißt der Prozess, bei dem Pflanzen mit Licht Zucker bilden?", "answer": "Fotosynthese."},
+                {"question": "Welches Tier ist ein Säugetier: Hai oder Delfin?", "answer": "Delfin."},
+                {"question": "Wie heißt das größte Landraubtier der Arktis?", "answer": "Eisbär."},
+                {"question": "Wie nennt man den Wechsel von Raupe zu Schmetterling?", "answer": "Metamorphose."},
+            ],
+            100: [
+                {"question": "Wie nennt man Arten, die nur in einem Gebiet vorkommen?", "answer": "Endemische Arten."},
+                {"question": "Was bedeutet 'nachtaktiv'?", "answer": "Vor allem nachts aktiv."},
+                {"question": "Wie nennt man Tiere, die in Winterruhe oder Winterschlaf gehen?", "answer": "Winterschlaefer."},
+                {"question": "Wie nennt man den Schutz gefährdeter Lebensräume und Arten?", "answer": "Naturschutz."},
+            ],
+        },
+        "Geografie": {
+            20: [
+                {"question": "Wie heißt die Hauptstadt von Deutschland?", "answer": "Berlin."},
+                {"question": "Welcher Kontinent ist Deutschland zugeordnet?", "answer": "Europa."},
+                {"question": "Wie heißt die Hauptstadt von Frankreich?", "answer": "Paris."},
+                {"question": "Wie heißt der größte Ozean?", "answer": "Pazifik."},
+            ],
+            40: [
+                {"question": "Welcher Fluss fließt durch Köln?", "answer": "Rhein."},
+                {"question": "Welches Land hat die Hauptstadt Rom?", "answer": "Italien."},
+                {"question": "Wie heißt die Hauptstadt von Spanien?", "answer": "Madrid."},
+                {"question": "Wie heißt das Gebirge zwischen Frankreich und Spanien?", "answer": "Pyrenaeen."},
+            ],
+            60: [
+                {"question": "Wie heißt der höchste Berg der Erde?", "answer": "Mount Everest."},
+                {"question": "Welche Wüste ist die größte heiße Wüste?", "answer": "Sahara."},
+                {"question": "Wie heißt die Hauptstadt von Norwegen?", "answer": "Oslo."},
+                {"question": "Welches Meer liegt zwischen Europa und Afrika?", "answer": "Mittelmeer."},
+            ],
+            80: [
+                {"question": "Wie heißt die Hauptstadt von Australien?", "answer": "Canberra."},
+                {"question": "Welcher Kontinent hat die meisten Staaten?", "answer": "Afrika."},
+                {"question": "Welche Meerenge trennt Europa von Afrika bei Spanien?", "answer": "Strasse von Gibraltar."},
+                {"question": "Wie heißt der längste Fluss der Welt nach vielen Schulbüchern?", "answer": "Nil."},
+            ],
+            100: [
+                {"question": "Welche Länder grenzen an Deutschland im Westen? Nenne zwei.", "answer": "Zum Beispiel Frankreich, Belgien, Niederlande oder Luxemburg."},
+                {"question": "Wie heißt das Hochland im Inneren Spaniens?", "answer": "Meseta."},
+                {"question": "Welcher Staat hat die Hauptstadt Reykjavik?", "answer": "Island."},
+                {"question": "Welche Klimazone liegt rund um den Äquator?", "answer": "Tropische Klimazone."},
+            ],
+        },
+        "Musik": {
+            20: [
+                {"question": "Wie viele Linien hat ein Notensystem?", "answer": "5."},
+                {"question": "Wie heißt ein Instrument mit Tasten: Klavier oder Trommel?", "answer": "Klavier."},
+                {"question": "Wie nennt man ein Lied mit zwei Singenden?", "answer": "Duett."},
+                {"question": "Wie heißt sehr leise in der Musik?", "answer": "Piano."},
+            ],
+            40: [
+                {"question": "Welches Symbol erhöht einen Ton um einen Halbton?", "answer": "Kreuz."},
+                {"question": "Wie heißt ein sehr schnelles Tempo oft auf Italienisch?", "answer": "Presto."},
+                {"question": "Wie viele Saiten hat eine Violine?", "answer": "4."},
+                {"question": "Wie nennt man eine Gruppe mit vielen Instrumenten?", "answer": "Orchester."},
+            ],
+            60: [
+                {"question": "Wie heißt ein Musikstück für ein Instrument allein?", "answer": "Solo."},
+                {"question": "Wie nennt man den Grundschlag eines Liedes?", "answer": "Takt."},
+                {"question": "Welche Note kommt im Deutschen nach A?", "answer": "H."},
+                {"question": "Wie nennt man den Anfang eines Liedes?", "answer": "Intro."},
+            ],
+            80: [
+                {"question": "Wie heißt eine Tonleiter aus 8 Tönen?", "answer": "Oktave."},
+                {"question": "Was bedeutet 'forte'?", "answer": "Laut."},
+                {"question": "Wie heißt die Pause über einen ganzen Takt im 4/4-Takt?", "answer": "Ganze Pause."},
+                {"question": "Wie nennt man ein Werk für Orchester ohne Gesang?", "answer": "Sinfonie."},
+            ],
+            100: [
+                {"question": "Wie heißt das Symbol, das einen Ton erniedrigt?", "answer": "B."},
+                {"question": "Wie nennt man das gleichzeitige Klingen mehrerer Töne?", "answer": "Akkord."},
+                {"question": "Wie nennt man den Übergang von langsam zu schneller?", "answer": "Accelerando."},
+                {"question": "Wie heißt die Wiederholung eines Themas in einer Fuge?", "answer": "Einsatz."},
+            ],
+        },
+        "Mathe": {
+            20: [
+                {"question": "Was ist 7 + 6?", "answer": "13."},
+                {"question": "Was ist 10 - 4?", "answer": "6."},
+                {"question": "Was ist 5 x 5?", "answer": "25."},
+                {"question": "Was ist 36 : 6?", "answer": "6."},
+            ],
+            40: [
+                {"question": "Wie viele Grad hat ein rechter Winkel?", "answer": "90."},
+                {"question": "Was ist 12 x 8?", "answer": "96."},
+                {"question": "Was ist die Hälfte von 150?", "answer": "75."},
+                {"question": "Wie viel ist 25 Prozent von 100?", "answer": "25."},
+            ],
+            60: [
+                {"question": "Was ist die Quadratwurzel von 144?", "answer": "12."},
+                {"question": "Wie viele Seiten hat ein Hexagon?", "answer": "6."},
+                {"question": "Was ist 0,5 als Bruch?", "answer": "1/2."},
+                {"question": "Was ist 15 Prozent von 200?", "answer": "30."},
+            ],
+            80: [
+                {"question": "Wie lautet 9 hoch 2?", "answer": "81."},
+                {"question": "Wie viele Minuten sind 2,5 Stunden?", "answer": "150."},
+                {"question": "Löse: 3x + 5 = 20.", "answer": "x = 5."},
+                {"question": "Wie groß ist der Umfang eines Quadrats mit Seitenlänge 7?", "answer": "28."},
+            ],
+            100: [
+                {"question": "Wie lautet die Formel für den Flächeninhalt eines Rechtecks?", "answer": "Laenge mal Breite."},
+                {"question": "Was ist das Ergebnis von 1000 - 275?", "answer": "725."},
+                {"question": "Wie lautet die Dezimalzahl zu 3/8?", "answer": "0,375."},
+                {"question": "Ein Zug fährt 120 km in 2 Stunden. Wie hoch ist die Durchschnittsgeschwindigkeit?", "answer": "60 km/h."},
+            ],
+        },
+        "Deutsch": {
+            20: [
+                {"question": "Wie heißt die Mehrzahl von 'Haus'?", "answer": "Haeuser."},
+                {"question": "Welches Satzzeichen beendet eine Frage?", "answer": "Fragezeichen."},
+                {"question": "Was ist das Gegenteil von 'laut'?", "answer": "Leise."},
+                {"question": "Wie heißt die Grundform eines Verbs?", "answer": "Infinitiv."},
+            ],
+            40: [
+                {"question": "Welche Wortart ist 'schnell'?", "answer": "Adjektiv."},
+                {"question": "Wie nennt man Wörter mit gleicher Bedeutung?", "answer": "Synonyme."},
+                {"question": "Wie lautet die Mehrzahl von 'Kind'?", "answer": "Kinder."},
+                {"question": "Welches Wort ist ein Verb: 'laufen' oder 'blau'?", "answer": "Laufen."},
+            ],
+            60: [
+                {"question": "Setze das richtige Pronomen ein: '___ gehe nach Hause.'", "answer": "Ich."},
+                {"question": "Wie nennt man das Gegenteil eines Wortes?", "answer": "Antonym."},
+                {"question": "Was ist die Vergangenheit von 'gehen'?", "answer": "Ging."},
+                {"question": "Welche Zeitform ist: 'Ich habe gelernt'?", "answer": "Perfekt."},
+            ],
+            80: [
+                {"question": "Welche Fallfrage passt zu Dativ?", "answer": "Wem?"},
+                {"question": "Wie heißt der 4. Fall?", "answer": "Akkusativ."},
+                {"question": "Welche Wortart ist 'und'?", "answer": "Konjunktion."},
+                {"question": "Wie nennt man einen Satz ohne Verb?", "answer": "Nominalsatz."},
+            ],
+            100: [
+                {"question": "Setze ein passendes Relativpronomen ein: 'Das Buch, ___ ich lese ...'", "answer": "Das."},
+                {"question": "Wie heißt die Steigerung von 'gut'?", "answer": "Besser, am besten."},
+                {"question": "Welche Satzart ist: 'Mach die Tür zu!'", "answer": "Imperativsatz."},
+                {"question": "Wie heißt die Nomenbildung zu 'entscheiden'?", "answer": "Entscheidung."},
+            ],
+        },
+        "Allgemeinwissen": {
+            20: [
+                {"question": "Wie viele Tage hat eine Woche?", "answer": "7."},
+                {"question": "Welche Farbe entsteht aus Blau und Gelb?", "answer": "Gruen."},
+                {"question": "Wie viele Monate hat ein Jahr?", "answer": "12."},
+                {"question": "Welcher Monat hat meistens 28 Tage?", "answer": "Februar."},
+            ],
+            40: [
+                {"question": "Wie viele Minuten hat eine Stunde?", "answer": "60."},
+                {"question": "Wie viele Kontinente gibt es meist in der Schule?", "answer": "7."},
+                {"question": "Welcher Planet heißt auch roter Planet?", "answer": "Mars."},
+                {"question": "Welche Himmelsrichtung ist gegenüber von Westen?", "answer": "Osten."},
+            ],
+            60: [
+                {"question": "Wie viele Sekunden hat eine Minute?", "answer": "60."},
+                {"question": "Wie viele Tage hat ein Schaltjahr?", "answer": "366."},
+                {"question": "Wie viele Minuten hat ein Tag?", "answer": "1440."},
+                {"question": "Wie heißt unser Heimatplanet?", "answer": "Erde."},
+            ],
+            80: [
+                {"question": "Wie viele Knochen hat ein erwachsener Mensch ungefähr?", "answer": "206."},
+                {"question": "Wie heißt das größte Organ des Menschen?", "answer": "Haut."},
+                {"question": "Welche Zahl ist eine Primzahl: 21, 23 oder 27?", "answer": "23."},
+                {"question": "Wie viele Farben hat ein klassischer Regenbogen?", "answer": "7."},
+            ],
+            100: [
+                {"question": "Wie heißt das Messgerät für Temperatur?", "answer": "Thermometer."},
+                {"question": "Was ist schneller: Schall oder Licht?", "answer": "Licht."},
+                {"question": "Wie heißt der Vorgang, wenn Wasser zu Eis wird?", "answer": "Gefrieren."},
+                {"question": "Welche Einheit wird für elektrische Stromstärke genutzt?", "answer": "Ampere."},
+            ],
+        },
+    },
+    "mid": {
+        "Englisch": {
+            20: [
+                {"question": "Wie heißt 'Straße' auf Englisch?", "answer": "Street."},
+                {"question": "Wie heißt 'Fenster' auf Englisch?", "answer": "Window."},
+                {"question": "Wie heißt 'Frühstück' auf Englisch?", "answer": "Breakfast."},
+                {"question": "Wie heißt 'lernen' auf Englisch?", "answer": "Learn."},
+            ],
+            40: [
+                {"question": "Bilde die Mehrzahl von 'child'.", "answer": "Children."},
+                {"question": "Bilde die Mehrzahl von 'city'.", "answer": "Cities."},
+                {"question": "Setze ein: 'She ___ to school every day.'", "answer": "Goes."},
+                {"question": "Setze ein: 'We ___ football on Fridays.'", "answer": "Play."},
+            ],
+            60: [
+                {"question": "Welche Form ist korrekt: 'much people' oder 'many people'?", "answer": "Many people."},
+                {"question": "Setze korrekt ein: 'I have lived here ___ 2020.'", "answer": "Since."},
+                {"question": "Welche Zeit ist: 'They have finished their homework.'", "answer": "Present Perfect."},
+                {"question": "Wie lautet die Komparativform von 'good'?", "answer": "Better."},
+            ],
+            80: [
+                {"question": "Setze ein: 'If I ___ more time, I would travel.'", "answer": "Had."},
+                {"question": "Wandle um ins Passive: 'They build houses.'", "answer": "Houses are built."},
+                {"question": "Welche Form ist richtig: 'fewer' oder 'less' bei zählbaren Nomen?", "answer": "Fewer."},
+                {"question": "Setze ein: 'He asked me ___ I could help him.'", "answer": "If/whether."},
+            ],
+            100: [
+                {"question": "Nenne den Unterschied zwischen 'present perfect' und 'simple past' in einem Satz.", "answer": "Present perfect verbindet zur Gegenwart, simple past ist abgeschlossene Vergangenheit."},
+                {"question": "Forme in reported speech um: 'I am tired,' she said.", "answer": "She said that she was tired."},
+                {"question": "Setze korrekt ein: 'Hardly ___ he arrived when it started to rain.'", "answer": "Had."},
+                {"question": "Welche Verbform folgt auf 'wish' für irreale Gegenwart?", "answer": "Simple past."},
+            ],
+        },
+        "Sport": {
+            20: [
+                {"question": "Wie viele Ringe hat das olympische Symbol?", "answer": "5."},
+                {"question": "In welcher Sportart gibt es einen Slam Dunk?", "answer": "Basketball."},
+                {"question": "Wie nennt man den Torhüter beim Handball oft?", "answer": "Torwart."},
+                {"question": "Wie lange dauert eine Halbzeit im Fußball?", "answer": "45 Minuten."},
+            ],
+            40: [
+                {"question": "Wie viele Spieler stehen bei Volleyball pro Team auf dem Feld?", "answer": "6."},
+                {"question": "Wie heißt ein Unentschieden im Tennis ohne Entscheidungssatz?", "answer": "Tie-Break als Entscheidung eines Satzes."},
+                {"question": "Wie viele Basen hat ein Baseball-Feld?", "answer": "4."},
+                {"question": "Wie viele Punkte bringt ein Touchdown im American Football ohne Extrapunkt?", "answer": "6."},
+            ],
+            60: [
+                {"question": "Wie lang ist ein olympisches Schwimmbecken?", "answer": "50 Meter."},
+                {"question": "Wie heißt der wichtigste Vereinswettbewerb im europäischen Fußball?", "answer": "UEFA Champions League."},
+                {"question": "Wie nennt man den Ballbesitzwechsel im Basketball nach Regelverstoß?", "answer": "Turnover."},
+                {"question": "Welcher Belag ist bei den French Open üblich?", "answer": "Sand."},
+            ],
+            80: [
+                {"question": "Wie viele Minuten dauert ein NBA-Spiel regulär?", "answer": "48 Minuten."},
+                {"question": "In welcher Disziplin startet man im Block und läuft über 110 m Hürden (Männer)?", "answer": "Huerdenlauf."},
+                {"question": "Wie heißt die Regel, die im Fußball eine Angriffsposition begrenzt?", "answer": "Abseitsregel."},
+                {"question": "Wie heißt die Wurftechnik beim Kugelstoßen, bei der man gleitet?", "answer": "O'Brien-Technik (Gleittechnik)."},
+            ],
+            100: [
+                {"question": "Welche Nation gewann die Fußball-WM 2018?", "answer": "Frankreich."},
+                {"question": "Was bedeutet VO2max im Ausdauersport?", "answer": "Maximale Sauerstoffaufnahme."},
+                {"question": "Wie lang ist eine Runde auf einer Standard-Laufbahn?", "answer": "400 Meter."},
+                {"question": "Was ist ein Triple-Double im Basketball?", "answer": "Zweistellige Werte in drei Statistik-Kategorien."},
+            ],
+        },
+        "Biologie": {
+            20: [
+                {"question": "Welches Organ pumpt Blut?", "answer": "Herz."},
+                {"question": "Wie heißt der grüne Farbstoff in Pflanzen?", "answer": "Chlorophyll."},
+                {"question": "Welches Gas atmen wir ein?", "answer": "Sauerstoff."},
+                {"question": "Wie nennt man die kleinste lebende Einheit?", "answer": "Zelle."},
+            ],
+            40: [
+                {"question": "Wie heißt der Prozess der Zellteilung im Körperwachstum?", "answer": "Mitose."},
+                {"question": "Welche Blutkörperchen sind für die Immunabwehr wichtig?", "answer": "Weiße Blutkörperchen."},
+                {"question": "Wie nennt man Tiere, die gleichwarm sind?", "answer": "Endotherme/Gleichwarme Tiere."},
+                {"question": "Wie heißt das Erbmaterial in den Zellen?", "answer": "DNA."},
+            ],
+            60: [
+                {"question": "Welches Organ entgiftet den Körper stark?", "answer": "Leber."},
+                {"question": "Wie nennt man die Herstellung von Eiweißen in der Zelle?", "answer": "Proteinsynthese."},
+                {"question": "Welche Zellorganellen erzeugen Energie (ATP)?", "answer": "Mitochondrien."},
+                {"question": "Wie nennt man den Stoffaustausch zwischen Lunge und Blut?", "answer": "Diffusion/Gasaustausch."},
+            ],
+            80: [
+                {"question": "Wie heißt der Prozess, bei dem aus einer mRNA ein Protein entsteht?", "answer": "Translation."},
+                {"question": "Was ist der Unterschied zwischen Genotyp und Phänotyp kurz?", "answer": "Genotyp ist Erbanlage, Phänotyp ist sichtbare Ausprägung."},
+                {"question": "Wie nennt man die aktive Immunisierung im Alltag?", "answer": "Impfung."},
+                {"question": "Welche Phase der Meiose halbiert den Chromosomensatz?", "answer": "Meiose I (Reduktionsteilung)."},
+            ],
+            100: [
+                {"question": "Wie nennt man die Veränderung der Allelhäufigkeit in Populationen?", "answer": "Evolution/Mikroevolution."},
+                {"question": "Was beschreibt die Hardy-Weinberg-Regel?", "answer": "Genetisches Gleichgewicht in idealer Population."},
+                {"question": "Wie heißt der programmierte Zelltod?", "answer": "Apoptose."},
+                {"question": "Welche Struktur trennt in Pflanzenzellen Vakuole und Cytoplasma?", "answer": "Tonoplast."},
+            ],
+        },
+        "Geschichte": {
+            20: [
+                {"question": "In welchem Jahr fiel die Berliner Mauer?", "answer": "1989."},
+                {"question": "Wie hieß das geteilte Ostdeutschland von 1949 bis 1990?", "answer": "DDR."},
+                {"question": "In welchem Land stehen die Pyramiden von Gizeh?", "answer": "Ägypten."},
+                {"question": "Wer war erster Bundeskanzler der BRD?", "answer": "Konrad Adenauer."},
+            ],
+            40: [
+                {"question": "Wie heißt die Epoche des Aufblühens von Kunst und Wissenschaft in Europa?", "answer": "Renaissance."},
+                {"question": "Welche Stadt war Zentrum des Römischen Reiches?", "answer": "Rom."},
+                {"question": "Wann begann der Erste Weltkrieg?", "answer": "1914."},
+                {"question": "Wie heißt der Vertrag von 1919 nach dem Ersten Weltkrieg?", "answer": "Versailler Vertrag."},
+            ],
+            60: [
+                {"question": "Wann endete der Zweite Weltkrieg in Europa?", "answer": "1945."},
+                {"question": "Wie hieß die deutsche Wiedervereinigung politisch?", "answer": "Deutsche Einheit 1990."},
+                {"question": "Welche Schiffe nutzte Kolumbus 1492? Nenne eines.", "answer": "Santa Maria, Nina oder Pinta."},
+                {"question": "Wie nennt man die Umwälzung von Handarbeit zu Maschinenarbeit ab dem 18. Jahrhundert?", "answer": "Industrielle Revolution."},
+            ],
+            80: [
+                {"question": "Wann wurde die Bundesrepublik Deutschland gegründet?", "answer": "1949."},
+                {"question": "Wie heißt die friedliche Revolution in Osteuropa 1989/90 kurz?", "answer": "Systemwandel/Ende des Ostblocks."},
+                {"question": "Was war der Kalte Krieg in einem Satz?", "answer": "Konflikt zwischen USA und UdSSR ohne direkten Großkrieg."},
+                {"question": "In welchem Jahr wurde die Europäische Union durch den Maastricht-Vertrag gegründet?", "answer": "1993."},
+            ],
+            100: [
+                {"question": "Welches Ereignis gilt als Auslöser des Ersten Weltkriegs?", "answer": "Attentat von Sarajevo."},
+                {"question": "Wie nennt man den Wiederaufbauplan der USA für Europa nach 1945?", "answer": "Marshallplan."},
+                {"question": "Wann fand die Französische Revolution statt (Beginn)?", "answer": "1789."},
+                {"question": "Welche Mauer trennte Berlin von 1961 bis 1989?", "answer": "Berliner Mauer."},
+            ],
+        },
+        "Geografie": {
+            20: [
+                {"question": "Wie heißt die Hauptstadt von Italien?", "answer": "Rom."},
+                {"question": "Welcher Kontinent ist der größte?", "answer": "Asien."},
+                {"question": "Wie heißt das Gebirge in Süddeutschland und Österreich?", "answer": "Alpen."},
+                {"question": "Welcher Ozean liegt zwischen Europa/Afrika und Amerika?", "answer": "Atlantik."},
+            ],
+            40: [
+                {"question": "Welcher Fluss fließt durch Wien und Budapest?", "answer": "Donau."},
+                {"question": "Wie heißt die Hauptstadt von Kanada?", "answer": "Ottawa."},
+                {"question": "Welche Insel gehört zu Dänemark und ist sehr groß?", "answer": "Gronland."},
+                {"question": "Wie heißt die größte Insel im Mittelmeer?", "answer": "Sizilien."},
+            ],
+            60: [
+                {"question": "Wie heißt der höchste Berg Afrikas?", "answer": "Kilimandscharo."},
+                {"question": "Welche Wüste liegt in Nordafrika?", "answer": "Sahara."},
+                {"question": "Welches Land hat die Hauptstadt Oslo?", "answer": "Norwegen."},
+                {"question": "Wie heißt der längste Fluss Europas?", "answer": "Wolga."},
+            ],
+            80: [
+                {"question": "Wie heißt die Hauptstadt von Neuseeland?", "answer": "Wellington."},
+                {"question": "Welche Klimazone hat ganzjährig hohe Niederschläge nahe dem Äquator?", "answer": "Tropen/Regenwaldklima."},
+                {"question": "Wie heißt die Meeresströmung, die Westeuropa erwärmt?", "answer": "Golfstrom."},
+                {"question": "Welcher Staat liegt sowohl in Europa als auch in Asien und hat Istanbul?", "answer": "Türkei."},
+            ],
+            100: [
+                {"question": "Wie heißt die Hauptstadt von Kasachstan (heutiger Name)?", "answer": "Astana."},
+                {"question": "Was bezeichnet die geographische Breite 0 Grad?", "answer": "Äquator."},
+                {"question": "Welcher Kontinent ist flächenmäßig der zweitkleinste?", "answer": "Europa."},
+                {"question": "Wie heißt die trockenste Wüste außerhalb der Polarregionen?", "answer": "Atacama."},
+            ],
+        },
+        "Musik": {
+            20: [
+                {"question": "Wie viele Tasten hat ein Klavier meist?", "answer": "88."},
+                {"question": "Wie heißt eine sehr laute Dynamikbezeichnung?", "answer": "Forte."},
+                {"question": "Wie heißt ein Musikstück für zwei Personen?", "answer": "Duett."},
+                {"question": "Welches Instrument hat Saiten und wird gestrichen: Violine oder Trompete?", "answer": "Violine."},
+            ],
+            40: [
+                {"question": "Wie nennt man den Abstand gleicher Töne, z. B. c zu c?", "answer": "Oktave."},
+                {"question": "Wie heißt die Pause über einen ganzen Takt?", "answer": "Ganze Pause."},
+                {"question": "Wie nennt man mehrere gleichzeitig klingende Töne?", "answer": "Akkord."},
+                {"question": "Welches Vorzeichen erniedrigt einen Ton?", "answer": "B."},
+            ],
+            60: [
+                {"question": "Wie heißt die Form, in der ein Thema von mehreren Stimmen nacheinander aufgegriffen wird?", "answer": "Fuge."},
+                {"question": "Wie heißt ein langsam schneller werdendes Tempo?", "answer": "Accelerando."},
+                {"question": "Wie heißt die Tonart ohne Vorzeichen in Dur?", "answer": "C-Dur."},
+                {"question": "Wie nennt man den Schluss eines Musikstücks?", "answer": "Coda."},
+            ],
+            80: [
+                {"question": "Wie heißt eine Opernstimme zwischen Sopran und Alt?", "answer": "Mezzosopran."},
+                {"question": "Was bedeutet 'legato'?", "answer": "Gebunden spielen."},
+                {"question": "Wie nennt man in der Klassik eine Sonate für Soloinstrument und Begleitung?", "answer": "Sonate."},
+                {"question": "Wie heißt die Taktart mit drei Schlägen pro Takt häufig?", "answer": "Dreivierteltakt."},
+            ],
+            100: [
+                {"question": "Wie heißt die barocke Verzierung mit schnellem Wechsel zum Nebenton?", "answer": "Triller."},
+                {"question": "Wie nennt man den Grundton einer Tonart?", "answer": "Tonika."},
+                {"question": "Welcher Akkord steht auf der 5. Stufe in Dur oft als Spannungsakkord?", "answer": "Dominante."},
+                {"question": "Wie heißt die Form mit Exposition, Durchführung und Reprise?", "answer": "Sonatenhauptsatzform."},
+            ],
+        },
+        "Mathe": {
+            20: [
+                {"question": "Was ist 14 + 19?", "answer": "33."},
+                {"question": "Was ist 81 : 9?", "answer": "9."},
+                {"question": "Was ist 13 x 6?", "answer": "78."},
+                {"question": "Was ist 100 - 47?", "answer": "53."},
+            ],
+            40: [
+                {"question": "Wie groß ist die Innenwinkelsumme im Dreieck?", "answer": "180 Grad."},
+                {"question": "Was ist 30 Prozent von 90?", "answer": "27."},
+                {"question": "Wie lautet 11 hoch 2?", "answer": "121."},
+                {"question": "Löse: 5x = 45.", "answer": "x = 9."},
+            ],
+            60: [
+                {"question": "Was ist die Quadratwurzel von 225?", "answer": "15."},
+                {"question": "Wie viele Kanten hat ein Würfel?", "answer": "12."},
+                {"question": "Wie lautet die Formel für den Kreisumfang?", "answer": "2 mal pi mal r."},
+                {"question": "Löse: 2x - 7 = 19.", "answer": "x = 13."},
+            ],
+            80: [
+                {"question": "Wie lautet 3/5 als Dezimalzahl?", "answer": "0,6."},
+                {"question": "Wie groß ist die Fläche eines Rechtecks mit 12 und 7?", "answer": "84."},
+                {"question": "Was ist 1,2 x 0,5?", "answer": "0,6."},
+                {"question": "Löse: x^2 = 169.", "answer": "x = 13 oder x = -13."},
+            ],
+            100: [
+                {"question": "Wie lautet die pq-Formel-Idee in einem Satz?", "answer": "Loest quadratische Gleichungen der Form x^2+px+q=0."},
+                {"question": "Was ist der Sinus von 30 Grad?", "answer": "0,5."},
+                {"question": "Ein Kapital wächst von 1000 auf 1210 in zwei Jahren. Wie hoch war der jährliche Faktor?", "answer": "1,1."},
+                {"question": "Wie lautet die Ableitung von x^2?", "answer": "2x."},
+            ],
+        },
+        "Informatik": {
+            20: [
+                {"question": "Wofür steht CPU?", "answer": "Central Processing Unit."},
+                {"question": "Wie heißt das Zahlensystem mit 0 und 1?", "answer": "Binaersystem."},
+                {"question": "Wie heißt ein Programm zum Anzeigen von Webseiten?", "answer": "Browser."},
+                {"question": "Wie nennt man eine Sicherungskopie von Daten?", "answer": "Backup."},
+            ],
+            40: [
+                {"question": "Wofür steht URL?", "answer": "Uniform Resource Locator."},
+                {"question": "Wie nennt man schädliche Software?", "answer": "Malware."},
+                {"question": "Welche Taste löscht links vom Cursor?", "answer": "Backspace."},
+                {"question": "Wie heißt ein weltweites Netz aus Rechnern?", "answer": "Internet."},
+            ],
+            60: [
+                {"question": "Was bedeutet HTTPS grob?", "answer": "Verschluesselte Webverbindung."},
+                {"question": "Wie nennt man den Hauptspeicher eines Computers?", "answer": "RAM."},
+                {"question": "Was ist ein Algorithmus?", "answer": "Schrittweise Loesungsvorschrift."},
+                {"question": "Wie nennt man ein Programmierfehler im Code?", "answer": "Bug."},
+            ],
+            80: [
+                {"question": "Wie heißt das Modell aus Client und Server im Web?", "answer": "Client-Server-Modell."},
+                {"question": "Was macht ein DNS-Server?", "answer": "Uebersetzt Domainnamen in IP-Adressen."},
+                {"question": "Wie nennt man Versionsverwaltung mit Branches und Commits?", "answer": "Git."},
+                {"question": "Was ist ein API-Endpunkt?", "answer": "Adresse einer Programmschnittstelle."},
+            ],
+            100: [
+                {"question": "Was beschreibt Big-O-Notation?", "answer": "Asymptotische Laufzeit-/Speicherkomplexitaet."},
+                {"question": "Was ist der Unterschied zwischen Frontend und Backend kurz?", "answer": "Frontend ist Benutzeroberflaeche, Backend verarbeitet Logik und Daten."},
+                {"question": "Was bedeutet SQL-Injection?", "answer": "Angriff durch manipulierte Datenbankabfragen."},
+                {"question": "Was ist ein Hash in der Informatik?", "answer": "Fester Ausgabewert aus Daten per Hashfunktion."},
+            ],
+        },
+        "Deutsch": {
+            20: [
+                {"question": "Welche Wortart ist 'laufen'?", "answer": "Verb."},
+                {"question": "Was ist die Mehrzahl von 'Maus'?", "answer": "Maeuse."},
+                {"question": "Welches Zeichen beendet einen Ausruf?", "answer": "Ausrufezeichen."},
+                {"question": "Was ist ein Synonym von 'schnell'?", "answer": "Rasch."},
+            ],
+            40: [
+                {"question": "Welcher Fall ist 'wem'?", "answer": "Dativ."},
+                {"question": "Wie heißt die Nennform eines Verbs?", "answer": "Infinitiv."},
+                {"question": "Welche Zeitform ist 'ich ging'?", "answer": "Praeteritum."},
+                {"question": "Wie nennt man Wörter mit entgegengesetzter Bedeutung?", "answer": "Antonyme."},
+            ],
+            60: [
+                {"question": "Was ist das Prädikat im Satz 'Der Hund bellt laut'?", "answer": "Bellt."},
+                {"question": "Wie nennt man Nebensätze mit 'weil'?", "answer": "Kausalsaetze."},
+                {"question": "Welche Wortart ist 'deshalb'?", "answer": "Adverb/Konjunktionaladverb."},
+                {"question": "Wie heißt der 2. Fall?", "answer": "Genitiv."},
+            ],
+            80: [
+                {"question": "Wie nennt man eine direkte Rede in einen Nebensatz umgewandelt?", "answer": "Indirekte Rede."},
+                {"question": "Welche Verbform nutzt man oft für Wünsche: 'Wenn ich doch ...'?", "answer": "Konjunktiv."},
+                {"question": "Was ist ein Relativsatz?", "answer": "Nebensatz, der ein Nomen naeher beschreibt."},
+                {"question": "Wie nennt man die Lehre vom Satzbau?", "answer": "Syntax."},
+            ],
+            100: [
+                {"question": "Wie heißt das Stilmittel bei 'Zeit ist Geld'?", "answer": "Metapher."},
+                {"question": "Wie nennt man die Wiederholung des Anfangslauts wie in 'Milch macht muede Maenner munter'?", "answer": "Alliteration."},
+                {"question": "Welche Kasus-Regel gilt nach der Präposition 'wegen' im Standarddeutsch?", "answer": "Genitiv."},
+                {"question": "Wie nennt man die Wortstellung Verb am Ende im Nebensatz?", "answer": "Verbendstellung."},
+            ],
+        },
+        "Allgemeinwissen": {
+            20: [
+                {"question": "Wie viele Sekunden hat eine Minute?", "answer": "60."},
+                {"question": "Welcher Planet ist der Erde am nächsten (im Mittel meist genannt)?", "answer": "Venus."},
+                {"question": "Wie viele Zentimeter hat ein Meter?", "answer": "100."},
+                {"question": "Wie heißt die Einheit für Gewicht im Alltag?", "answer": "Kilogramm."},
+            ],
+            40: [
+                {"question": "Welche Farbe hat Kupfersulfat-Lösung oft in der Schule?", "answer": "Blau."},
+                {"question": "Wie viele Bundesländer hat Deutschland?", "answer": "16."},
+                {"question": "Wie heißt die Hauptstadt von Österreich?", "answer": "Wien."},
+                {"question": "Wie viele Stunden hat ein Tag?", "answer": "24."},
+            ],
+            60: [
+                {"question": "Wie nennt man den Übergang von fest zu flüssig?", "answer": "Schmelzen."},
+                {"question": "Welche Einheit misst elektrische Spannung?", "answer": "Volt."},
+                {"question": "Welches Gas ist in der Luft am häufigsten?", "answer": "Stickstoff."},
+                {"question": "Wie viele Zähne hat ein Erwachsener meistens?", "answer": "32."},
+            ],
+            80: [
+                {"question": "Wie heißt die Hauptstadt von Finnland?", "answer": "Helsinki."},
+                {"question": "Wie viele Chromosomen hat ein Mensch in Körperzellen?", "answer": "46."},
+                {"question": "Welches Organ verbraucht viel Sauerstoff und steuert Denken?", "answer": "Gehirn."},
+                {"question": "Was bedeutet die Abkürzung UNESCO?", "answer": "UN-Organisation fuer Bildung, Wissenschaft und Kultur."},
+            ],
+            100: [
+                {"question": "Wie heißt das SI-Basissymbol für elektrische Stromstärke?", "answer": "A (Ampere)."},
+                {"question": "Welcher Naturwissenschaftler formulierte die Gravitationstheorie klassisch?", "answer": "Isaac Newton."},
+                {"question": "Wie heißt die Hauptstadt von Südkorea?", "answer": "Seoul."},
+                {"question": "Was ist der pH-Wert von neutralem Wasser bei 25 Grad?", "answer": "7."},
+            ],
+        },
+    },
+    "old": {
+        "Englisch": {
+            20: [
+                {"question": "Wie heißt 'Nachhaltigkeit' auf Englisch?", "answer": "Sustainability."},
+                {"question": "Wie heißt 'Entscheidung' auf Englisch?", "answer": "Decision."},
+                {"question": "Wie heißt 'Herausforderung' auf Englisch?", "answer": "Challenge."},
+                {"question": "Wie heißt 'Verantwortung' auf Englisch?", "answer": "Responsibility."},
+            ],
+            40: [
+                {"question": "Setze ein: 'By the time we arrived, the film ___ already started.'", "answer": "Had."},
+                {"question": "Welche Form ist korrekt: 'less people' oder 'fewer people'?", "answer": "Fewer people."},
+                {"question": "Setze ein: 'I look forward to ___ from you.'", "answer": "Hearing."},
+                {"question": "Welche Form ist korrekt: 'neither ... nor' oder 'either ... or' für Verneinung?", "answer": "Neither ... nor."},
+            ],
+            60: [
+                {"question": "Wandle um in passive voice: 'They have announced the results.'", "answer": "The results have been announced."},
+                {"question": "Setze ein: 'If she ___ earlier, she would have caught the train.'", "answer": "Had left."},
+                {"question": "Welche Zeit drückt eine Handlung aus, die vor einer anderen in der Vergangenheit abgeschlossen war?", "answer": "Past Perfect."},
+                {"question": "Setze richtig ein: 'No sooner ___ we sat down than the bell rang.'", "answer": "Had."},
+            ],
+            80: [
+                {"question": "Was ist ein defining relative clause?", "answer": "Ein notwendiger Relativsatz ohne Kommas."},
+                {"question": "Welche Struktur ist korrekt für unreal conditionals Typ 3?", "answer": "If + past perfect, would have + past participle."},
+                {"question": "Formuliere indirekt: 'Do you know where he is?' she asked.", "answer": "She asked if I knew where he was."},
+                {"question": "Welche Funktion hat 'inversion' in formeller Sprache?", "answer": "Betonung und formeller Stil, oft ohne if."},
+            ],
+            100: [
+                {"question": "Ergänze: 'Scarcely ___ the meeting begun when the alarm went off.'", "answer": "Had."},
+                {"question": "Wie nennt man die Verwendung eines Gerundiums als Subjekt?", "answer": "Gerund as subject."},
+                {"question": "Was ist der Unterschied zwischen 'which' und 'that' in defining clauses (US/UK-Nutzung)?", "answer": "That ist typisch fuer defining; which oft non-defining mit Komma."},
+                {"question": "Welche Form folgt auf 'would rather' für Gegenwart (anderes Subjekt)?", "answer": "Past simple."},
+            ],
+        },
+        "Sport": {
+            20: [
+                {"question": "Wie viele Spieler hat ein Rugby-Union-Team auf dem Feld?", "answer": "15."},
+                {"question": "Wie lang ist ein Standard-Tennis-Matchsatz im Tie-Break-Modus mindestens?", "answer": "Bis 6 Spiele mit 2 Vorsprung oder Tie-Break."},
+                {"question": "Wie viele Minuten dauert ein Eishockeyspiel regulär?", "answer": "60 Minuten."},
+                {"question": "Wie viele Bahnen hat ein olympisches Schwimmbecken häufig in Wettkämpfen?", "answer": "8 oder 10."},
+            ],
+            40: [
+                {"question": "Wie heißt die höchste Fußballliga in Deutschland?", "answer": "Bundesliga."},
+                {"question": "Welche Distanz hat ein Halbmarathon?", "answer": "21,0975 km."},
+                {"question": "Wie viele Punkte gibt ein Conversion Kick im Rugby Union?", "answer": "2."},
+                {"question": "Wie nennt man den Start aus dem Block im Sprint regeltechnisch?", "answer": "Tiefstart."},
+            ],
+            60: [
+                {"question": "Wie viele Schiedsrichter sind im Basketball nach FIBA meist auf dem Feld?", "answer": "3."},
+                {"question": "Welche Nation gewann die Fußball-WM 2022?", "answer": "Argentinien."},
+                {"question": "Wie lang ist eine Laufbahn-Runde?", "answer": "400 Meter."},
+                {"question": "Was bedeutet 'offside trap' im Fußball?", "answer": "Bewusstes Stellen einer Abseitsfalle."},
+            ],
+            80: [
+                {"question": "Wie wird im Radsport die Gesamtwertung der Tour de France gekennzeichnet?", "answer": "Gelbes Trikot."},
+                {"question": "Wie viele Durchgänge hat ein alpiner Riesenslalom?", "answer": "2."},
+                {"question": "Wie nennt man den Wurfkreis beim Diskuswurf nach IAAF-Maß ungefähr?", "answer": "2,50 m Durchmesser."},
+                {"question": "Was ist ein 'false start' im Sprint?", "answer": "Fehlstart."},
+            ],
+            100: [
+                {"question": "Wie nennt man die maximale Sauerstoffaufnahme in der Leistungsdiagnostik?", "answer": "VO2max."},
+                {"question": "Welche Spielsituation wird im Fußball per VAR auf klare Fehler geprüft?", "answer": "Tor, Elfmeter, direkte rote Karte, Spielerverwechslung."},
+                {"question": "Was ist der Unterschied zwischen anaerob-alaktazid und anaerob-laktazid kurz?", "answer": "Ohne Laktatbildung vs. mit Laktatbildung."},
+                {"question": "Welche Energiequelle dominiert bei sehr kurzen Maximalsprints unter 10 Sekunden?", "answer": "ATP-Kreatinphosphat-System."},
+            ],
+        },
+        "Biologie": {
+            20: [
+                {"question": "Wie heißt der Prozess vom Ablesen der DNA in RNA?", "answer": "Transkription."},
+                {"question": "Welche Blutgruppe gilt als Universalempfänger im AB0-System?", "answer": "AB."},
+                {"question": "Wie heißen die Zellorganellen für Zellatmung?", "answer": "Mitochondrien."},
+                {"question": "Wie nennt man den Grundbaustein von Proteinen?", "answer": "Aminosäure."},
+            ],
+            40: [
+                {"question": "Was macht ein Enzym grundsätzlich?", "answer": "Es katalysiert/beschleunigt Reaktionen."},
+                {"question": "Wie nennt man den Austausch von Allelen zwischen homologen Chromosomen in der Meiose?", "answer": "Crossing-over."},
+                {"question": "Welche Phase der Mitose trennt Chromatiden?", "answer": "Anaphase."},
+                {"question": "Wie heißt der gerichtete Transport von Wasser durch Membran?", "answer": "Osmose."},
+            ],
+            60: [
+                {"question": "Was ist die Funktion von mRNA?", "answer": "Transportiert genetische Information zur Proteinsynthese."},
+                {"question": "Wie nennt man den Anteil variabler Positionen in Populationen?", "answer": "Genetische Diversität."},
+                {"question": "Wie heißt der Prozess der Umwandlung von Lichtenergie in chemische Energie?", "answer": "Fotosynthese."},
+                {"question": "Welche Struktur enthält in Pflanzenzellen chlorophyllhaltige Thylakoide?", "answer": "Chloroplast."},
+            ],
+            80: [
+                {"question": "Was beschreibt die allosterische Hemmung?", "answer": "Enzymhemmung durch Bindung an anderer Stelle als dem aktiven Zentrum."},
+                {"question": "Wie heißt die Selektion gegen extreme Merkmalsausprägungen in der Mitte?", "answer": "Aufspaltende Selektion ist gegen Mitte; stabilisierende gegen Extreme."},
+                {"question": "Was ist Epigenetik kurz?", "answer": "Vererbbare Genregulation ohne Änderung der DNA-Sequenz."},
+                {"question": "Welche Immunzellen bilden Antikörper nach Aktivierung aus?", "answer": "B-Lymphozyten/Plasmazellen."},
+            ],
+            100: [
+                {"question": "Was beschreibt die Michaelis-Menten-Kinetik?", "answer": "Zusammenhang zwischen Substratkonzentration und Reaktionsgeschwindigkeit von Enzymen."},
+                {"question": "Was ist horizontale Genübertragung?", "answer": "Genübertragung zwischen Organismen außerhalb der Fortpflanzung."},
+                {"question": "Welche Technik nutzt CRISPR-Cas9?", "answer": "Gezielte Genomeditierung."},
+                {"question": "Was versteht man unter genetischer Drift?", "answer": "Zufällige Änderung von Allelhäufigkeiten."},
+            ],
+        },
+        "Geschichte": {
+            20: [
+                {"question": "Wann begann der Erste Weltkrieg?", "answer": "1914."},
+                {"question": "Wann endete der Zweite Weltkrieg in Europa?", "answer": "1945."},
+                {"question": "Wie heißt die politische Ordnung Europas nach 1945 mit West/Ost-Block?", "answer": "Kalter Krieg."},
+                {"question": "Wann fiel die Berliner Mauer?", "answer": "1989."},
+            ],
+            40: [
+                {"question": "Wie nennt man die politische Neuordnung Europas 1815?", "answer": "Wiener Kongress."},
+                {"question": "Wann wurde die BRD gegründet?", "answer": "1949."},
+                {"question": "Wie heißt die Reichsgründung Deutschlands im 19. Jahrhundert (Jahr)?", "answer": "1871."},
+                {"question": "Wie heißt die Revolution von 1789 in Frankreich?", "answer": "Französische Revolution."},
+            ],
+            60: [
+                {"question": "Was war die Weimarer Republik?", "answer": "Deutsche Demokratie von 1919 bis 1933."},
+                {"question": "Welche Krise traf die Weltwirtschaft 1929 schwer?", "answer": "Weltwirtschaftskrise."},
+                {"question": "Wie heißt der Wiederaufbauplan der USA nach 1945?", "answer": "Marshallplan."},
+                {"question": "Wann trat Deutschland der EU in ihrer Vorform EWG bei?", "answer": "1957 als Gruendungsmitglied."},
+            ],
+            80: [
+                {"question": "Was war der Auslöser des Ersten Weltkriegs?", "answer": "Attentat von Sarajevo."},
+                {"question": "Wie nennt man die Entspannungspolitik zwischen Ost und West in den 1970ern?", "answer": "Détente/Entspannungspolitik."},
+                {"question": "Wann wurde der Euro als Bargeld eingeführt?", "answer": "2002."},
+                {"question": "Welche Konferenz regelte 1945 Nachkriegsfragen in Deutschland?", "answer": "Potsdamer Konferenz."},
+            ],
+            100: [
+                {"question": "Was regelte der Westfälische Frieden 1648 grundlegend?", "answer": "Ende des Dreißigjährigen Krieges und neue europäische Ordnung."},
+                {"question": "Wie hieß die Politik Bismarcks zur Isolation Frankreichs?", "answer": "Buendnissystem Bismarcks."},
+                {"question": "Welche Bedeutung hatte die KSZE-Schlussakte von Helsinki 1975?", "answer": "Sicherheits- und Menschenrechtsrahmen in Europa."},
+                {"question": "Was war der Prager Frühling 1968?", "answer": "Reformbewegung in der Tschechoslowakei, durch Warschauer-Pakt-Truppen niedergeschlagen."},
+            ],
+        },
+        "Geografie": {
+            20: [
+                {"question": "Wie heißt die Hauptstadt von Japan?", "answer": "Tokio."},
+                {"question": "Wie heißt der längste Fluss Südamerikas?", "answer": "Amazonas."},
+                {"question": "Wie heißt die größte Insel der Erde?", "answer": "Gronland."},
+                {"question": "Welcher Ozean liegt östlich von Afrika?", "answer": "Indischer Ozean."},
+            ],
+            40: [
+                {"question": "Wie heißt die Hauptstadt von Brasilien?", "answer": "Brasilia."},
+                {"question": "Welche Meerenge verbindet Mittelmeer und Atlantik?", "answer": "Strasse von Gibraltar."},
+                {"question": "Welches Land hat die meisten Zeitzonen (inklusive Überseegebiete)?", "answer": "Frankreich."},
+                {"question": "Wie heißt der größte See Afrikas?", "answer": "Victoriasee."},
+            ],
+            60: [
+                {"question": "Welche Klimaklassifikation ist weltweit häufig genutzt?", "answer": "Koeppen-Geiger."},
+                {"question": "Wie heißt die Hauptstadt von Südafrika mit Regierungssitz (administrativ)?", "answer": "Pretoria."},
+                {"question": "Was ist ein Fjord?", "answer": "Tief eingeschnittene Meeresbucht glaezialen Ursprungs."},
+                {"question": "Wie heißt das Gebirge, das Europa und Asien traditionell trennt?", "answer": "Ural."},
+            ],
+            80: [
+                {"question": "Welche Zone beschreibt die ITCZ in der Klimatologie?", "answer": "Innertropische Konvergenzzone."},
+                {"question": "Wie heißt das Meer südlich von Europa und nördlich von Afrika?", "answer": "Mittelmeer."},
+                {"question": "Welche tektonische Ursache hat den Himalaya geformt?", "answer": "Kollision der Indischen mit der Eurasischen Platte."},
+                {"question": "Wie nennt man dauerhaft gefrorenen Boden in kalten Regionen?", "answer": "Permafrost."},
+            ],
+            100: [
+                {"question": "Wie heißt die Hauptstadt von Bolivien (verfassungsrechtlich)?", "answer": "Sucre."},
+                {"question": "Was ist der Unterschied zwischen Verwitterung und Erosion?", "answer": "Verwitterung zersetzt Gestein, Erosion transportiert es ab."},
+                {"question": "Welche geographische Breite markiert den nördlichen Wendekreis?", "answer": "23,5 Grad Nord."},
+                {"question": "Wie heißt die größte heiße Wüste Nordamerikas?", "answer": "Sonora-Wueste (oft genannt)."},
+            ],
+        },
+        "Musik": {
+            20: [
+                {"question": "Wie heißt die Tonart mit zwei Kreuzen (Dur)?", "answer": "D-Dur."},
+                {"question": "Welche Form hat ein Blues-Schema klassisch häufig?", "answer": "12-Takt-Blues."},
+                {"question": "Was bedeutet adagio?", "answer": "Langsam."},
+                {"question": "Wie nennt man den gleichbleibenden Bass in Barockmusik?", "answer": "Basso continuo."},
+            ],
+            40: [
+                {"question": "Wie heißt ein Akkord mit Grundton, Terz und Quinte?", "answer": "Dreiklang."},
+                {"question": "Was ist eine Kadenz in der Harmonielehre?", "answer": "Typische Akkordfolge mit Schlusswirkung."},
+                {"question": "Wie nennt man die Lehre von Tonarten und Akkorden?", "answer": "Harmonielehre."},
+                {"question": "Welches Intervall hat 7 Halbtonschritte?", "answer": "Quinte."},
+            ],
+            60: [
+                {"question": "Wie heißt die Form A-B-A im Lied oft?", "answer": "Da-Capo-Form."},
+                {"question": "Was ist Polyphonie?", "answer": "Mehrstimmigkeit mit eigenständigen Stimmen."},
+                {"question": "Wie nennt man den Leitton in C-Dur?", "answer": "H."},
+                {"question": "Wie heißt die Kirchentonart mit erhöhter 4. Stufe über Dur-Grundcharakter?", "answer": "Lydisch."},
+            ],
+            80: [
+                {"question": "Was ist ein Trugschluss in der Kadenzlehre?", "answer": "Unerwartete Auflösung, oft V nach VI statt I."},
+                {"question": "Wie nennt man die übermäßige Quarte/verringerte Quinte historisch?", "answer": "Tritonus."},
+                {"question": "Welche Form dominiert häufig den ersten Satz klassischer Sinfonien?", "answer": "Sonatenhauptsatzform."},
+                {"question": "Was bedeutet rubato?", "answer": "Freie Tempogestaltung."},
+            ],
+            100: [
+                {"question": "Wie heißt die Technik, bei der ein Motiv in verschiedenen Stimmen versetzt einsetzt?", "answer": "Imitation/Kanonprinzip."},
+                {"question": "Was ist eine enharmonische Verwechslung?", "answer": "Gleicher Klang mit anderer Notation."},
+                {"question": "Wie nennt man die verminderte Septime über dem Leittonakkord?", "answer": "Leittonseptakkord."},
+                {"question": "Welche Epoche folgt auf die Romantik in der Kunstmusik grob um 1900?", "answer": "Moderne."},
+            ],
+        },
+        "Mathe": {
+            20: [
+                {"question": "Was ist 18 x 7?", "answer": "126."},
+                {"question": "Was ist 256 : 16?", "answer": "16."},
+                {"question": "Was ist 15 Prozent von 240?", "answer": "36."},
+                {"question": "Löse: 4x + 12 = 44.", "answer": "x = 8."},
+            ],
+            40: [
+                {"question": "Wie lautet die binomische Formel (a+b)^2?", "answer": "a^2 + 2ab + b^2."},
+                {"question": "Wie groß ist die Wahrscheinlichkeit bei fairem Münzwurf für Kopf?", "answer": "1/2."},
+                {"question": "Löse: 3x - 2 = 4x + 5.", "answer": "x = -7."},
+                {"question": "Wie lautet die Formel für die Steigung zwischen zwei Punkten?", "answer": "(y2-y1)/(x2-x1)."},
+            ],
+            60: [
+                {"question": "Was ist die Ableitung von x^3?", "answer": "3x^2."},
+                {"question": "Wie lautet die Umkehrfunktion von f(x)=2x+6?", "answer": "f^-1(x)=(x-6)/2."},
+                {"question": "Wie groß ist sin(90 Grad)?", "answer": "1."},
+                {"question": "Was ist ln(1)?", "answer": "0."},
+            ],
+            80: [
+                {"question": "Welche Gleichung beschreibt einen Kreis mit Mittelpunkt (0,0) und Radius r?", "answer": "x^2 + y^2 = r^2."},
+                {"question": "Was ist die Determinante von [[a,b],[c,d]]?", "answer": "ad - bc."},
+                {"question": "Wie lautet die Summenformel 1+2+...+n?", "answer": "n(n+1)/2."},
+                {"question": "Wie heißt der Satz a^2+b^2=c^2?", "answer": "Satz des Pythagoras."},
+            ],
+            100: [
+                {"question": "Wann ist eine quadratische Funktion konkav nach oben?", "answer": "Wenn der x^2-Koeffizient positiv ist."},
+                {"question": "Was ist die Stammfunktion von 2x?", "answer": "x^2 + C."},
+                {"question": "Wie lautet e^(ln(x)) für x>0?", "answer": "x."},
+                {"question": "Was beschreibt das Integral einer Geschwindigkeit über die Zeit?", "answer": "Zurueckgelegter Weg (Ortsaenderung)."},
+            ],
+        },
+        "Physik": {
+            20: [
+                {"question": "Welche Einheit hat die Kraft?", "answer": "Newton."},
+                {"question": "Wie schnell ist Licht im Vakuum ungefähr?", "answer": "300.000 km/s."},
+                {"question": "Wie heißt die Kraft, die Körper zur Erde zieht?", "answer": "Gravitation."},
+                {"question": "Welche Einheit hat elektrische Spannung?", "answer": "Volt."},
+            ],
+            40: [
+                {"question": "Wie lautet die Formel für Geschwindigkeit?", "answer": "Strecke durch Zeit (v=s/t)."},
+                {"question": "Wie heißt der Übergang von flüssig zu gasförmig?", "answer": "Verdampfen."},
+                {"question": "Welche Einheit misst Frequenz?", "answer": "Hertz."},
+                {"question": "Welche Teilchen tragen negative Ladung?", "answer": "Elektronen."},
+            ],
+            60: [
+                {"question": "Wie lautet das Ohmsche Gesetz?", "answer": "U = R mal I."},
+                {"question": "Wie heißt die Energieform gespeicherter Lage?", "answer": "Potenzielle Energie."},
+                {"question": "Welche Einheit hat Leistung?", "answer": "Watt."},
+                {"question": "Wie nennt man die Trägheit eines Körpers gegen Beschleunigung?", "answer": "Masse/Traegheit."},
+            ],
+            80: [
+                {"question": "Wie lautet die Formel für kinetische Energie?", "answer": "1/2 m v^2."},
+                {"question": "Wie nennt man den Widerstand gegen Stromfluss in Leitern?", "answer": "Elektrischer Widerstand."},
+                {"question": "Welche Art Strahlung hat die kürzeste Wellenlänge im sichtbaren Umfeld darüber hinaus?", "answer": "Gammastrahlung/hochenergetische Strahlung."},
+                {"question": "Wie heißt die Bewegung mit konstanter Winkelgeschwindigkeit auf Kreisbahn?", "answer": "Gleichfoermige Kreisbewegung."},
+            ],
+            100: [
+                {"question": "Was beschreibt die zweite Newtonsche Axiomformel?", "answer": "F = m mal a."},
+                {"question": "Wie nennt man die Energieerhaltung in abgeschlossenem System?", "answer": "Energieerhaltungssatz."},
+                {"question": "Was ist die Planck-Konstante einzuordnen?", "answer": "Naturkonstante der Quantenphysik."},
+                {"question": "Wie lautet die Grundidee von Einsteins Relativität in einem Satz?", "answer": "Raum und Zeit sind relativ und verknuepft zu Raumzeit."},
+            ],
+        },
+        "Chemie": {
+            20: [
+                {"question": "Wie lautet die Formel von Wasser?", "answer": "H2O."},
+                {"question": "Welches Element hat das Symbol O?", "answer": "Sauerstoff."},
+                {"question": "Wie heißt Kochsalz chemisch?", "answer": "Natriumchlorid."},
+                {"question": "Wie nennt man Stoffe mit pH kleiner 7?", "answer": "Saeuren."},
+            ],
+            40: [
+                {"question": "Wie heißt das negativ geladene Teilchen im Atom?", "answer": "Elektron."},
+                {"question": "Welches Element hat das Symbol Fe?", "answer": "Eisen."},
+                {"question": "Wie nennt man die kleinste Einheit einer chemischen Verbindung?", "answer": "Molekuel."},
+                {"question": "Was entsteht bei Neutralisation von Saeure und Base oft?", "answer": "Salz und Wasser."},
+            ],
+            60: [
+                {"question": "Wie viele Protonen hat Kohlenstoff?", "answer": "6."},
+                {"question": "Welche Bindung entsteht durch Elektronenpaar-Teilung?", "answer": "Kovalente Bindung."},
+                {"question": "Was beschreibt das Periodensystem?", "answer": "Anordnung der Elemente nach Ordnungszahl und Eigenschaften."},
+                {"question": "Wie heißt die Stoffmenge-Einheit?", "answer": "Mol."},
+            ],
+            80: [
+                {"question": "Wie lautet die Oxidationszahl von Sauerstoff in den meisten Verbindungen?", "answer": "-2."},
+                {"question": "Was ist ein Katalysator?", "answer": "Stoff, der Reaktion beschleunigt und nicht verbraucht wird."},
+                {"question": "Wie nennt man Reaktionen mit Elektronenübertragung?", "answer": "Redoxreaktionen."},
+                {"question": "Wie lautet die allgemeine Formel von Alkanen?", "answer": "CnH2n+2."},
+            ],
+            100: [
+                {"question": "Was beschreibt das Massenwirkungsgesetz?", "answer": "Beziehung zwischen Konzentrationen im chemischen Gleichgewicht."},
+                {"question": "Wie heißt der pH-Bereich einer starken Base ungefähr?", "answer": "Nahe 14."},
+                {"question": "Was ist der Unterschied zwischen endotherm und exotherm?", "answer": "Endotherm nimmt Energie auf, exotherm gibt Energie ab."},
+                {"question": "Welche Bindungsart hat Natriumchlorid überwiegend?", "answer": "Ionenbindung."},
+            ],
+        },
+        "Informatik": {
+            20: [
+                {"question": "Was bedeutet RAM?", "answer": "Random Access Memory."},
+                {"question": "Welche Einheit misst Datenmengen?", "answer": "Byte."},
+                {"question": "Wie nennt man den zentralen Rechner in einem Netzwerkdienst?", "answer": "Server."},
+                {"question": "Wie heißt die Sprache, die Webseiten strukturiert?", "answer": "HTML."},
+            ],
+            40: [
+                {"question": "Wofür steht SQL?", "answer": "Structured Query Language."},
+                {"question": "Wie nennt man ein Datenmodell mit Tabellen?", "answer": "Relationale Datenbank."},
+                {"question": "Was ist ein Betriebssystem?", "answer": "Grundsoftware zur Verwaltung von Hardware und Programmen."},
+                {"question": "Wie nennt man den Prozess, Quellcode in Maschinencode zu übersetzen?", "answer": "Kompilieren."},
+            ],
+            60: [
+                {"question": "Was ist der Unterschied zwischen HTTP und HTTPS?", "answer": "HTTPS ist verschluesselt per TLS."},
+                {"question": "Was bedeutet OOP?", "answer": "Objektorientierte Programmierung."},
+                {"question": "Wie nennt man eine Datenstruktur nach dem LIFO-Prinzip?", "answer": "Stack."},
+                {"question": "Was beschreibt ein REST-API grob?", "answer": "Ressourcenorientierte Web-Schnittstelle mit HTTP-Methoden."},
+            ],
+            80: [
+                {"question": "Was ist ein Deadlock?", "answer": "Blockierung durch gegenseitiges Warten von Prozessen/Threads."},
+                {"question": "Wie nennt man unveränderliche Datenobjekte?", "answer": "Immutable Objekte."},
+                {"question": "Was ist der Zweck eines Index in Datenbanken?", "answer": "Schnellere Abfragen."},
+                {"question": "Wie nennt man den Schutz gegen Cross-Site Request Forgery?", "answer": "CSRF-Schutz/Token."},
+            ],
+            100: [
+                {"question": "Was beschreibt CAP-Theorem in verteilten Systemen?", "answer": "Nicht gleichzeitig volle Konsistenz, Verfuegbarkeit und Partitionstoleranz."},
+                {"question": "Was ist der Unterschied zwischen symmetrischer und asymmetrischer Verschlüsselung?", "answer": "Ein gemeinsamer Schluessel vs. Schluesselpaar."},
+                {"question": "Was bedeutet ACID bei Datenbanken?", "answer": "Atomicity, Consistency, Isolation, Durability."},
+                {"question": "Was ist ein Race Condition?", "answer": "Fehler durch zeitkritischen gleichzeitigen Zugriff."},
+            ],
+        },
+        "Politik & Gesellschaft": {
+            20: [
+                {"question": "Wie oft wird der Bundestag regulär gewählt?", "answer": "Alle 4 Jahre."},
+                {"question": "Wie heißt das Parlament in Deutschland?", "answer": "Bundestag."},
+                {"question": "Wie nennt man die Gewaltenteilung in drei Bereiche? Nenne einen.", "answer": "Legislative, Exekutive oder Judikative."},
+                {"question": "Wie heißt die Hauptstadt der EU-Institutionen oft politisch genannt?", "answer": "Bruessel."},
+            ],
+            40: [
+                {"question": "Was bedeutet Demokratie in einem Satz?", "answer": "Herrschaft geht vom Volk aus."},
+                {"question": "Wie heißt das Staatsoberhaupt in Deutschland?", "answer": "Bundespraesident."},
+                {"question": "Wie viele Mitgliedsstaaten hatte die EU Stand 2026?", "answer": "27."},
+                {"question": "Was ist ein Kompromiss?", "answer": "Einigung durch gegenseitige Zugestaendnisse."},
+            ],
+            60: [
+                {"question": "Was ist der Unterschied zwischen Verhältnis- und Mehrheitswahl grob?", "answer": "Verhaeltniswahl bildet Stimmenanteile ab, Mehrheitswahl bevorzugt Sieger pro Wahlkreis."},
+                {"question": "Wie heißt die deutsche Verfassung?", "answer": "Grundgesetz."},
+                {"question": "Was ist Föderalismus in Deutschland?", "answer": "Aufteilung von Staatsaufgaben zwischen Bund und Laendern."},
+                {"question": "Wie nennt man gezielte Falschinformationen in politischen Debatten?", "answer": "Desinformation."},
+            ],
+            80: [
+                {"question": "Was prüft das Bundesverfassungsgericht?", "answer": "Vereinbarkeit von Gesetzen und staatlichem Handeln mit dem Grundgesetz."},
+                {"question": "Wie nennt man den Haushaltssaldo zwischen Staatseinnahmen und -ausgaben?", "answer": "Budgetsaldo/Haushaltssaldo."},
+                {"question": "Was ist politische Partizipation?", "answer": "Beteiligung an politischen Entscheidungsprozessen."},
+                {"question": "Wofür steht die Abkürzung NGO?", "answer": "Nichtregierungsorganisation."},
+            ],
+            100: [
+                {"question": "Was ist der Unterschied zwischen Rechtsstaat und Willkürherrschaft?", "answer": "Rechtsstaat bindet Macht an Gesetze und Kontrolle, Willkuerherrschaft nicht."},
+                {"question": "Was versteht man unter sozialer Marktwirtschaft?", "answer": "Marktwirtschaft mit sozialem Ausgleich und staatlichem Rahmen."},
+                {"question": "Wie heißt das Prinzip, nach dem Entscheidungen möglichst auf niedriger Ebene getroffen werden sollen (EU)?", "answer": "Subsidiaritaetsprinzip."},
+                {"question": "Was bedeutet Pluralismus in einer Gesellschaft?", "answer": "Anerkennung mehrerer legitimer Meinungen und Lebensformen."},
+            ],
+        },
+        "Allgemeinwissen": {
+            20: [
+                {"question": "Wie viele Stunden hat eine Woche?", "answer": "168."},
+                {"question": "Welcher Planet ist der größte im Sonnensystem?", "answer": "Jupiter."},
+                {"question": "Wie viele Milliliter sind 1 Liter?", "answer": "1000."},
+                {"question": "Wie heißt die Einheit für elektrische Leistung?", "answer": "Watt."},
+            ],
+            40: [
+                {"question": "Wie viele Knochen hat der Mensch im Erwachsenenalter meistens?", "answer": "206."},
+                {"question": "Welches Metall hat das chemische Symbol Au?", "answer": "Gold."},
+                {"question": "Wie viele Länder bilden das Vereinigte Königreich?", "answer": "4."},
+                {"question": "Wie heißt die Hauptstadt von Australien?", "answer": "Canberra."},
+            ],
+            60: [
+                {"question": "Was ist die SI-Einheit der Frequenz?", "answer": "Hertz."},
+                {"question": "Welches Gas entsteht bei vollständiger Verbrennung von Kohlenstoff hauptsächlich?", "answer": "Kohlendioxid."},
+                {"question": "Wie heißt das längste Knochen im menschlichen Körper?", "answer": "Oberschenkelknochen/Femur."},
+                {"question": "Wie viele Nullen hat eine Milliarde?", "answer": "9."},
+            ],
+            80: [
+                {"question": "Wer formulierte die allgemeine Relativitätstheorie?", "answer": "Albert Einstein."},
+                {"question": "Welche Einheit misst elektrische Ladung?", "answer": "Coulomb."},
+                {"question": "Welche Stadt ist Sitz der Vereinten Nationen (Hauptquartier)?", "answer": "New York."},
+                {"question": "Welche Sprache hat weltweit die meisten Muttersprachler?", "answer": "Mandarin-Chinesisch."},
+            ],
+            100: [
+                {"question": "Was beschreibt der zweite Hauptsatz der Thermodynamik vereinfacht?", "answer": "Entropie in abgeschlossenen Systemen nimmt nicht ab."},
+                {"question": "Welche Zahl ist der Näherungswert von pi auf 4 Nachkommastellen?", "answer": "3,1416."},
+                {"question": "Wie lautet die chemische Formel von Schwefelsäure?", "answer": "H2SO4."},
+                {"question": "Wie heißt die Hauptstadt von Kanada?", "answer": "Ottawa."},
+            ],
+        },
+    },
 }
+
+
+def _points_quiz_bank_for_age(age: str) -> dict:
+    if age not in POINTS_QUIZ_RANDOM_BANK:
+        return POINTS_QUIZ_RANDOM_BANK["mid"]
+    return POINTS_QUIZ_RANDOM_BANK[age]
+
+
+def _points_quiz_age_label(age: str) -> str:
+    for key, label in POINTS_QUIZ_AGE_OPTIONS:
+        if key == age:
+            return label
+    return "11 - 16 Jahre"
 
 
 def new_custom_quiz_id() -> str:
@@ -6548,15 +7395,25 @@ def points_quiz_is_playable(quiz: dict) -> bool:
     )
 
 
-def build_random_points_quiz() -> dict:
-    categories_pool = list(POINTS_QUIZ_RANDOM_BANK.items())
+def build_random_points_quiz(age: str = "mid") -> dict:
+    age = age if age in {opt[0] for opt in POINTS_QUIZ_AGE_OPTIONS} else "mid"
+    age_bank = _points_quiz_bank_for_age(age)
+    categories_pool = list(age_bank.items())
     picked = random.sample(categories_pool, k=min(POINTS_QUIZ_DEFAULT_CATEGORIES, len(categories_pool)))
     categories = []
-    for cat_name, entries in picked:
-        picked_questions = random.sample(entries, k=min(len(POINTS_QUIZ_POINT_VALUES), len(entries)))
+    used_prompts: set[str] = set()
+    for cat_name, level_map in picked:
         questions = []
-        for idx, points in enumerate(POINTS_QUIZ_POINT_VALUES):
-            entry = picked_questions[idx]
+        for points in POINTS_QUIZ_POINT_VALUES:
+            entries = list(level_map.get(points, []))
+            if not entries:
+                fallback = [q for lvl_entries in level_map.values() for q in lvl_entries]
+                entries = fallback
+            if not entries:
+                continue
+            candidates = [item for item in entries if str(item.get("question", "")).strip().lower() not in used_prompts]
+            entry = random.choice(candidates or entries)
+            used_prompts.add(str(entry.get("question", "")).strip().lower())
             questions.append({
                 "points": points,
                 "question": entry["question"],
@@ -6571,6 +7428,8 @@ def build_random_points_quiz() -> dict:
         "is_draft": False,
         "categories": categories,
         "source": "random",
+        "age_group": age,
+        "age_label": _points_quiz_age_label(age),
     })
 
 
@@ -6899,9 +7758,9 @@ def show_points_quiz_hub(page: ft.Page, state: dict):
         content=ft.Column(
             [
                 ft.Text("🎲 Zufälliges Punkte-Quiz", size=22, weight="bold", color="white"),
-                ft.Text("Erstellt sofort ein fertiges Brett aus gemischten Kategorien.", size=13, color=theme_txt(theme, "secondary")),
+                ft.Text("Erstellt ein fertiges Brett mit Alterswahl, Schwierigkeitsstufen und gemischten Kategorien.", size=13, color=theme_txt(theme, "secondary")),
                 ft.Container(height=8),
-                _game_menu_button("Jetzt spielen", lambda e: show_points_quiz_team_setup(e.page, state, build_random_points_quiz()), theme["gold"], width=220),
+                _game_menu_button("Jetzt spielen", lambda e: show_points_quiz_team_setup(e.page, state, build_random_points_quiz("mid"), "mid"), theme["gold"], width=220),
             ],
             spacing=6,
         ),
@@ -7005,9 +7864,13 @@ def show_points_quiz_hub(page: ft.Page, state: dict):
     page.update()
 
 
-def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict):
-    _set_resize_view(state, show_points_quiz_team_setup, quiz)
+def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict, default_age: str = "mid"):
+    _set_resize_view(state, show_points_quiz_team_setup, quiz, default_age)
     quiz = normalize_points_quiz(quiz)
+    is_random_quiz = quiz.get("source") == "random"
+    selected_age = default_age if default_age in {opt[0] for opt in POINTS_QUIZ_AGE_OPTIONS} else str(quiz.get("age_group", "mid"))
+    if selected_age not in {opt[0] for opt in POINTS_QUIZ_AGE_OPTIONS}:
+        selected_age = "mid"
     if not points_quiz_is_playable(quiz):
         page.snack_bar = ft.SnackBar(content=ft.Text("Dieses Punkte-Quiz ist noch nicht vollständig ausgefüllt."))
         page.snack_bar.open = True
@@ -7027,6 +7890,16 @@ def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict):
         bgcolor=theme["question_bg"],
         color=theme["question_text"],
         border_color=theme["border"],
+    )
+    age_dropdown = ft.Dropdown(
+        label="Altersgruppe",
+        width=240,
+        value=selected_age,
+        options=[ft.dropdown.Option(k, text=label) for k, label in POINTS_QUIZ_AGE_OPTIONS],
+        bgcolor=theme["question_bg"],
+        color=theme["question_text"],
+        border_color=theme["border"],
+        visible=is_random_quiz,
     )
     team_fields = []
     fields_column = ft.Column(spacing=8)
@@ -7060,11 +7933,15 @@ def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict):
     team_count.on_select = on_team_count_change
 
     def start_game(e):
+        start_quiz = quiz
+        if is_random_quiz:
+            age = age_dropdown.value if age_dropdown.value in {opt[0] for opt in POINTS_QUIZ_AGE_OPTIONS} else "mid"
+            start_quiz = build_random_points_quiz(age)
         teams = []
         for idx, field in enumerate(team_fields):
             name = (field.value or "").strip() or _points_quiz_team_label(idx)
             teams.append({"name": name, "score": 0})
-        start_points_quiz_session(page, state, quiz, teams)
+        start_points_quiz_session(page, state, start_quiz, teams)
 
     page.controls.clear()
     page.add(
@@ -7085,7 +7962,9 @@ def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict):
                             content=ft.Column(
                                 [
                                     ft.Text(quiz.get("title", "Punkte-Quiz"), size=28, weight="w900", color="white", text_align=ft.TextAlign.CENTER),
-                                    ft.Text("Lege die Teams fest und starte danach das Brett.", size=13, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                                    ft.Text("Lege Teams fest und starte danach das Brett.", size=13, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                                    ft.Text("Altersstufe passt den Fragenpool an." if is_random_quiz else "Bei eigenen Quizzen bleiben deine Fragen unverändert.", size=12, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                                    age_dropdown,
                                     team_count,
                                     fields_column,
                                     ft.Row(
