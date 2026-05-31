@@ -9590,14 +9590,15 @@ def open_page_dialog(page: ft.Page, dlg: ft.AlertDialog):
     if hasattr(page, "open"):
         try:
             page.open(dlg)
-            page.update()
-            return
         except Exception:
             pass
     page.dialog = dlg
     dlg.open = True
-    if dlg not in page.overlay:
-        page.overlay.append(dlg)
+    try:
+        if dlg not in page.overlay:
+            page.overlay.append(dlg)
+    except Exception:
+        pass
     page.update()
 
 
@@ -9605,14 +9606,22 @@ def close_page_dialog(page: ft.Page, dlg: ft.AlertDialog):
     if hasattr(page, "close"):
         try:
             page.close(dlg)
-            page.update()
-            return
         except Exception:
             pass
-    dlg.open = False
-    page.dialog = None
-    if dlg in page.overlay:
-        page.overlay.remove(dlg)
+    try:
+        dlg.open = False
+    except Exception:
+        pass
+    try:
+        if getattr(page, "dialog", None) is dlg:
+            page.dialog = None
+    except Exception:
+        pass
+    try:
+        while dlg in page.overlay:
+            page.overlay.remove(dlg)
+    except Exception:
+        pass
     page.update()
 
 
