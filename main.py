@@ -1411,6 +1411,20 @@ def _sync_page_route(page: ft.Page, route: str):
         pass
 
 
+def _go_route_or_render(page: ft.Page, route: str, renderer, state: dict):
+    try:
+        if getattr(page, "route", None) == route:
+            renderer(page, state)
+        else:
+            page.go(route)
+    except Exception:
+        renderer(page, state)
+
+
+def _go_home(page: ft.Page, state: dict):
+    _go_route_or_render(page, "/", open_main_menu, state)
+
+
 def _is_video_background(src: str | None) -> bool:
     return bool(src) and str(src).lower().endswith(".mp4")
 
@@ -1459,6 +1473,22 @@ def _resolve_theme_background(theme_key: str, role: str, allow_video: bool = Tru
     return None
 
 
+def _video_poster_source(src: str | None) -> str | None:
+    if not src or not _is_video_background(src):
+        return None
+    folder, filename = os.path.split(src)
+    stem, _ext = os.path.splitext(filename)
+    folder_abs = os.path.join("assets", folder) if folder else "assets"
+    if not os.path.isdir(folder_abs):
+        return None
+    files_by_lower = {name.lower(): name for name in os.listdir(folder_abs)}
+    for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+        real_name = files_by_lower.get(f"{stem.lower()}{ext}")
+        if real_name:
+            return f"{folder}/{real_name}" if folder else real_name
+    return None
+
+
 def _build_looping_background_from_src(page: ft.Page, src: str | None) -> ft.Control | None:
     if not src:
         return None
@@ -1466,7 +1496,7 @@ def _build_looping_background_from_src(page: ft.Page, src: str | None) -> ft.Con
     width, height = max(1, int(page_w)), max(1, int(page_h))
 
     if _is_video_background(src) and FletVideo and VideoMedia and PlaylistMode:
-        return FletVideo(
+        video = FletVideo(
             expand=True,
             width=width,
             height=height,
@@ -1474,11 +1504,21 @@ def _build_looping_background_from_src(page: ft.Page, src: str | None) -> ft.Con
             playlist_mode=PlaylistMode.LOOP,
             autoplay=True,
             muted=True,
-            fill_color="#000000",
+            fill_color="#120D06",
             fit=ft.BoxFit.COVER,
             show_controls=False,
             aspect_ratio=None,
         )
+        poster_src = _video_poster_source(src)
+        if poster_src:
+            return ft.Stack(
+                [
+                    ft.Image(src=poster_src, fit=ft.BoxFit.COVER, width=width, height=height),
+                    video,
+                ],
+                expand=True,
+            )
+        return video
 
     return ft.Image(
         src=src,
@@ -1568,17 +1608,26 @@ def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay
     """Background stretched to the full viewport (bottom layer in game Stack)."""
     w, h = max(1, int(page_w)), max(1, int(page_h))
     if _is_video_background(bg_image) and FletVideo and VideoMedia and PlaylistMode:
-        media = FletVideo(
+        video = FletVideo(
             width=w,
             height=h,
             playlist=[VideoMedia(bg_image)],
             playlist_mode=PlaylistMode.LOOP,
             autoplay=True,
             muted=True,
-            fill_color="#000000",
+            fill_color="#120D06",
             fit=ft.BoxFit.COVER,
             show_controls=False,
             aspect_ratio=None,
+        )
+        poster_src = _video_poster_source(bg_image)
+        media = ft.Stack(
+            [
+                ft.Image(src=poster_src, fit=ft.BoxFit.COVER, width=w, height=h) if poster_src else ft.Container(width=w, height=h, bgcolor="#120D06"),
+                video,
+            ],
+            width=w,
+            height=h,
         )
     else:
         media = ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h)
@@ -5348,7 +5397,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         state["current_user_email"] = None
         state["current_user_uid"] = None
         page.run_task(clear_remembered_login, e.page)
-        open_main_menu(e.page, state)
+        _go_home(e.page, state)
 
     def resume_game(e):
         resume_saved_game(e.page, state)
@@ -6766,15 +6815,15 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
 
     cards = ft.Column(
         [
-            portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: e.page.go("/wwm")),
-            portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: e.page.go("/points")),
+            portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: _go_route_or_render(e.page, "/wwm", open_wwm_main_menu, state)),
+            portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: _go_route_or_render(e.page, "/points", show_points_quiz_hub, state)),
         ],
         spacing=16,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
     ) if mobile else ft.Row(
         [
-            portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: e.page.go("/wwm")),
-            portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: e.page.go("/points")),
+            portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: _go_route_or_render(e.page, "/wwm", open_wwm_main_menu, state)),
+            portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: _go_route_or_render(e.page, "/points", show_points_quiz_hub, state)),
         ],
         spacing=18 if not compact else 14,
         run_spacing=18,
@@ -8842,7 +8891,7 @@ def show_exit_confirmation(page: ft.Page, state: dict):
                     "friend_until": state.get("friend_until"),
                 }
                 save_db(db_current)
-        open_main_menu(e.page, state)
+        _go_home(e.page, state)
 
     def on_resume_game(e):
         show_next_question(e.page, state)
@@ -8983,7 +9032,7 @@ def _show_wrong_screen(page: ft.Page, state: dict):
                             ft.Text(f"Dein Gewinn: {state.get('money', '0 €')}",
                                     size=22, color=theme["gold"], weight="bold"),
                             ft.Container(height=20),
-                            _theme_action_button("🏠  Zurück zum Menü", theme, lambda e: open_main_menu(e.page, state), width=320, bg=theme.get("danger", "#C0392B")),
+                            _theme_action_button("🏠  Zurück zum Menü", theme, lambda e: _go_home(e.page, state), width=320, bg=theme.get("danger", "#C0392B")),
                         ], alignment=ft.MainAxisAlignment.CENTER,
                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                            spacing=12),
@@ -9118,7 +9167,7 @@ def _show_win_screen(page: ft.Page, state: dict):
                 ft.Container(height=20),
                 ft.Container(
                     content=ft.Text("🏠  Zurück zum Menü", size=18, weight="bold", color="white"),
-                    on_click=lambda e: open_main_menu(e.page, state),
+                    on_click=lambda e: _go_home(e.page, state),
                     bgcolor="#2C1654",
                     border_radius=50,
                     padding=ft.Padding(40, 14, 40, 14),
