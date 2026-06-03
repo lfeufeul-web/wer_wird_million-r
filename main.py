@@ -5525,12 +5525,18 @@ def _path_nodes(points: list[tuple[float, float]], labels: list[str]) -> list[di
 
 
 def _questions_path_map_art_asset() -> str:
+    return "Fragenpfad/questions_path_forest.png"
+
+
+def _questions_path_island_hub_asset() -> str:
     folder = os.path.join("assets", "Fragenpfad")
     best_path = None
     best_size = -1
     if os.path.isdir(folder):
         for name in os.listdir(folder):
             if not name.lower().endswith(".png"):
+                continue
+            if name.lower() == "questions_path_forest.png":
                 continue
             path = os.path.join(folder, name)
             if not os.path.isfile(path):
@@ -5635,12 +5641,12 @@ def build_questions_path_questions(age: str, map_key: str, state: dict | None = 
     questions: list[dict] = []
     for node_idx in range(total_nodes):
         level_idx = min(len(bank) - 1, int(round(node_idx * (len(bank) - 1) / max(total_nodes - 1, 1))))
-        candidates = [_path_question_to_dict(q) for q in bank[level_idx]]
+        candidates = list(bank[level_idx] or [])
         if not candidates:
-            candidates = [{"question": f"Frage {node_idx + 1}", "answers": ["A", "B", "C", "D"], "correct_idx": 0}]
-        candidates = [q for q in candidates if q["question"].strip().lower() not in used]
+            candidates = [(f"Frage {node_idx + 1}", ["A", "B", "C", "D"], 0)]
+        candidates = [q for q in candidates if _question_prompt_key(q) not in used]
         if not candidates:
-            candidates = [{"question": f"Frage {node_idx + 1}", "answers": ["A", "B", "C", "D"], "correct_idx": 0}]
+            candidates = [(f"Frage {node_idx + 1}", ["A", "B", "C", "D"], 0)]
         pool = candidates
         best_score = None
         chosen = None
@@ -5651,8 +5657,8 @@ def build_questions_path_questions(age: str, map_key: str, state: dict | None = 
                 chosen = question
         if chosen is None:
             chosen = random.choice(pool)
-        used.add(chosen["question"].strip().lower())
-        questions.append(chosen)
+        used.add(_question_prompt_key(chosen))
+        questions.append(_path_question_to_dict(chosen))
     return questions
 
 
@@ -8356,8 +8362,9 @@ def show_questions_path_hub(page: ft.Page, state: dict):
             expand=True,
             content=ft.Stack(
                 [
-                    ft.Container(expand=True, bgcolor="#08141C"),
-                    ft.Container(expand=True, bgcolor="#1D4ED811"),
+                    ft.Image(src=_questions_path_island_hub_asset(), fit=ft.BoxFit.COVER, expand=True),
+                    ft.Container(expand=True, bgcolor="#071B12B8"),
+                    ft.Container(expand=True, bgcolor="#1D4ED82E"),
                     _settings_corner_overlay(page, state),
                     ft.Container(
                         expand=True,
