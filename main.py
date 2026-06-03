@@ -16014,30 +16014,6 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
 
         return _handler
 
-    def visible_button(left: int, top: int, width: int, height: int, level_index: int):
-        size = max(70, min(width, height))
-        done_before = level_index < max(0, unlocked_islands - 1)
-        active_now = level_index == max(0, unlocked_islands - 1)
-        button_color = "#22C55E" if done_before else ("#2563EB" if active_now else "#0F172A00")
-        border_color = "#86EFAC" if done_before else ("#93C5FD" if active_now else "#00000000")
-        return ft.Container(
-            left=left + max(0, (width - size) // 2),
-            top=top + max(0, (height - size) // 2),
-            width=size,
-            height=size,
-            border_radius=999,
-            bgcolor=button_color,
-            border=ft.border.Border.all(4, border_color),
-            shadow=ft.BoxShadow(blur_radius=22, color="#55000000", spread_radius=1),
-            opacity=1 if level_index < unlocked_islands else 0,
-            on_click=open_level(level_index),
-            content=ft.Container(
-                alignment=ft.Alignment(0, 0),
-                padding=4,
-                content=ft.Image(src=_questions_path_level_start_asset(), fit=ft.BoxFit.CONTAIN, expand=True),
-            ),
-        )
-
     def invisible_hotspot(left: int, top: int, width: int, height: int, level_index: int):
         return ft.Container(
             left=left,
@@ -16060,7 +16036,6 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
         stage_layers.append(
             invisible_hotspot(left, top, width, height, idx)
         )
-        stage_layers.append(visible_button(left, top, width, height, idx))
 
     page.controls.clear()
     page.add(
@@ -16136,21 +16111,10 @@ def _questions_path_render_level(page: ft.Page, state: dict):
         top=point_top,
         width=96,
         height=96,
+        border_radius=999,
+        bgcolor="#00000001",
         on_click=start_or_question,
         content=ft.Image(src=_questions_path_level_start_asset(), fit=ft.BoxFit.CONTAIN, expand=True),
-    )
-
-    nav_bar = ft.Container(
-        expand=True,
-        padding=16,
-        content=ft.Row(
-            [
-                _game_menu_button("← Inselkarte", lambda e: _questions_path_render_islands(e.page, state), "#475569", width=160, height=40),
-                ft.Text("Fragen-Pfad", size=28, weight="bold", color="white"),
-                ft.Container(width=160),
-            ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-        ),
     )
 
     def answer_handler(answer_index: int):
@@ -16215,7 +16179,6 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                 [
                     ft.Image(src=_questions_path_level_background_asset(), fit=ft.BoxFit.COVER, expand=True),
                     ft.Container(expand=True, bgcolor="#07101870"),
-                    ft.Container(expand=True),
                     start_button,
                     ft.Container(
                         expand=True,
@@ -16246,7 +16209,17 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                             ),
                         ),
                     ),
-                    nav_bar,
+                    ft.Container(
+                        left=16,
+                        top=16,
+                        content=_game_menu_button("← Inselkarte", lambda e: _questions_path_render_islands(e.page, state), "#475569", width=160, height=40),
+                    ),
+                    ft.Container(
+                        left=0,
+                        top=12,
+                        right=0,
+                        content=ft.Text("Fragen-Pfad", size=28, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                    ),
                 ],
                 expand=True,
             ),
