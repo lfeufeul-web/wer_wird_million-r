@@ -575,7 +575,7 @@ def init_bg_music(page: ft.Page):
             return None
         audio_kwargs = {
             "src": f"audio/{BG_MUSIC_FILE}",
-            "autoplay": False,
+            "autoplay": True,
             "volume": 0.22,
         }
         release_mode = getattr(ft, "ReleaseMode", None)
@@ -7883,8 +7883,8 @@ def show_questions_path_hub(page: ft.Page, state: dict):
         color="white",
         border_color=theme["border"],
         options=[ft.dropdown.Option(k, text=label) for k, label in POINTS_QUIZ_AGE_OPTIONS],
-        on_change=lambda e: state.__setitem__("questions_path_age", e.control.value),
     )
+    age_dropdown.on_change = lambda e: state.__setitem__("questions_path_age", e.control.value)
 
     map_cards = []
     for map_key, map_cfg in QUESTIONS_PATH_MAPS.items():
