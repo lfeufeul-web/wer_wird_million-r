@@ -7827,7 +7827,7 @@ def render_questions_path_complete(page: ft.Page, state: dict):
             expand=True,
             content=ft.Stack(
                 [
-                    ft.Image(src=(map_cfg.get("image") or _questions_path_map_art_asset()), fit=ft.ImageFit.COVER, expand=True),
+                    ft.Image(src=(map_cfg.get("image") or _questions_path_map_art_asset()), fit=ft.BoxFit.COVER, expand=True),
                     ft.Container(expand=True, bgcolor="#04110BD8"),
                     _settings_corner_overlay(page, state),
                     ft.Container(
@@ -7909,7 +7909,7 @@ def render_questions_path_game(page: ft.Page, state: dict):
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         content=ft.Stack(
             [
-                ft.Image(src=map_image, fit=ft.ImageFit.COVER, expand=True),
+                ft.Image(src=map_image, fit=ft.BoxFit.COVER, expand=True),
                 ft.Container(expand=True, bgcolor="#06140B8C"),
                 ft.Container(
                     expand=True,
@@ -7989,7 +7989,7 @@ def render_questions_path_game(page: ft.Page, state: dict):
 
     page.controls.clear()
     layers = [
-        ft.Image(src=(map_cfg.get("image") or _questions_path_map_art_asset()), fit=ft.ImageFit.COVER, expand=True),
+        ft.Image(src=(map_cfg.get("image") or _questions_path_map_art_asset()), fit=ft.BoxFit.COVER, expand=True),
         ft.Container(expand=True, bgcolor="#04110B92"),
         _settings_corner_overlay(page, state),
         ft.Container(
@@ -8180,7 +8180,7 @@ def show_questions_path_hub(page: ft.Page, state: dict):
                 on_click=open_level(map_key, level_index),
                 content=ft.Stack(
                     [
-                        ft.Image(src=map_cfg.get("image") or _questions_path_map_art_asset(), fit=ft.ImageFit.COVER, expand=True),
+                        ft.Image(src=map_cfg.get("image") or _questions_path_map_art_asset(), fit=ft.BoxFit.COVER, expand=True),
                         ft.Container(expand=True, bgcolor="#00000088" if state_name != "active" else "#00000066"),
                         ft.Container(
                             expand=True,
@@ -8240,7 +8240,7 @@ def show_questions_path_hub(page: ft.Page, state: dict):
             expand=True,
             content=ft.Stack(
                 [
-                    ft.Image(src=(profile.get("map_image") or _questions_path_map_art_asset()), fit=ft.ImageFit.COVER, expand=True),
+                    ft.Image(src=(profile.get("map_image") or _questions_path_map_art_asset()), fit=ft.BoxFit.COVER, expand=True),
                     ft.Container(expand=True, bgcolor="#06110C9A"),
                     _settings_corner_overlay(page, state),
                     ft.Container(
