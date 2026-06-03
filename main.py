@@ -5521,6 +5521,29 @@ def _path_nodes(points: list[tuple[float, float]], labels: list[str]) -> list[di
     return nodes
 
 
+def _questions_path_map_art_asset() -> str:
+    folder = os.path.join("assets", "Fragenpfad")
+    best_path = None
+    best_size = -1
+    if os.path.isdir(folder):
+        for name in os.listdir(folder):
+            if not name.lower().endswith(".png"):
+                continue
+            path = os.path.join(folder, name)
+            if not os.path.isfile(path):
+                continue
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                size = 0
+            if size > best_size:
+                best_size = size
+                best_path = path
+    if best_path:
+        return best_path.replace("\\", "/")
+    return "questions_path_forest.png"
+
+
 QUESTIONS_PATH_MAPS = {
     "waldpfad": {
         "title": "Waldpfad",
@@ -5529,9 +5552,10 @@ QUESTIONS_PATH_MAPS = {
         "panel": "#0A1712E8",
         "border": "#38BDF8",
         "line": "#86EFAC",
+        "image": _questions_path_map_art_asset(),
         "points": _path_nodes(
-            [(10, 84), (18, 70), (28, 78), (38, 62), (48, 74), (58, 56), (66, 68), (75, 48), (84, 60), (90, 38), (82, 24), (92, 12)],
-            ["Tor", "Wiese", "Bach", "Lichtung", "Hain", "Pfad", "Hochebene", "Brücke", "Klippe", "Aussicht", "Bergkamm", "Ziel"],
+            [(9, 37), (20, 33), (33, 29), (48, 26), (61, 27), (74, 30), (85, 36), (91, 48), (85, 61), (75, 73), (58, 79), (39, 82)],
+            ["Start", "Waldtor", "Wiesenpfad", "Moosbrücke", "Baumhaus", "Bachufer", "Aussicht", "Klippe", "Wasserfall", "Talweg", "Hain", "Ziel"],
         ),
     },
     "stadtpfad": {
@@ -5541,8 +5565,9 @@ QUESTIONS_PATH_MAPS = {
         "panel": "#171006E8",
         "border": "#FDE68A",
         "line": "#FDBA74",
+        "image": _questions_path_map_art_asset(),
         "points": _path_nodes(
-            [(12, 16), (24, 26), (18, 38), (32, 48), (25, 60), (38, 72), (52, 64), (62, 76), (74, 62), (86, 72), (92, 52), (80, 36)],
+            [(9, 37), (18, 30), (30, 24), (43, 24), (56, 27), (68, 25), (80, 30), (90, 38), (88, 51), (81, 65), (69, 76), (54, 80)],
             ["Platz", "Gasse", "Markt", "Turm", "Brücke", "Bahnhof", "Forum", "Avenue", "Halle", "Hafen", "Dachgarten", "Portal"],
         ),
     },
@@ -5553,8 +5578,9 @@ QUESTIONS_PATH_MAPS = {
         "panel": "#120A1EE8",
         "border": "#C4B5FD",
         "line": "#DDD6FE",
+        "image": _questions_path_map_art_asset(),
         "points": _path_nodes(
-            [(8, 86), (16, 76), (28, 84), (36, 68), (46, 78), (54, 60), (64, 70), (72, 50), (80, 62), (88, 42), (78, 28), (90, 14)],
+            [(8, 83), (17, 75), (29, 79), (41, 72), (54, 76), (66, 68), (74, 57), (81, 48), (88, 40), (80, 27), (66, 22), (53, 16)],
             ["Wolke 1", "Wolke 2", "Wolke 3", "Wolke 4", "Wolke 5", "Wolke 6", "Wolke 7", "Wolke 8", "Wolke 9", "Wolke 10", "Wolke 11", "Ziel"],
         ),
     },
@@ -7801,7 +7827,7 @@ def render_questions_path_complete(page: ft.Page, state: dict):
             expand=True,
             content=ft.Stack(
                 [
-                    ft.Image(src="questions_path_forest.png", fit=ft.ImageFit.COVER, expand=True),
+                    ft.Image(src=(map_cfg.get("image") or _questions_path_map_art_asset()), fit=ft.ImageFit.COVER, expand=True),
                     ft.Container(expand=True, bgcolor="#04110BD8"),
                     _settings_corner_overlay(page, state),
                     ft.Container(
@@ -7873,6 +7899,7 @@ def render_questions_path_game(page: ft.Page, state: dict):
         save_questions_path_game(state)
         show_questions_path_hub(e.page, state)
 
+    map_image = map_cfg.get("image") or _questions_path_map_art_asset()
     map_stack = ft.Container(
         width=map_w,
         height=map_h,
@@ -7882,7 +7909,7 @@ def render_questions_path_game(page: ft.Page, state: dict):
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         content=ft.Stack(
             [
-                ft.Image(src="questions_path_forest.png", fit=ft.ImageFit.COVER, expand=True),
+                ft.Image(src=map_image, fit=ft.ImageFit.COVER, expand=True),
                 ft.Container(expand=True, bgcolor="#06140B8C"),
                 ft.Container(
                     expand=True,
@@ -7962,7 +7989,7 @@ def render_questions_path_game(page: ft.Page, state: dict):
 
     page.controls.clear()
     layers = [
-        ft.Image(src="questions_path_forest.png", fit=ft.ImageFit.COVER, expand=True),
+        ft.Image(src=(map_cfg.get("image") or _questions_path_map_art_asset()), fit=ft.ImageFit.COVER, expand=True),
         ft.Container(expand=True, bgcolor="#04110B92"),
         _settings_corner_overlay(page, state),
         ft.Container(
@@ -8142,7 +8169,7 @@ def show_questions_path_hub(page: ft.Page, state: dict):
         state_name = level_state_for(profile, map_key, level_index)
         accent = {"done": "#22C55E", "active": "#3B82F6", "locked": "#64748B"}[state_name]
         label = {"done": "Abgeschlossen", "active": "Aktiv", "locked": "Gesperrt"}[state_name]
-        current_level = profile.get("active_game", {}).get("map_key") == map_key
+        current_level = (profile.get("active_game") or {}).get("map_key") == map_key
         level_cards.append(
             ft.Container(
                 width=340,
@@ -8153,7 +8180,7 @@ def show_questions_path_hub(page: ft.Page, state: dict):
                 on_click=open_level(map_key, level_index),
                 content=ft.Stack(
                     [
-                        ft.Image(src="questions_path_forest.png", fit=ft.ImageFit.COVER, expand=True),
+                        ft.Image(src=map_cfg.get("image") or _questions_path_map_art_asset(), fit=ft.ImageFit.COVER, expand=True),
                         ft.Container(expand=True, bgcolor="#00000088" if state_name != "active" else "#00000066"),
                         ft.Container(
                             expand=True,
@@ -8213,7 +8240,7 @@ def show_questions_path_hub(page: ft.Page, state: dict):
             expand=True,
             content=ft.Stack(
                 [
-                    ft.Image(src="questions_path_forest.png", fit=ft.ImageFit.COVER, expand=True),
+                    ft.Image(src=(profile.get("map_image") or _questions_path_map_art_asset()), fit=ft.ImageFit.COVER, expand=True),
                     ft.Container(expand=True, bgcolor="#06110C9A"),
                     _settings_corner_overlay(page, state),
                     ft.Container(
