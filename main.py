@@ -7302,6 +7302,33 @@ def _sanitize_filename_part(value: str) -> str:
     return clean.strip("._-") or "file"
 
 
+def _points_quiz_media_to_data_url(raw_bytes: bytes | bytearray, filename: str) -> str | None:
+    kind = _points_quiz_media_kind(filename)
+    if not kind:
+        return None
+    ext = os.path.splitext(str(filename or ""))[1].lower()
+    if ext not in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS:
+        return None
+    if not isinstance(raw_bytes, (bytes, bytearray)) or not raw_bytes:
+        return None
+    mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".mov": "video/quicktime",
+        ".m4v": "video/x-m4v",
+        ".avi": "video/x-msvideo",
+        ".mkv": "video/x-matroska",
+    }.get(ext, "application/octet-stream")
+    encoded = base64.b64encode(bytes(raw_bytes)).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
 def _points_quiz_media_target_dir(quiz_id: str) -> tuple[str, str]:
     safe_quiz = _sanitize_filename_part(quiz_id or "quiz")
     abs_dir = os.path.join(POINTS_QUIZ_MEDIA_DIR, safe_quiz)
@@ -7320,16 +7347,16 @@ def _store_points_quiz_media_from_path(source_path: str, quiz_id: str, display_n
     ext = os.path.splitext(original_name)[1].lower() or os.path.splitext(source_path)[1].lower()
     if ext not in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS:
         return None
-    abs_dir, rel_dir = _points_quiz_media_target_dir(quiz_id)
-    base = _sanitize_filename_part(os.path.splitext(original_name)[0])
-    unique_name = f"{base}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
-    target_abs = os.path.join(abs_dir, unique_name)
     try:
-        shutil.copy2(source_path, target_abs)
+        with open(source_path, "rb") as f:
+            raw_bytes = f.read()
     except Exception:
         return None
+    data_url = _points_quiz_media_to_data_url(raw_bytes, original_name)
+    if not data_url:
+        return None
     return {
-        "src": f"{rel_dir}/{unique_name}",
+        "src": data_url,
         "kind": kind,
         "name": original_name,
     }
@@ -7353,17 +7380,11 @@ def _store_points_quiz_media_from_data(raw_data, filename: str, quiz_id: str) ->
             return None
     if not isinstance(data, (bytes, bytearray)) or not data:
         return None
-    abs_dir, rel_dir = _points_quiz_media_target_dir(quiz_id)
-    base = _sanitize_filename_part(os.path.splitext(filename)[0])
-    unique_name = f"{base}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
-    target_abs = os.path.join(abs_dir, unique_name)
-    try:
-        with open(target_abs, "wb") as f:
-            f.write(bytes(data))
-    except Exception:
+    data_url = _points_quiz_media_to_data_url(bytes(data), filename)
+    if not data_url:
         return None
     return {
-        "src": f"{rel_dir}/{unique_name}",
+        "src": data_url,
         "kind": kind,
         "name": filename,
     }
@@ -7373,12 +7394,16 @@ def _normalize_points_quiz_media_item(raw_item) -> dict | None:
     src = ""
     kind = ""
     name = ""
+    data_url = ""
     if isinstance(raw_item, str):
         src = raw_item.strip()
     elif isinstance(raw_item, dict):
         src = str(raw_item.get("src", "")).strip()
         kind = str(raw_item.get("kind", "")).strip().lower()
         name = str(raw_item.get("name", "")).strip()
+        data_url = str(raw_item.get("data_url", "")).strip()
+    if not src:
+        src = data_url
     if not src:
         return None
     inferred_kind = _points_quiz_media_kind(src)
@@ -7386,7 +7411,27 @@ def _normalize_points_quiz_media_item(raw_item) -> dict | None:
         kind = inferred_kind or "image"
     if not name:
         name = os.path.basename(src) or ("Bild" if kind == "image" else "Video")
-    return {"src": src, "kind": kind, "name": name}
+    if not src.startswith("data:") and not os.path.exists(src):
+        local_candidates = [
+            os.path.join("assets", src),
+            os.path.join(POINTS_QUIZ_MEDIA_DIR, src),
+            src,
+        ]
+        for candidate in local_candidates:
+            if os.path.exists(candidate):
+                try:
+                    with open(candidate, "rb") as f:
+                        raw_bytes = f.read()
+                    migrated = _points_quiz_media_to_data_url(raw_bytes, name or os.path.basename(candidate))
+                    if migrated:
+                        src = migrated
+                        break
+                except Exception:
+                    pass
+    result = {"src": src, "kind": kind, "name": name}
+    if data_url:
+        result["data_url"] = data_url
+    return result
 
 
 def _normalize_points_quiz_media_list(raw_items) -> list[dict]:
@@ -7404,6 +7449,20 @@ def _normalize_points_quiz_media_list(raw_items) -> list[dict]:
     return items
 
 
+def _points_quiz_media_display_src(item: dict) -> str | None:
+    src = str(item.get("src", "")).strip()
+    if not src:
+        return None
+    if src.startswith("data:"):
+        return src
+    if os.path.exists(src):
+        return src
+    assets_src = os.path.join("assets", src)
+    if os.path.exists(assets_src):
+        return assets_src
+    return None
+
+
 def _build_points_quiz_media_gallery(items: list[dict], max_width: int, card_width: int = 240, card_height: int = 150) -> ft.Control:
     normalized_items = _normalize_points_quiz_media_list(items)
     if not normalized_items:
@@ -7411,11 +7470,11 @@ def _build_points_quiz_media_gallery(items: list[dict], max_width: int, card_wid
 
     cards: list[ft.Control] = []
     for item in normalized_items:
-        src = item.get("src", "")
+        src = _points_quiz_media_display_src(item)
         kind = item.get("kind", "image")
-        label = item.get("name", os.path.basename(src))
+        label = item.get("name") or (os.path.basename(src) if src else "Datei")
         if kind == "video":
-            if FletVideo and VideoMedia and PlaylistMode:
+            if src and FletVideo and VideoMedia and PlaylistMode:
                 media = FletVideo(
                     width=card_width,
                     height=card_height,
@@ -7433,10 +7492,21 @@ def _build_points_quiz_media_gallery(items: list[dict], max_width: int, card_wid
                     bgcolor="#00000088",
                     border_radius=10,
                     alignment=ft.Alignment(0, 0),
-                    content=ft.Text("Video", color="white", weight="bold"),
+                    content=ft.Text("Video nicht mehr verfügbar" if not src else (label or "Video"), color="white", weight="bold", text_align=ft.TextAlign.CENTER),
                 )
         else:
-            media = ft.Image(src=src, width=card_width, height=card_height, fit=ft.BoxFit.COVER, border_radius=10)
+            media = (
+                ft.Image(src=src, width=card_width, height=card_height, fit=ft.BoxFit.COVER, border_radius=10)
+                if src
+                else ft.Container(
+                    width=card_width,
+                    height=card_height,
+                    bgcolor="#1F2937",
+                    border_radius=10,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Text("Bild nicht mehr verfügbar", color="white", size=11, text_align=ft.TextAlign.CENTER),
+                )
+            )
 
         cards.append(
             ft.Container(
@@ -9314,6 +9384,18 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         color=theme["question_text"],
         border_color=theme["border"],
     )
+
+    def _sync_editor_draft():
+        quiz_local = state.get("editing_points_quiz", quiz)
+        quiz_local["categories"][cat_idx]["questions"][q_idx]["question"] = (question_field.value or "").strip()
+        quiz_local["categories"][cat_idx]["questions"][q_idx]["answer"] = (answer_field.value or "").strip()
+        quiz_local["categories"][cat_idx]["questions"][q_idx]["question_media"] = _normalize_points_quiz_media_list(question_media)
+        quiz_local["categories"][cat_idx]["questions"][q_idx]["answer_media"] = _normalize_points_quiz_media_list(answer_media)
+        state["editing_points_quiz"] = upsert_points_quiz(state, quiz_local, mark_finished=False)
+
+    question_field.on_change = lambda e: _sync_editor_draft()
+    answer_field.on_change = lambda e: _sync_editor_draft()
+
     question_media_column = ft.Column(spacing=8, width=field_width)
     answer_media_column = ft.Column(spacing=8, width=field_width)
 
@@ -9412,6 +9494,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         if 0 <= index < len(items):
             items.pop(index)
             _refresh_media_lists(update_page=True)
+            _sync_editor_draft()
 
     async def _pick_media_for_target(target: str):
         target_items = question_media if target == "question" else answer_media
@@ -9426,6 +9509,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
             return
         target_items.extend(added_items)
         target_items[:] = _normalize_points_quiz_media_list(target_items)
+        _sync_editor_draft()
         _refresh_media_lists(update_page=False)
         page.snack_bar = ft.SnackBar(
             content=ft.Text(
@@ -9468,6 +9552,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         show_points_quiz_editor(page, state, quiz_local.get("id"))
 
     _refresh_media_lists(update_page=False)
+    _sync_editor_draft()
 
     page.controls.clear()
     page.add(
