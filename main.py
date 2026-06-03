@@ -485,7 +485,7 @@ try:
     os.makedirs(AUDIO_DIR, exist_ok=True)
 except Exception:
     pass  # read-only filesystem on Render is fine, TTS just won't work
-BG_MUSIC_FILE = "bg_music.wav"
+BG_MUSIC_FILE = "hintergrundmusick.mp3"
 THEME_BG_ROOT = "backgrounds"
 NEON_THEME_BG_DIR = "neon_nexus"
 ROYALE_GOLD_THEME_BG_DIR = "royale_gold"
@@ -526,6 +526,9 @@ def play_tts(page: ft.Page, text: str, state: dict | None = None):
         settings = get_user_settings(state)
         if not bool(settings.get("play_audio", True)):
             return
+    audio_cls = getattr(ft, "Audio", None)
+    if audio_cls is None:
+        return
     
     async def generate_and_play():
         try:
@@ -537,7 +540,7 @@ def play_tts(page: ft.Page, text: str, state: dict | None = None):
             
             # play via flet audio
             try:
-                audio = ft.Audio(
+                audio = audio_cls(
                     src=f"audio/{filename}",
                     autoplay=True,
                     volume=1.0,
@@ -566,6 +569,10 @@ def _cleanup_tts(e, filepath, audio_ctrl, page):
 def init_bg_music(page: ft.Page):
     """Returns the background music audio control (placeholder for now)."""
     try:
+        audio_cls = getattr(ft, "Audio", None)
+        if audio_cls is None:
+            print("ft.Audio not available in this Flet version - audio disabled")
+            return None
         audio_kwargs = {
             "src": f"audio/{BG_MUSIC_FILE}",
             "autoplay": False,
@@ -574,7 +581,7 @@ def init_bg_music(page: ft.Page):
         release_mode = getattr(ft, "ReleaseMode", None)
         if release_mode is not None and hasattr(release_mode, "LOOP"):
             audio_kwargs["release_mode"] = release_mode.LOOP
-        bg = ft.Audio(**audio_kwargs)
+        bg = audio_cls(**audio_kwargs)
         # create dummy file if not exists so it doesn't crash on load
         try:
             dummy_path = os.path.join(AUDIO_DIR, BG_MUSIC_FILE)
@@ -1915,6 +1922,101 @@ def resume_saved_game(page: ft.Page, state: dict, saved: dict | None = None):
         show_next_question(page, state)
     else:
         show_joker_selection(page, state, lambda: show_next_question(page, state))
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def save_questions_path_game(state: dict):
+    email = state.get("current_user_email")
+    game = state.get("questions_path_game")
+    if not email or not game:
+        return
+
+    db = load_db()
+    if email not in db.get("users", {}):
+        return
+
+    saved_game = {
+        "map_key": game.get("map_key", "waldpfad"),
+        "map_title": game.get("map_title", QUESTIONS_PATH_MAPS["waldpfad"]["title"]),
+        "age": game.get("age", "mid"),
+        "node_index": int(game.get("node_index", 0)),
+        "completed_nodes": list(game.get("completed_nodes", [])),
+        "questions": list(game.get("questions", [])),
+        "game_finished": bool(game.get("game_finished", False)),
+        "checkpoint_index": int(game.get("checkpoint_index", 0)),
+        "current_hint": game.get("current_hint"),
+    }
+    db["users"][email]["saved_questions_path_game"] = saved_game
+    state["saved_questions_path_game"] = saved_game
+    save_db(db)
+
+    uid = state.get("current_user_uid") or db.get("users", {}).get(email, {}).get("uid")
+    client = get_firestore_client()
+    if client is not None and uid and firestore is not None:
+        try:
+            client.collection("users").document(uid).update({"saved_questions_path_game": saved_game})
+        except Exception as e:
+            print(f"Firebase saved_questions_path_game save error: {e}")
+
+
+def clear_questions_path_game(state: dict):
+    email = state.get("current_user_email")
+    state.pop("saved_questions_path_game", None)
+    state.pop("questions_path_game", None)
+    state.pop("_questions_path_active_node", None)
+    state.pop("_questions_path_modal", None)
+    if not email:
+        return
+
+    db = load_db()
+    if email in db.get("users", {}) and "saved_questions_path_game" in db["users"][email]:
+        db["users"][email].pop("saved_questions_path_game", None)
+        save_db(db)
+
+    uid = state.get("current_user_uid") or db.get("users", {}).get(email, {}).get("uid")
+    client = get_firestore_client()
+    if client is not None and uid and firestore is not None:
+        try:
+            client.collection("users").document(uid).update({"saved_questions_path_game": firestore.DELETE_FIELD})
+        except Exception as e:
+            print(f"Firebase saved_questions_path_game delete error: {e}")
+
+
+def get_saved_questions_path_game(state: dict) -> dict | None:
+    email = state.get("current_user_email")
+    if not email:
+        return None
+    saved = state.get("saved_questions_path_game")
+    if not saved:
+        db = load_db()
+        saved = db.get("users", {}).get(email, {}).get("saved_questions_path_game")
+        if saved:
+            state["saved_questions_path_game"] = saved
+    if not saved or not saved.get("questions"):
+        return None
+    return saved
+
+
+def resume_questions_path_game(page: ft.Page, state: dict, saved: dict | None = None):
+    saved = saved or get_saved_questions_path_game(state)
+    if not saved:
+        show_questions_path_hub(page, state)
+        return
+    state["questions_path_game"] = {
+        "map_key": saved.get("map_key", "waldpfad"),
+        "map_title": saved.get("map_title", QUESTIONS_PATH_MAPS["waldpfad"]["title"]),
+        "age": saved.get("age", "mid"),
+        "node_index": int(saved.get("node_index", 0)),
+        "completed_nodes": list(saved.get("completed_nodes", [])),
+        "questions": [_path_question_to_dict(q) for q in saved.get("questions", [])],
+        "game_finished": bool(saved.get("game_finished", False)),
+        "checkpoint_index": int(saved.get("checkpoint_index", 0)),
+        "current_hint": saved.get("current_hint"),
+    }
+    state.pop("_questions_path_active_node", None)
+    state.pop("_questions_path_modal", None)
+    render_questions_path_game(page, state)
+
 
 
 # ---------- Custom quizzes ----------
@@ -4353,6 +4455,7 @@ def show_joker_confirm_screen(page: ft.Page, state: dict, picked_ids: list[str],
         )
     )
     page.update()
+    page.run_task(_sync_bg_music_async, page, state)
 
 
 def show_joker_selection(page: ft.Page, state: dict, on_start):
@@ -5267,6 +5370,91 @@ def build_level_question_bank(age: str) -> list[list[tuple]]:
         ]
         for level_idx in range(len(MONEY_LEVELS))
     ]
+
+
+def _path_nodes(points: list[tuple[float, float]], labels: list[str]) -> list[dict]:
+    nodes = []
+    for idx, point in enumerate(points):
+        label = labels[idx] if idx < len(labels) else f"Station {idx + 1}"
+        nodes.append({"x": float(point[0]), "y": float(point[1]), "label": label})
+    return nodes
+
+
+QUESTIONS_PATH_MAPS = {
+    "waldpfad": {
+        "title": "Waldpfad",
+        "subtitle": "Ein ruhiger, langer Pfad mit vielen kleinen Etappen.",
+        "accent": "#34D399",
+        "panel": "#0A1712E8",
+        "border": "#38BDF8",
+        "line": "#86EFAC",
+        "points": _path_nodes(
+            [(10, 84), (18, 70), (28, 78), (38, 62), (48, 74), (58, 56), (66, 68), (75, 48), (84, 60), (90, 38), (82, 24), (92, 12)],
+            ["Tor", "Wiese", "Bach", "Lichtung", "Hain", "Pfad", "Hochebene", "Brücke", "Klippe", "Aussicht", "Bergkamm", "Ziel"],
+        ),
+    },
+    "stadtpfad": {
+        "title": "Stadtpfad",
+        "subtitle": "Zwischen Türmen, Dächern und leuchtenden Kreuzungen.",
+        "accent": "#F59E0B",
+        "panel": "#171006E8",
+        "border": "#FDE68A",
+        "line": "#FDBA74",
+        "points": _path_nodes(
+            [(12, 16), (24, 26), (18, 38), (32, 48), (25, 60), (38, 72), (52, 64), (62, 76), (74, 62), (86, 72), (92, 52), (80, 36)],
+            ["Platz", "Gasse", "Markt", "Turm", "Brücke", "Bahnhof", "Forum", "Avenue", "Halle", "Hafen", "Dachgarten", "Portal"],
+        ),
+    },
+    "himmelsroute": {
+        "title": "Himmelsroute",
+        "subtitle": "Ein heller Aufstieg für lange Spielsessions.",
+        "accent": "#A78BFA",
+        "panel": "#120A1EE8",
+        "border": "#C4B5FD",
+        "line": "#DDD6FE",
+        "points": _path_nodes(
+            [(8, 86), (16, 76), (28, 84), (36, 68), (46, 78), (54, 60), (64, 70), (72, 50), (80, 62), (88, 42), (78, 28), (90, 14)],
+            ["Wolke 1", "Wolke 2", "Wolke 3", "Wolke 4", "Wolke 5", "Wolke 6", "Wolke 7", "Wolke 8", "Wolke 9", "Wolke 10", "Wolke 11", "Ziel"],
+        ),
+    },
+}
+
+
+def _path_question_to_dict(question) -> dict:
+    if isinstance(question, dict):
+        prompt = str(question.get("question", "")).strip() or "?"
+        answers = [str(a) for a in (question.get("answers", []) or [])]
+        correct_idx = int(question.get("correct_idx", 0) or 0)
+        if answers:
+            correct_idx = max(0, min(correct_idx, len(answers) - 1))
+        return {"question": prompt, "answers": answers or ["A", "B", "C", "D"], "correct_idx": correct_idx}
+    if isinstance(question, (list, tuple)) and len(question) >= 3:
+        prompt = str(question[0]).strip() or "?"
+        answers = [str(a) for a in list(question[1])]
+        correct_idx = int(question[2]) if str(question[2]).isdigit() or isinstance(question[2], int) else 0
+        if answers:
+            correct_idx = max(0, min(correct_idx, len(answers) - 1))
+        return {"question": prompt, "answers": answers or ["A", "B", "C", "D"], "correct_idx": correct_idx}
+    return {"question": "?", "answers": ["A", "B", "C", "D"], "correct_idx": 0}
+
+
+def build_questions_path_questions(age: str, map_key: str) -> list[dict]:
+    bank = build_level_question_bank(age)
+    map_cfg = QUESTIONS_PATH_MAPS.get(map_key) or QUESTIONS_PATH_MAPS["waldpfad"]
+    total_nodes = len(map_cfg["points"])
+    used: set[str] = set()
+    questions: list[dict] = []
+    for node_idx in range(total_nodes):
+        level_idx = min(len(bank) - 1, int(round(node_idx * (len(bank) - 1) / max(total_nodes - 1, 1))))
+        candidates = [_path_question_to_dict(q) for q in bank[level_idx]]
+        if not candidates:
+            candidates = [{"question": f"Frage {node_idx + 1}", "answers": ["A", "B", "C", "D"], "correct_idx": 0}]
+        unique = [q for q in candidates if q["question"].strip().lower() not in used]
+        pool = unique if unique else candidates
+        chosen = random.choice(pool)
+        used.add(chosen["question"].strip().lower())
+        questions.append(chosen)
+    return questions
 
 
 QUESTION_TOPIC_KEYWORDS = {
@@ -7335,6 +7523,456 @@ def show_custom_question_editor(page: ft.Page, state: dict, question_index: int 
     page.update()
 
 
+def _questions_path_map_line(start: dict, end: dict, map_w: float, map_h: float, color: str) -> ft.Container:
+    sx = map_w * start["x"] / 100.0
+    sy = map_h * start["y"] / 100.0
+    ex = map_w * end["x"] / 100.0
+    ey = map_h * end["y"] / 100.0
+    dx = ex - sx
+    dy = ey - sy
+    length = max(18.0, math.hypot(dx, dy))
+    angle = math.atan2(dy, dx)
+    return ft.Container(
+        left=sx + 18,
+        top=sy + 18 - 2,
+        width=length,
+        height=4,
+        bgcolor=color,
+        opacity=0.65,
+        rotate=ft.Rotate(angle=angle),
+        border_radius=999,
+    )
+
+
+def _questions_path_map_node(
+    page: ft.Page,
+    state: dict,
+    game: dict,
+    map_cfg: dict,
+    map_w: float,
+    map_h: float,
+    idx: int,
+) -> ft.Container:
+    point = map_cfg["points"][idx]
+    current = int(game.get("node_index", 0))
+    completed = set(int(x) for x in game.get("completed_nodes", []))
+    unlocked = idx == current
+    is_completed = idx in completed
+    accent = map_cfg.get("accent", "#FACC15")
+    node_color = accent if unlocked else ("#22C55E" if is_completed else "#475569")
+    border_color = "#FFFFFF" if unlocked else ("#A7F3D0" if is_completed else "#94A3B8")
+    label_color = "white"
+    label = point.get("label", f"Etappe {idx + 1}")
+    r = 22
+
+    def open_node(e):
+        if int(game.get("node_index", 0)) != idx:
+            return
+        state["_questions_path_active_node"] = idx
+        render_questions_path_game(page, state)
+
+    return ft.Container(
+        left=(map_w * point["x"] / 100.0) - r,
+        top=(map_h * point["y"] / 100.0) - r,
+        width=r * 2,
+        height=r * 2,
+        shape=ft.BoxShape.CIRCLE,
+        bgcolor=node_color,
+        border=ft.border.Border.all(2, border_color),
+        shadow=ft.BoxShadow(blur_radius=18 if unlocked else 8, color=f"#99{node_color[1:]}" if len(node_color) == 7 else "#66000000"),
+        alignment=ft.Alignment(0, 0),
+        on_click=open_node,
+        tooltip=label,
+        content=ft.Text(str(idx + 1), size=14, weight="bold", color=label_color),
+        animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+    )
+
+
+def _questions_path_build_map_stack(page: ft.Page, state: dict, game: dict, map_cfg: dict, map_w: float, map_h: float) -> list[ft.Control]:
+    points = map_cfg["points"]
+    stack_items: list[ft.Control] = []
+    for idx in range(len(points) - 1):
+        stack_items.append(_questions_path_map_line(points[idx], points[idx + 1], map_w, map_h, map_cfg.get("line", "#FFFFFF")))
+    for idx in range(len(points)):
+        stack_items.append(_questions_path_map_node(page, state, game, map_cfg, map_w, map_h, idx))
+    return stack_items
+
+
+def _questions_path_answer_buttons(page: ft.Page, state: dict, node_idx: int, question: dict, map_cfg: dict) -> ft.Control:
+    answers = list(question.get("answers", []))
+    correct_idx = int(question.get("correct_idx", 0))
+    accent = map_cfg.get("accent", "#FACC15")
+    buttons = []
+
+    def choose(idx: int):
+        def _handler(e):
+            game = state.get("questions_path_game")
+            if not game or int(game.get("node_index", 0)) != node_idx:
+                return
+            if idx == correct_idx:
+                completed = list(game.get("completed_nodes", []))
+                if node_idx not in completed:
+                    completed.append(node_idx)
+                game["completed_nodes"] = completed
+                game["node_index"] = node_idx + 1
+                game["current_hint"] = None
+                if node_idx + 1 >= len(game.get("questions", [])):
+                    game["game_finished"] = True
+                    save_questions_path_game(state)
+                    state.pop("_questions_path_active_node", None)
+                    render_questions_path_complete(page, state)
+                    return
+                game["checkpoint_index"] = max(game.get("checkpoint_index", 0), node_idx + 1 if (node_idx + 1) % 4 == 0 else game.get("checkpoint_index", 0))
+                save_questions_path_game(state)
+                state.pop("_questions_path_active_node", None)
+                render_questions_path_game(page, state)
+            else:
+                game["current_hint"] = "Noch nicht ganz. Versuch diese Station nochmal."
+                save_questions_path_game(state)
+                state.pop("_questions_path_active_node", None)
+                render_questions_path_game(page, state)
+        return _handler
+
+    for idx, answer in enumerate(answers):
+        buttons.append(
+            _game_menu_button(
+                f"{ANSWER_LETTERS[idx]}. {answer}",
+                choose(idx),
+                "#16A34A" if idx == correct_idx else "#334155",
+                width=280,
+                height=42,
+            )
+        )
+
+    return ft.Column(buttons, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+
+
+def render_questions_path_complete(page: ft.Page, state: dict):
+    game = state.get("questions_path_game") or {}
+    map_key = game.get("map_key", "waldpfad")
+    map_cfg = QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"])
+    clear_questions_path_game(state)
+    _sync_page_route(page, "/path")
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, get_theme(state), "#00000088"),
+                    _settings_corner_overlay(page, state),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Container(
+                            width=440,
+                            padding=24,
+                            bgcolor=map_cfg.get("panel", "#0A1712E8"),
+                            border_radius=24,
+                            border=ft.border.Border.all(2, map_cfg.get("border", "#34D399")),
+                            content=ft.Column(
+                                [
+                                    ft.Text("Map abgeschlossen!", size=28, weight="bold", color="white", text_align="center"),
+                                    ft.Text(map_cfg.get("title", "Fragen-Pfad"), size=16, color="#D1FAE5", text_align="center"),
+                                    ft.Container(height=6),
+                                    ft.Text(
+                                        "Du hast alle Stationen geschafft. Starte jetzt eine neue Map oder kehre zur Auswahl zurück.",
+                                        size=13,
+                                        color=theme_txt(get_theme(state), "secondary"),
+                                        text_align="center",
+                                    ),
+                                    ft.Container(height=16),
+                                    _game_menu_button("Zur Map-Auswahl", lambda e: show_questions_path_hub(e.page, state), map_cfg.get("accent", "#34D399"), width=250),
+                                    _game_menu_button("Zur Spielauswahl", lambda e: open_main_menu(e.page, state), "#475569", width=250),
+                                ],
+                                spacing=12,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def render_questions_path_game(page: ft.Page, state: dict):
+    game = state.get("questions_path_game")
+    if not game:
+        show_questions_path_hub(page, state)
+        return
+    _sync_page_route(page, "/path")
+
+    map_key = game.get("map_key", "waldpfad")
+    map_cfg = QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"])
+    questions = list(game.get("questions", []))
+    node_idx = int(game.get("node_index", 0))
+    if node_idx >= len(questions):
+        render_questions_path_complete(page, state)
+        return
+
+    page_w, page_h = _page_size(page)
+    theme = get_theme(state)
+    is_mobile = page_w < 920
+    map_w = max(260, min(980, int(page_w * (0.92 if is_mobile else 0.68))))
+    map_h = max(280, min(560, int(page_h * (0.50 if is_mobile else 0.66))))
+    panel_w = max(260, min(360, int(page_w * 0.28)))
+    current_q = questions[node_idx]
+    current_node = map_cfg["points"][node_idx]
+    progress_value = node_idx / max(len(questions), 1)
+    hint = game.get("current_hint")
+    map_items = _questions_path_build_map_stack(page, state, game, map_cfg, map_w, map_h)
+
+    def back_to_hub(e):
+        save_questions_path_game(state)
+        show_questions_path_hub(e.page, state)
+
+    map_stack = ft.Container(
+        width=map_w,
+        height=map_h,
+        bgcolor=map_cfg.get("panel", "#0A1712E8"),
+        border_radius=24,
+        border=ft.border.Border.all(2, map_cfg.get("border", "#34D399")),
+        padding=14,
+        content=ft.Stack(
+            [
+                ft.Container(expand=True, bgcolor="#020403", opacity=0.14, border_radius=20),
+                *map_items,
+            ],
+            expand=True,
+        ),
+    )
+
+    status_panel = ft.Container(
+        width=panel_w,
+        padding=20,
+        border_radius=24,
+        bgcolor="#0A0F15E8",
+        border=ft.border.Border.all(2, map_cfg.get("border", "#34D399")),
+        content=ft.Column(
+            [
+                ft.Text(map_cfg.get("title", "Fragen-Pfad"), size=24, weight="bold", color="white"),
+                ft.Text(map_cfg.get("subtitle", ""), size=13, color=theme_txt(theme, "secondary")),
+                ft.Container(height=8),
+                ft.Text(f"Alter: {game.get('age', 'mid')}", size=12, color="#FDE68A"),
+                ft.Text(f"Fortschritt: {node_idx} / {len(questions)}", size=12, color="white"),
+                ft.ProgressBar(value=progress_value, expand=True, color=map_cfg.get("accent", "#34D399")),
+                ft.Text(f"Aktuelle Station: {current_node.get('label', f'Station {node_idx + 1}')}", size=12, color="white"),
+                ft.Text(f"Checkpoint: {game.get('checkpoint_index', 0)}", size=12, color="white"),
+                ft.Container(height=4),
+                ft.Text(hint or "Klicke die leuchtende Station auf der Karte, um die nächste Frage zu öffnen.", size=11, color=theme_txt(theme, "muted")),
+                ft.Container(height=10),
+                _game_menu_button("Zurück zur Auswahl", back_to_hub, "#475569", width=panel_w - 40, height=42),
+            ],
+            spacing=8,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+
+    main_area = ft.Row(
+        [
+            map_stack,
+            status_panel,
+        ],
+        spacing=16,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+        alignment=ft.MainAxisAlignment.CENTER,
+        wrap=is_mobile,
+    )
+
+    modal = None
+    active_node = state.get("_questions_path_active_node")
+    if active_node is not None and 0 <= int(active_node) < len(questions):
+        question = questions[int(active_node)]
+        modal = ft.Container(
+            expand=True,
+            bgcolor="#000000A0",
+            alignment=ft.Alignment(0, 0),
+            content=ft.Container(
+                width=min(560, max(320, int(page_w - 28))),
+                padding=24,
+                bgcolor="#111827",
+                border_radius=24,
+                border=ft.border.Border.all(2, map_cfg.get("accent", "#34D399")),
+                content=ft.Column(
+                    [
+                        ft.Text(f"Station {int(active_node) + 1}: {map_cfg['points'][int(active_node)].get('label', '')}", size=12, color=map_cfg.get("accent", "#34D399")),
+                        ft.Text(question.get("question", "?"), size=20, weight="bold", color="white", text_align="center"),
+                        ft.Container(height=6),
+                        _questions_path_answer_buttons(page, state, int(active_node), question, map_cfg),
+                        ft.Container(height=8),
+                        _game_menu_button("Schließen", lambda e: (state.pop("_questions_path_active_node", None), render_questions_path_game(e.page, state)), "#475569", width=220, height=40),
+                    ],
+                    spacing=10,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ),
+        )
+
+    page.controls.clear()
+    layers = [
+        _themed_screen_background(page, theme, "#0000008b"),
+        _settings_corner_overlay(page, state),
+        ft.Container(
+            expand=True,
+            padding=16,
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.TextButton("← Spielauswahl", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
+                            ft.Text("Fragen-Pfad", size=28, weight="bold", color="white"),
+                            ft.Container(width=120),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Container(height=10),
+                    main_area,
+                ],
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+        ),
+    ]
+    if modal:
+        layers.append(modal)
+
+    page.add(ft.Container(expand=True, content=ft.Stack(layers, expand=True)))
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
+    map_cfg = QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"])
+    age = state.get("questions_path_age", "mid")
+    questions = build_questions_path_questions(age, map_key)
+    state["questions_path_game"] = {
+        "map_key": map_key,
+        "map_title": map_cfg.get("title", "Fragen-Pfad"),
+        "age": age,
+        "node_index": 0,
+        "completed_nodes": [],
+        "questions": questions,
+        "game_finished": False,
+        "checkpoint_index": 0,
+        "current_hint": None,
+    }
+    state.pop("_questions_path_active_node", None)
+    save_questions_path_game(state)
+    render_questions_path_game(page, state)
+
+
+def show_questions_path_hub(page: ft.Page, state: dict):
+    _set_resize_view(state, show_questions_path_hub)
+    theme = get_theme(state)
+    _sync_page_route(page, "/path")
+    saved = get_saved_questions_path_game(state)
+    if state.pop("_startup_recovering", False) and saved:
+        resume_questions_path_game(page, state, saved)
+        return
+
+    selected_age = state.get("questions_path_age", "mid")
+    age_dropdown = ft.Dropdown(
+        value=selected_age,
+        width=260,
+        bgcolor=theme["panel"],
+        color="white",
+        border_color=theme["border"],
+        options=[ft.dropdown.Option(k, text=label) for k, label in POINTS_QUIZ_AGE_OPTIONS],
+        on_change=lambda e: state.__setitem__("questions_path_age", e.control.value),
+    )
+
+    map_cards = []
+    for map_key, map_cfg in QUESTIONS_PATH_MAPS.items():
+        map_cards.append(
+            ft.Container(
+                width=320,
+                padding=18,
+                bgcolor=map_cfg.get("panel", "#0A1712E8"),
+                border_radius=22,
+                border=ft.border.Border.all(2, map_cfg.get("border", "#34D399")),
+                content=ft.Column(
+                    [
+                        ft.Text(map_cfg.get("title", "Map"), size=24, weight="bold", color="white"),
+                        ft.Text(map_cfg.get("subtitle", ""), size=13, color=theme_txt(theme, "secondary")),
+                        ft.Container(height=6),
+                        ft.Text(f"Etappen: {len(map_cfg['points'])}", size=12, color="#D1FAE5"),
+                        _game_menu_button("Map starten", lambda e, mk=map_key: start_questions_path_game(e.page, state, mk), map_cfg.get("accent", "#34D399"), width=220, height=42),
+                    ],
+                    spacing=8,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+        )
+
+    resume_section = []
+    if saved:
+        resume_section.extend([
+            ft.Text("Gespeicherte Map gefunden", size=16, weight="bold", color=theme["gold"]),
+            ft.Text(f"{saved.get('map_title', 'Fragen-Pfad')} · Station {int(saved.get('node_index', 0)) + 1}", size=12, color=theme_txt(theme, "secondary")),
+            _game_menu_button("▶ Fortsetzen", lambda e: resume_questions_path_game(e.page, state, saved), theme["success"], width=220, height=42),
+        ])
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000095"),
+                    _settings_corner_overlay(page, state),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column(
+                            [
+                                ft.Text("Fragen-Pfad", size=32, weight="bold", color="white", text_align="center"),
+                                ft.Text("Eine große Karte mit vielen kleinen Etappen, die du Stück für Stück freischaltest.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
+                                ft.Container(height=8),
+                                ft.Container(
+                                    content=ft.Column(
+                                        [
+                                            ft.Text("Wähle die Altersstufe", size=16, weight="bold", color=theme["gold"], text_align="center"),
+                                            age_dropdown,
+                                            *resume_section,
+                                            ft.Container(height=8),
+                                            ft.Wrap(
+                                                controls=map_cards,
+                                                spacing=14,
+                                                run_spacing=14,
+                                                alignment=ft.WrapAlignment.CENTER,
+                                            ),
+                                            ft.Container(height=8),
+                                            ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
+                                        ],
+                                        spacing=12,
+                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                        scroll=ft.ScrollMode.AUTO,
+                                    ),
+                                    width=min(1100, max(320, int(_page_size(page)[0] - 24))),
+                                    padding=22,
+                                    bgcolor="#08120DE0",
+                                    border_radius=24,
+                                    border=ft.border.Border.all(2, theme["border"]),
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=12,
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
 # ---------- Points quiz ----------
 def new_points_quiz_id() -> str:
     return f"points_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
@@ -8060,6 +8698,7 @@ def open_wwm_main_menu(page: ft.Page, state: dict):
     page.controls.clear()
     page.add(build_welcome_view(page, state))
     page.update()
+    page.run_task(_sync_bg_music_async, page, state)
 
 
 def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
@@ -8096,7 +8735,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
                 ft.Text("QUIZ ARENA", size=18, weight="bold", color=theme.get("accent", "#10B981")),
                 ft.Text("Wähle deinen Spielmodus", size=28 if compact else 34, weight="w900", color="white", text_align=ft.TextAlign.CENTER),
                 ft.Text(
-                    "Klassisches Wer wird Millionär oder ein Team-basiertes Punkte-Quiz mit Kategorien, Tafel und Live-Wertung.",
+                    "Wer wird Millionär, Punkte-Quiz oder der neue Fragen-Pfad mit langem Map-Fortschritt und kleinen Etappen.",
                     size=13 if compact else 14,
                     color=theme_txt(theme, "secondary"),
                     text_align=ft.TextAlign.CENTER,
@@ -8140,6 +8779,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         [
             portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: _go_route_or_render(e.page, "/wwm", open_wwm_main_menu, state)),
             portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: _go_route_or_render(e.page, "/points", show_points_quiz_hub, state)),
+            portal_card("Fragen-Pfad", "Eine lange Karte mit vielen Stationen, die du Stück für Stück freischaltest.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: _go_route_or_render(e.page, "/path", show_questions_path_hub, state)),
         ],
         spacing=16,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -8147,6 +8787,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         [
             portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: _go_route_or_render(e.page, "/wwm", open_wwm_main_menu, state)),
             portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: _go_route_or_render(e.page, "/points", show_points_quiz_hub, state)),
+            portal_card("Fragen-Pfad", "Eine lange Karte mit vielen Stationen, die du Stück für Stück freischaltest.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: _go_route_or_render(e.page, "/path", show_questions_path_hub, state)),
         ],
         spacing=18 if not compact else 14,
         run_spacing=18,
@@ -9831,6 +10472,7 @@ def open_main_menu(page: ft.Page, state: dict):
     page.controls.clear()
     page.add(build_game_portal_view(page, state))
     page.update()
+    page.run_task(_sync_bg_music_async, page, state)
 
 
 # ---------- Game Screen ----------
@@ -10493,6 +11135,7 @@ def show_next_question(page: ft.Page, state: dict):
         play_tts(page, text, state)
 
     render_game_screen(page, state)
+    page.run_task(_sync_bg_music_async, page, state)
 
 
 def show_exit_confirmation(page: ft.Page, state: dict):
@@ -13489,6 +14132,8 @@ def main(page: ft.Page):
             open_wwm_main_menu(page, app_state)
         elif path == "/points":
             show_points_quiz_hub(page, app_state)
+        elif path == "/path":
+            show_questions_path_hub(page, app_state)
         elif path == "/shop":
             show_shop_screen(page, app_state)
         elif path == "/achievements":
@@ -13525,7 +14170,7 @@ def main(page: ft.Page):
         # Only re-run route logic for special deep-link paths.
         route = page.route or "/"
         path = route.split("?")[0]
-        if path in ("/wwm", "/points", "/shop", "/achievements", "/daily"):
+        if path in ("/wwm", "/points", "/path", "/shop", "/achievements", "/daily"):
             on_route_change(None)
         app_state["_startup_recovering"] = False
 
