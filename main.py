@@ -813,11 +813,14 @@ def get_page_storage(page: ft.Page):
     return getattr(page, "shared_preferences", None) or getattr(page, "client_storage", None)
 
 
-async def call_storage_method(method, *args):
-    result = method(*args)
-    if inspect.isawaitable(result):
-        return await result
-    return result
+async def call_storage_method(method, *args, timeout: float = 2.0):
+    try:
+        result = method(*args)
+        if inspect.isawaitable(result):
+            return await asyncio.wait_for(result, timeout=timeout)
+        return result
+    except Exception:
+        return None
 
 
 async def storage_get(page: ft.Page, key: str):
@@ -1363,7 +1366,7 @@ def _avatar_image_source(asset_name: str | None) -> str | bytes | None:
         return None
 
 
-def _ensure_bg_music_control(page: ft.Page, state: dict) -> ft.Audio | None:
+def _ensure_bg_music_control(page: ft.Page, state: dict):
     audio = state.get("_bg_music_audio")
     if audio is not None:
         return audio
