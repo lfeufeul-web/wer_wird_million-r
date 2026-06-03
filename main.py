@@ -5540,8 +5540,8 @@ def _questions_path_map_art_asset() -> str:
                 best_size = size
                 best_path = path
     if best_path:
-        return best_path.replace("\\", "/")
-    return "questions_path_forest.png"
+        return os.path.relpath(best_path, "assets").replace("\\", "/")
+    return "Fragenpfad/questions_path_forest.png"
 
 
 QUESTIONS_PATH_MAPS = {
