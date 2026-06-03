@@ -15992,11 +15992,11 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
     card_w = min(1240, max(320, int(page_w - 24)))
     map_h = max(420, min(660, int(page_h * 0.76)))
     island_positions = [
-        (0.10, 0.16, 0.29, 0.31),
-        (0.50, 0.18, 0.26, 0.24),
-        (0.76, 0.42, 0.18, 0.22),
-        (0.24, 0.58, 0.22, 0.22),
-        (0.56, 0.66, 0.20, 0.18),
+        (0.08, 0.14, 0.31, 0.30),
+        (0.49, 0.16, 0.26, 0.22),
+        (0.74, 0.40, 0.20, 0.22),
+        (0.22, 0.58, 0.20, 0.20),
+        (0.55, 0.67, 0.19, 0.18),
     ]
 
     def open_level(level_index: int):
@@ -16016,14 +16016,26 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
 
     def visible_button(left: int, top: int, width: int, height: int, level_index: int):
         size = max(70, min(width, height))
+        done_before = level_index < max(0, unlocked_islands - 1)
+        active_now = level_index == max(0, unlocked_islands - 1)
+        button_color = "#22C55E" if done_before else ("#2563EB" if active_now else "#0F172A00")
+        border_color = "#86EFAC" if done_before else ("#93C5FD" if active_now else "#00000000")
         return ft.Container(
             left=left + max(0, (width - size) // 2),
             top=top + max(0, (height - size) // 2),
             width=size,
             height=size,
+            border_radius=999,
+            bgcolor=button_color,
+            border=ft.border.Border.all(4, border_color),
+            shadow=ft.BoxShadow(blur_radius=22, color="#55000000", spread_radius=1),
             opacity=1 if level_index < unlocked_islands else 0,
             on_click=open_level(level_index),
-            content=ft.Image(src=_questions_path_level_start_asset(), fit=ft.BoxFit.CONTAIN, expand=True),
+            content=ft.Container(
+                alignment=ft.Alignment(0, 0),
+                padding=4,
+                content=ft.Image(src=_questions_path_level_start_asset(), fit=ft.BoxFit.CONTAIN, expand=True),
+            ),
         )
 
     def invisible_hotspot(left: int, top: int, width: int, height: int, level_index: int):
@@ -16128,6 +16140,19 @@ def _questions_path_render_level(page: ft.Page, state: dict):
         content=ft.Image(src=_questions_path_level_start_asset(), fit=ft.BoxFit.CONTAIN, expand=True),
     )
 
+    nav_bar = ft.Container(
+        expand=True,
+        padding=16,
+        content=ft.Row(
+            [
+                _game_menu_button("← Inselkarte", lambda e: _questions_path_render_islands(e.page, state), "#475569", width=160, height=40),
+                ft.Text("Fragen-Pfad", size=28, weight="bold", color="white"),
+                ft.Container(width=160),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        ),
+    )
+
     def answer_handler(answer_index: int):
         def _handler(e):
             current_index = int(state.get("_questions_path_level_progress", 0) or 0)
@@ -16190,25 +16215,7 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                 [
                     ft.Image(src=_questions_path_level_background_asset(), fit=ft.BoxFit.COVER, expand=True),
                     ft.Container(expand=True, bgcolor="#07101870"),
-                    ft.Container(
-                        expand=True,
-                        padding=16,
-                        content=ft.Column(
-                            [
-                                ft.Row(
-                                    [
-                                        _game_menu_button("← Inselkarte", lambda e: _questions_path_render_islands(e.page, state), "#475569", width=160, height=40),
-                                        ft.Text("Fragen-Pfad", size=28, weight="bold", color="white"),
-                                        ft.Container(width=160),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Container(expand=True),
-                                ft.Text("", size=1),
-                            ],
-                            spacing=8,
-                        ),
-                    ),
+                    ft.Container(expand=True),
                     start_button,
                     ft.Container(
                         expand=True,
@@ -16239,6 +16246,7 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                             ),
                         ),
                     ),
+                    nav_bar,
                 ],
                 expand=True,
             ),
