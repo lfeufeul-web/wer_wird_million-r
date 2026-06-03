@@ -2175,6 +2175,9 @@ def _questions_path_level_background_asset() -> str:
     return "Fragenpfad/level_insel_1.png"
 
 
+QUESTIONS_PATH_MAPS = {}
+
+
 QUESTIONS_PATH_MAPS["ernaehrung"] = {
     "title": "Ernährungswelt",
     "subtitle": "Klicke die Insel und löse 10 Fragen zu gesunder Ernährung.",
