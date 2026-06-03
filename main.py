@@ -634,6 +634,7 @@ def default_user(email: str, uid: str | None = None) -> dict:
         "avatar": default_avatar_profile(),
         "question_profile": {"recent_prompts": [], "performance": {}},
         "custom_points_quizzes": [],
+        "questions_path_profiles": [],
     }
     if uid:
         user["uid"] = uid
@@ -816,6 +817,7 @@ def ensure_firebase_user(uid: str, email: str) -> dict:
     user.setdefault("game_history", [])
     ensure_social_defaults(user)
     ensure_avatar_defaults(user)
+    ensure_questions_path_defaults(user)
     for key, value in DEFAULT_USER_SETTINGS.items():
         user["settings"].setdefault(key, value)
     ensure_stats_defaults(user["stats"])
@@ -1058,6 +1060,104 @@ def ensure_question_profile_defaults(user: dict):
     profile["performance"] = cleaned_performance
 
 
+QUESTIONS_PATH_PROFILE_COUNT = 5
+QUESTIONS_PATH_LEVEL_ORDER = ["waldpfad", "stadtpfad", "himmelsroute"]
+QUESTIONS_PATH_DEFAULT_PROFILE_NAME = "Profil"
+
+
+def _questions_path_default_level_state() -> dict:
+    return {
+        "node_index": 0,
+        "completed_nodes": [],
+        "done": False,
+        "last_saved_at": None,
+    }
+
+
+def _questions_path_default_profile(index: int) -> dict:
+    return {
+        "name": f"{QUESTIONS_PATH_DEFAULT_PROFILE_NAME} {index + 1}",
+        "selected_age": "mid",
+        "active_level_index": 0,
+        "active_game": None,
+        "level_progress": {
+            map_key: _questions_path_default_level_state() for map_key in QUESTIONS_PATH_LEVEL_ORDER
+        },
+    }
+
+
+def ensure_questions_path_defaults(user: dict):
+    profiles = user.setdefault("questions_path_profiles", [])
+    if not isinstance(profiles, list):
+        profiles = []
+    normalized = []
+    for idx in range(QUESTIONS_PATH_PROFILE_COUNT):
+        raw = profiles[idx] if idx < len(profiles) and isinstance(profiles[idx], dict) else {}
+        profile = _questions_path_default_profile(idx)
+        profile["name"] = str(raw.get("name", profile["name"])).strip() or profile["name"]
+        profile["selected_age"] = str(raw.get("selected_age", profile["selected_age"])).strip() or profile["selected_age"]
+        profile["active_level_index"] = max(0, min(int(raw.get("active_level_index", 0) or 0), len(QUESTIONS_PATH_LEVEL_ORDER) - 1))
+        active_game = raw.get("active_game")
+        if isinstance(active_game, dict):
+            profile["active_game"] = active_game
+        level_progress = raw.get("level_progress", {})
+        if not isinstance(level_progress, dict):
+            level_progress = {}
+        for map_key in QUESTIONS_PATH_LEVEL_ORDER:
+            raw_level = level_progress.get(map_key, {})
+            level_state = _questions_path_default_level_state()
+            if isinstance(raw_level, dict):
+                level_state["node_index"] = max(0, int(raw_level.get("node_index", 0) or 0))
+                level_state["completed_nodes"] = [int(v) for v in list(raw_level.get("completed_nodes", []) or []) if str(v).isdigit() or isinstance(v, int)]
+                level_state["done"] = bool(raw_level.get("done", False))
+                level_state["last_saved_at"] = raw_level.get("last_saved_at")
+            profile["level_progress"][map_key] = level_state
+        normalized.append(profile)
+    while len(normalized) < QUESTIONS_PATH_PROFILE_COUNT:
+        normalized.append(_questions_path_default_profile(len(normalized)))
+    user["questions_path_profiles"] = normalized[:QUESTIONS_PATH_PROFILE_COUNT]
+
+
+def get_questions_path_profiles(state: dict) -> list[dict]:
+    email = state.get("current_user_email")
+    if not email:
+        return []
+    db = load_db()
+    user = db.get("users", {}).get(email)
+    if not user:
+        return []
+    ensure_social_defaults(user)
+    ensure_questions_path_defaults(user)
+    return list(user.get("questions_path_profiles", []) or [])
+
+
+def persist_questions_path_profiles(state: dict, profiles: list[dict]):
+    email = state.get("current_user_email")
+    if not email:
+        return
+    db = load_db()
+    if email not in db.get("users", {}):
+        return
+    db["users"][email]["questions_path_profiles"] = profiles
+    save_db(db)
+
+    uid = state.get("current_user_uid") or db.get("users", {}).get(email, {}).get("uid")
+    client = get_firestore_client()
+    if client is not None and uid and firestore is not None:
+        try:
+            client.collection("users").document(uid).update({"questions_path_profiles": profiles})
+        except Exception as e:
+            print(f"Firebase questions_path_profiles save error: {e}")
+
+
+def get_questions_path_profile_index(state: dict) -> int:
+    return max(0, min(int(state.get("questions_path_profile_index", 0) or 0), QUESTIONS_PATH_PROFILE_COUNT - 1))
+
+
+def set_questions_path_profile_index(state: dict, index: int):
+    state["questions_path_profile_index"] = max(0, min(int(index), QUESTIONS_PATH_PROFILE_COUNT - 1))
+
+
 def generate_friend_code() -> str:
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     return "".join(random.choice(alphabet) for _ in range(8))
@@ -1079,6 +1179,7 @@ def ensure_social_defaults(user: dict):
     user.setdefault("weekly_stats", {"week": "", "money_level": 0, "games_won": 0})
     user.setdefault("custom_quizzes", [])
     user.setdefault("custom_points_quizzes", [])
+    user.setdefault("questions_path_profiles", [])
     ensure_question_profile_defaults(user)
 
 
@@ -1942,52 +2043,80 @@ def save_questions_path_game(state: dict):
     db = load_db()
     if email not in db.get("users", {}):
         return
+    user = db["users"][email]
+    ensure_social_defaults(user)
+    ensure_questions_path_defaults(user)
+    profiles = list(user.get("questions_path_profiles", []) or [])
+    profile_index = get_questions_path_profile_index(state)
+    profile = profiles[profile_index]
+    map_key = game.get("map_key", "waldpfad")
 
-    saved_game = {
-        "map_key": game.get("map_key", "waldpfad"),
+    level_progress = profile.setdefault("level_progress", {})
+    level_state = level_progress.setdefault(map_key, _questions_path_default_level_state())
+    level_state["node_index"] = int(game.get("node_index", 0))
+    level_state["completed_nodes"] = [int(v) for v in list(game.get("completed_nodes", [])) if isinstance(v, int) or str(v).isdigit()]
+    level_state["done"] = bool(game.get("game_finished", False))
+    level_state["last_saved_at"] = datetime.now(timezone.utc).isoformat()
+
+    profile["selected_age"] = str(game.get("age", profile.get("selected_age", "mid"))).strip() or "mid"
+    profile["active_game"] = {
+        "map_key": map_key,
         "map_title": game.get("map_title", QUESTIONS_PATH_MAPS["waldpfad"]["title"]),
-        "age": game.get("age", "mid"),
+        "age": profile["selected_age"],
         "node_index": int(game.get("node_index", 0)),
         "completed_nodes": list(game.get("completed_nodes", [])),
         "questions": list(game.get("questions", [])),
         "game_finished": bool(game.get("game_finished", False)),
         "checkpoint_index": int(game.get("checkpoint_index", 0)),
         "current_hint": game.get("current_hint"),
+        "current_level_index": int(game.get("current_level_index", profile.get("active_level_index", 0))),
     }
-    db["users"][email]["saved_questions_path_game"] = saved_game
-    state["saved_questions_path_game"] = saved_game
+    if bool(game.get("game_finished", False)) and map_key in QUESTIONS_PATH_LEVEL_ORDER:
+        lvl_index = QUESTIONS_PATH_LEVEL_ORDER.index(map_key)
+        profile["active_level_index"] = min(lvl_index + 1, len(QUESTIONS_PATH_LEVEL_ORDER) - 1)
+        profile["active_game"] = None
+    user["questions_path_profiles"] = profiles
     save_db(db)
-
+    state["questions_path_profiles"] = profiles
+    state["saved_questions_path_game"] = profile.get("active_game")
     uid = state.get("current_user_uid") or db.get("users", {}).get(email, {}).get("uid")
     client = get_firestore_client()
     if client is not None and uid and firestore is not None:
         try:
-            client.collection("users").document(uid).update({"saved_questions_path_game": saved_game})
+            client.collection("users").document(uid).update({"questions_path_profiles": profiles})
         except Exception as e:
-            print(f"Firebase saved_questions_path_game save error: {e}")
+            print(f"Firebase questions_path_profiles save error: {e}")
 
 
 def clear_questions_path_game(state: dict):
     email = state.get("current_user_email")
-    state.pop("saved_questions_path_game", None)
     state.pop("questions_path_game", None)
     state.pop("_questions_path_active_node", None)
     state.pop("_questions_path_modal", None)
+    state.pop("saved_questions_path_game", None)
     if not email:
         return
 
     db = load_db()
-    if email in db.get("users", {}) and "saved_questions_path_game" in db["users"][email]:
-        db["users"][email].pop("saved_questions_path_game", None)
-        save_db(db)
+    if email in db.get("users", {}):
+        user = db["users"][email]
+        ensure_social_defaults(user)
+        ensure_questions_path_defaults(user)
+        profiles = list(user.get("questions_path_profiles", []) or [])
+        idx = get_questions_path_profile_index(state)
+        if idx < len(profiles):
+            profiles[idx]["active_game"] = None
+            user["questions_path_profiles"] = profiles
+            save_db(db)
+        state["questions_path_profiles"] = profiles
 
     uid = state.get("current_user_uid") or db.get("users", {}).get(email, {}).get("uid")
     client = get_firestore_client()
     if client is not None and uid and firestore is not None:
         try:
-            client.collection("users").document(uid).update({"saved_questions_path_game": firestore.DELETE_FIELD})
+            client.collection("users").document(uid).update({"questions_path_profiles": db.get("users", {}).get(email, {}).get("questions_path_profiles", [])})
         except Exception as e:
-            print(f"Firebase saved_questions_path_game delete error: {e}")
+            print(f"Firebase questions_path_profiles delete error: {e}")
 
 
 def get_saved_questions_path_game(state: dict) -> dict | None:
@@ -1996,10 +2125,13 @@ def get_saved_questions_path_game(state: dict) -> dict | None:
         return None
     saved = state.get("saved_questions_path_game")
     if not saved:
-        db = load_db()
-        saved = db.get("users", {}).get(email, {}).get("saved_questions_path_game")
-        if saved:
-            state["saved_questions_path_game"] = saved
+        profiles = get_questions_path_profiles(state)
+        idx = get_questions_path_profile_index(state)
+        if idx < len(profiles):
+            saved = profiles[idx].get("active_game")
+            if saved:
+                state["saved_questions_path_game"] = saved
+                state["questions_path_profiles"] = profiles
     if not saved or not saved.get("questions"):
         return None
     return saved
@@ -2020,6 +2152,7 @@ def resume_questions_path_game(page: ft.Page, state: dict, saved: dict | None = 
         "game_finished": bool(saved.get("game_finished", False)),
         "checkpoint_index": int(saved.get("checkpoint_index", 0)),
         "current_hint": saved.get("current_hint"),
+        "current_level_index": int(saved.get("current_level_index", 0)),
     }
     state.pop("_questions_path_active_node", None)
     state.pop("_questions_path_modal", None)
@@ -7668,7 +7801,8 @@ def render_questions_path_complete(page: ft.Page, state: dict):
             expand=True,
             content=ft.Stack(
                 [
-                    _themed_screen_background(page, get_theme(state), "#00000088"),
+                    ft.Image(src="questions_path_forest.png", fit=ft.ImageFit.COVER, expand=True),
+                    ft.Container(expand=True, bgcolor="#04110BD8"),
                     _settings_corner_overlay(page, state),
                     ft.Container(
                         expand=True,
@@ -7742,14 +7876,19 @@ def render_questions_path_game(page: ft.Page, state: dict):
     map_stack = ft.Container(
         width=map_w,
         height=map_h,
-        bgcolor=map_cfg.get("panel", "#0A1712E8"),
-        border_radius=24,
-        border=ft.border.Border.all(2, map_cfg.get("border", "#34D399")),
-        padding=14,
+        border_radius=28,
+        border=ft.border.Border.all(2.4, map_cfg.get("border", "#34D399")),
+        padding=10,
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         content=ft.Stack(
             [
-                ft.Container(expand=True, bgcolor="#020403", opacity=0.14, border_radius=20),
-                *map_items,
+                ft.Image(src="questions_path_forest.png", fit=ft.ImageFit.COVER, expand=True),
+                ft.Container(expand=True, bgcolor="#06140B8C"),
+                ft.Container(
+                    expand=True,
+                    padding=6,
+                    content=ft.Stack(map_items, expand=True),
+                ),
             ],
             expand=True,
         ),
@@ -7823,7 +7962,8 @@ def render_questions_path_game(page: ft.Page, state: dict):
 
     page.controls.clear()
     layers = [
-        _themed_screen_background(page, theme, "#0000008b"),
+        ft.Image(src="questions_path_forest.png", fit=ft.ImageFit.COVER, expand=True),
+        ft.Container(expand=True, bgcolor="#04110B92"),
         _settings_corner_overlay(page, state),
         ft.Container(
             expand=True,
@@ -7856,7 +7996,15 @@ def render_questions_path_game(page: ft.Page, state: dict):
 
 def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
     map_cfg = QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"])
-    age = state.get("questions_path_age", "mid")
+    profiles = get_questions_path_profiles(state)
+    profile_index = get_questions_path_profile_index(state)
+    profile = profiles[profile_index] if profile_index < len(profiles) else _questions_path_default_profile(profile_index)
+    age = profile.get("selected_age", state.get("questions_path_age", "mid"))
+    active_game = profile.get("active_game")
+    if isinstance(active_game, dict) and active_game.get("map_key") == map_key and not active_game.get("game_finished", False):
+        resume_questions_path_game(page, state, active_game)
+        return
+
     questions = build_questions_path_questions(age, map_key)
     state["questions_path_game"] = {
         "map_key": map_key,
@@ -7868,7 +8016,9 @@ def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
         "game_finished": False,
         "checkpoint_index": 0,
         "current_hint": None,
+        "profile_index": profile_index,
     }
+    state["questions_path_age"] = age
     state.pop("_questions_path_active_node", None)
     save_questions_path_game(state)
     render_questions_path_game(page, state)
@@ -7878,12 +8028,50 @@ def show_questions_path_hub(page: ft.Page, state: dict):
     _set_resize_view(state, show_questions_path_hub)
     theme = get_theme(state)
     _sync_page_route(page, "/path")
-    saved = get_saved_questions_path_game(state)
-    if state.pop("_startup_recovering", False) and saved:
-        resume_questions_path_game(page, state, saved)
-        return
+    profiles = get_questions_path_profiles(state)
+    if not profiles:
+        db = load_db()
+        email = state.get("current_user_email")
+        if email and email in db.get("users", {}):
+            user = db["users"][email]
+            ensure_social_defaults(user)
+            ensure_questions_path_defaults(user)
+            save_db(db)
+            profiles = list(user.get("questions_path_profiles", []) or [])
+        else:
+            profiles = [_questions_path_default_profile(i) for i in range(QUESTIONS_PATH_PROFILE_COUNT)]
+    state["questions_path_profiles"] = profiles
 
-    selected_age = state.get("questions_path_age", "mid")
+    if state.pop("_startup_recovering", False):
+        saved = get_saved_questions_path_game(state)
+        if saved:
+            resume_questions_path_game(page, state, saved)
+            return
+
+    profile_index = get_questions_path_profile_index(state)
+    profile = profiles[profile_index] if profile_index < len(profiles) else _questions_path_default_profile(profile_index)
+    selected_age = profile.get("selected_age", "mid")
+
+    def persist_and_refresh():
+        current_profiles = get_questions_path_profiles(state)
+        if not current_profiles:
+            current_profiles = [_questions_path_default_profile(i) for i in range(QUESTIONS_PATH_PROFILE_COUNT)]
+        if profile_index < len(current_profiles):
+            current_profiles[profile_index] = profile
+            persist_questions_path_profiles(state, current_profiles)
+            state["questions_path_profiles"] = current_profiles
+
+    def choose_profile(idx: int):
+        def _handler(e):
+            set_questions_path_profile_index(state, idx)
+            show_questions_path_hub(e.page, state)
+        return _handler
+
+    def set_age(e):
+        profile["selected_age"] = e.control.value
+        persist_and_refresh()
+        show_questions_path_hub(e.page, state)
+
     age_dropdown = ft.Dropdown(
         value=selected_age,
         width=260,
@@ -7892,27 +8080,121 @@ def show_questions_path_hub(page: ft.Page, state: dict):
         border_color=theme["border"],
         options=[ft.dropdown.Option(k, text=label) for k, label in POINTS_QUIZ_AGE_OPTIONS],
     )
-    age_dropdown.on_change = lambda e: state.__setitem__("questions_path_age", e.control.value)
+    age_dropdown.on_change = set_age
 
-    map_cards = []
-    for map_key, map_cfg in QUESTIONS_PATH_MAPS.items():
-        map_cards.append(
+    saved = profile.get("active_game")
+
+    profile_cards = []
+    for i, p in enumerate(profiles):
+        level_done = sum(1 for lvl in (p.get("level_progress", {}) or {}).values() if isinstance(lvl, dict) and lvl.get("done"))
+        active = i == profile_index
+        profile_cards.append(
             ft.Container(
-                width=320,
-                padding=18,
-                bgcolor=map_cfg.get("panel", "#0A1712E8"),
-                border_radius=22,
-                border=ft.border.Border.all(2, map_cfg.get("border", "#34D399")),
+                width=150,
+                padding=14,
+                bgcolor="#0A0F15E8" if active else "#07110DCC",
+                border_radius=18,
+                border=ft.border.Border.all(2.4 if active else 1.2, theme.get("accent_2", "#60A5FA") if active else "#475569"),
+                on_click=choose_profile(i),
                 content=ft.Column(
                     [
-                        ft.Text(map_cfg.get("title", "Map"), size=24, weight="bold", color="white"),
-                        ft.Text(map_cfg.get("subtitle", ""), size=13, color=theme_txt(theme, "secondary")),
-                        ft.Container(height=6),
-                        ft.Text(f"Etappen: {len(map_cfg['points'])}", size=12, color="#D1FAE5"),
-                        _game_menu_button("Map starten", lambda e, mk=map_key: start_questions_path_game(e.page, state, mk), map_cfg.get("accent", "#34D399"), width=220, height=42),
+                        ft.Text(f"P{i + 1}", size=18, weight="bold", color="white", text_align="center"),
+                        ft.Text(p.get("name", f"Profil {i + 1}"), size=12, color=theme_txt(theme, "secondary"), text_align="center"),
+                        ft.Text(f"{level_done}/3 Levels", size=11, color=theme["gold"], text_align="center"),
                     ],
-                    spacing=8,
+                    spacing=4,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+        )
+
+    def level_state_for(profile_data: dict, map_key: str, level_index: int) -> str:
+        level_progress = (profile_data.get("level_progress", {}) or {}).get(map_key, {})
+        if isinstance(level_progress, dict) and level_progress.get("done"):
+            return "done"
+        current_idx = int(profile_data.get("active_level_index", 0) or 0)
+        if level_index < current_idx:
+            return "done"
+        if level_index == current_idx:
+            return "active"
+        return "locked"
+
+    def open_level(map_key: str, level_index: int):
+        def _handler(e):
+            state["questions_path_profile_index"] = profile_index
+            current_profiles = get_questions_path_profiles(state)
+            current_profile = current_profiles[profile_index] if profile_index < len(current_profiles) else profile
+            lvl_state = level_state_for(current_profile, map_key, level_index)
+            saved_game = current_profile.get("active_game")
+            if saved_game and saved_game.get("map_key") == map_key and not saved_game.get("game_finished", False):
+                resume_questions_path_game(e.page, state, saved_game)
+                return
+            if lvl_state == "locked":
+                e.page.snack_bar = ft.SnackBar(content=ft.Text("Schließe zuerst das vorherige Level ab."), open=True)
+                e.page.update()
+                return
+            start_questions_path_game(e.page, state, map_key)
+        return _handler
+
+    level_cards = []
+    for level_index, map_key in enumerate(QUESTIONS_PATH_LEVEL_ORDER):
+        map_cfg = QUESTIONS_PATH_MAPS[map_key]
+        state_name = level_state_for(profile, map_key, level_index)
+        accent = {"done": "#22C55E", "active": "#3B82F6", "locked": "#64748B"}[state_name]
+        label = {"done": "Abgeschlossen", "active": "Aktiv", "locked": "Gesperrt"}[state_name]
+        current_level = profile.get("active_game", {}).get("map_key") == map_key
+        level_cards.append(
+            ft.Container(
+                width=340,
+                height=220,
+                border_radius=24,
+                border=ft.border.Border.all(2.4, accent),
+                bgcolor="#050B10",
+                on_click=open_level(map_key, level_index),
+                content=ft.Stack(
+                    [
+                        ft.Image(src="questions_path_forest.png", fit=ft.ImageFit.COVER, expand=True),
+                        ft.Container(expand=True, bgcolor="#00000088" if state_name != "active" else "#00000066"),
+                        ft.Container(
+                            expand=True,
+                            padding=16,
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            ft.Container(
+                                                content=ft.Text(f"Level {level_index + 1}", size=12, weight="bold", color="white"),
+                                                bgcolor=accent,
+                                                border_radius=999,
+                                                padding=ft.Padding(10, 4, 10, 4),
+                                            ),
+                                            ft.Container(
+                                                content=ft.Text(label, size=11, weight="bold", color="white"),
+                                                bgcolor="#00000066",
+                                                border_radius=999,
+                                                padding=ft.Padding(10, 4, 10, 4),
+                                            ),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Container(expand=True),
+                                    ft.Text(map_cfg.get("title", "Map"), size=24, weight="bold", color="white"),
+                                    ft.Text(map_cfg.get("subtitle", ""), size=12, color="#E5E7EB"),
+                                    ft.Text(f"{len(map_cfg['points'])} Stationen", size=12, color=theme["gold"]),
+                                    ft.Container(height=6),
+                                    _game_menu_button(
+                                        "Fortsetzen" if current_level and saved else ("Starten" if state_name != "locked" else "Gesperrt"),
+                                        open_level(map_key, level_index),
+                                        accent,
+                                        width=180,
+                                        height=40,
+                                    ),
+                                ],
+                                spacing=6,
+                            ),
+                        ),
+                    ],
+                    expand=True,
                 ),
             )
         )
@@ -7920,9 +8202,9 @@ def show_questions_path_hub(page: ft.Page, state: dict):
     resume_section = []
     if saved:
         resume_section.extend([
-            ft.Text("Gespeicherte Map gefunden", size=16, weight="bold", color=theme["gold"]),
+            ft.Text("Fortsetzung vorhanden", size=16, weight="bold", color=theme["gold"]),
             ft.Text(f"{saved.get('map_title', 'Fragen-Pfad')} · Station {int(saved.get('node_index', 0)) + 1}", size=12, color=theme_txt(theme, "secondary")),
-            _game_menu_button("▶ Fortsetzen", lambda e: resume_questions_path_game(e.page, state, saved), theme["success"], width=220, height=42),
+            _game_menu_button("▶ Weiterspielen", lambda e: resume_questions_path_game(e.page, state, saved), theme["success"], width=220, height=42),
         ])
 
     page.controls.clear()
@@ -7931,46 +8213,73 @@ def show_questions_path_hub(page: ft.Page, state: dict):
             expand=True,
             content=ft.Stack(
                 [
-                    _themed_screen_background(page, theme, "#00000095"),
+                    ft.Image(src="questions_path_forest.png", fit=ft.ImageFit.COVER, expand=True),
+                    ft.Container(expand=True, bgcolor="#06110C9A"),
                     _settings_corner_overlay(page, state),
                     ft.Container(
                         expand=True,
                         alignment=ft.Alignment(0, 0),
-                        content=ft.Column(
-                            [
-                                ft.Text("Fragen-Pfad", size=32, weight="bold", color="white", text_align="center"),
-                                ft.Text("Eine große Karte mit vielen kleinen Etappen, die du Stück für Stück freischaltest.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
-                                ft.Container(height=8),
-                                ft.Container(
-                                    content=ft.Column(
+                        content=ft.Container(
+                            width=min(1260, max(320, int(_page_size(page)[0] - 24))),
+                            padding=22,
+                            bgcolor="#08120DE0",
+                            border_radius=26,
+                            border=ft.border.Border.all(2, theme["border"]),
+                            content=ft.Column(
+                                [
+                                    ft.Row(
                                         [
-                                            ft.Text("Wähle die Altersstufe", size=16, weight="bold", color=theme["gold"], text_align="center"),
-                                            age_dropdown,
-                                            *resume_section,
-                                            ft.Container(height=8),
-                                            ft.Row(
-                                                map_cards,
-                                                spacing=14,
-                                                wrap=True,
-                                                alignment=ft.MainAxisAlignment.CENTER,
-                                            ),
-                                            ft.Container(height=8),
-                                            ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
+                                            ft.Text("Fragen-Pfad", size=32, weight="bold", color="white"),
+                                            ft.TextButton("← Spielauswahl", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
                                         ],
-                                        spacing=12,
-                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                        scroll=ft.ScrollMode.AUTO,
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
-                                    width=min(1100, max(320, int(_page_size(page)[0] - 24))),
-                                    padding=22,
-                                    bgcolor="#08120DE0",
-                                    border_radius=24,
-                                    border=ft.border.Border.all(2, theme["border"]),
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            spacing=12,
+                                    ft.Text("Wähle ein Profil und spiele die drei Karten wie eine kleine Weltkarte durch.", size=13, color=theme_txt(theme, "secondary")),
+                                    ft.Container(height=8),
+                                    ft.Text("Profile", size=16, weight="bold", color=theme["gold"]),
+                                    ft.Row(profile_cards, spacing=12, wrap=True, alignment=ft.MainAxisAlignment.CENTER),
+                                    ft.Container(height=8),
+                                    ft.Row(
+                                        [
+                                            ft.Container(
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Profil-Einstellungen", size=16, weight="bold", color="white"),
+                                                        ft.Text(f"Aktives Profil: {profile.get('name', f'Profil {profile_index + 1}')}", size=12, color=theme_txt(theme, "secondary")),
+                                                        age_dropdown,
+                                                        *resume_section,
+                                                    ],
+                                                    spacing=10,
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                ),
+                                                width=320,
+                                                padding=16,
+                                                bgcolor="#050A0FCC",
+                                                border_radius=20,
+                                                border=ft.border.Border.all(1.5, "#2D6A4F"),
+                                            ),
+                                            ft.Container(
+                                                expand=True,
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Level", size=16, weight="bold", color=theme["gold"], text_align="center"),
+                                                        ft.Row(level_cards, spacing=14, wrap=True, alignment=ft.MainAxisAlignment.CENTER),
+                                                    ],
+                                                    spacing=10,
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                ),
+                                            ),
+                                        ],
+                                        spacing=16,
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        vertical_alignment=ft.CrossAxisAlignment.START,
+                                        wrap=True,
+                                    ),
+                                ],
+                                spacing=12,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
                         ),
                     ),
                 ],
@@ -7979,6 +8288,7 @@ def show_questions_path_hub(page: ft.Page, state: dict):
         )
     )
     page.update()
+    page.run_task(_sync_bg_music_async, page, state)
 
 
 # ---------- Points quiz ----------
