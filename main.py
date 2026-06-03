@@ -574,10 +574,18 @@ def init_bg_music(page: ft.Page):
             print("ft.Audio not available in this Flet version - audio disabled")
             return None
         audio_kwargs = {
-            "src": f"audio/{BG_MUSIC_FILE}",
             "autoplay": True,
             "volume": 0.22,
         }
+        music_path = os.path.join(AUDIO_DIR, BG_MUSIC_FILE)
+        if os.path.exists(music_path):
+            try:
+                with open(music_path, "rb") as f:
+                    audio_kwargs["src_base64"] = base64.b64encode(f.read()).decode("ascii")
+            except Exception:
+                audio_kwargs["src"] = f"audio/{BG_MUSIC_FILE}"
+        else:
+            audio_kwargs["src"] = f"audio/{BG_MUSIC_FILE}"
         release_mode = getattr(ft, "ReleaseMode", None)
         if release_mode is not None and hasattr(release_mode, "LOOP"):
             audio_kwargs["release_mode"] = release_mode.LOOP
@@ -7940,11 +7948,11 @@ def show_questions_path_hub(page: ft.Page, state: dict):
                                             age_dropdown,
                                             *resume_section,
                                             ft.Container(height=8),
-                                            ft.Wrap(
-                                                controls=map_cards,
+                                            ft.Row(
+                                                map_cards,
                                                 spacing=14,
-                                                run_spacing=14,
-                                                alignment=ft.WrapAlignment.CENTER,
+                                                wrap=True,
+                                                alignment=ft.MainAxisAlignment.CENTER,
                                             ),
                                             ft.Container(height=8),
                                             ft.TextButton("← Zurück", on_click=lambda e: open_main_menu(e.page, state), style=ft.ButtonStyle(color="white")),
