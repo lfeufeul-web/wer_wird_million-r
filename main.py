@@ -15874,6 +15874,10 @@ def _questions_path_level_background_asset() -> str:
     return os.path.join("Fragenpfad", "level_insel_1.png")
 
 
+def _questions_path_level_start_asset() -> str:
+    return os.path.join("Fragenpfad", "level_start.png")
+
+
 def _questions_path_profile_cards(page: ft.Page, state: dict, profiles: list[dict]):
     theme = get_theme(state)
     cards = []
@@ -15904,7 +15908,6 @@ def _questions_path_profile_cards(page: ft.Page, state: dict, profiles: list[dic
                     [
                         ft.Text(f"P{index + 1}", size=20, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
                         ft.Text(profile.get("name", f"Profil {index + 1}"), size=12, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
-                        ft.Text("Profil auswählen", size=11, color=theme["gold"], text_align=ft.TextAlign.CENTER),
                     ],
                     spacing=5,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -15957,27 +15960,10 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
                                         ],
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
-                                    ft.Text("Wähle zuerst ein Profil. Danach springen wir in die Inselkarte.", size=13, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                                    ft.Text("Wähle ein Profil.", size=13, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
                                     ft.Container(height=8),
                                     ft.Text("Profile", size=16, weight="bold", color=theme["gold"], text_align=ft.TextAlign.CENTER),
                                     ft.Row(cards, spacing=12, wrap=True, alignment=ft.MainAxisAlignment.CENTER),
-                                    ft.Container(height=10),
-                                    ft.Container(
-                                        width=min(720, panel_w - 40),
-                                        padding=18,
-                                        border_radius=22,
-                                        bgcolor="#07141C",
-                                        border=ft.border.Border.all(1.5, "#203447"),
-                                        content=ft.Column(
-                                            [
-                                                ft.Text("Aktives Profil", size=14, weight="bold", color="white"),
-                                                ft.Text(active_profile.get("name", f"Profil {active_index + 1}"), size=20, weight="bold", color=theme["accent_2"]),
-                                                ft.Text("Nach der Auswahl öffnet sich die Inselkarte mit den Leveln.", size=12, color=theme_txt(theme, "secondary")),
-                                            ],
-                                            spacing=6,
-                                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                        ),
-                                    ),
                                 ],
                                 spacing=10,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -16001,80 +15987,68 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
         state["questions_path_profiles"] = profiles
     active_index = int(state.get("questions_path_profile_index", 0) or 0)
     active_profile = profiles[active_index] if active_index < len(profiles) else profiles[0]
-    done = bool(state.get("_questions_path_level1_done"))
+    unlocked_islands = max(1, int(state.get("_questions_path_unlocked_islands", 1) or 1))
     page_w, page_h = _page_size(page)
     card_w = min(1240, max(320, int(page_w - 24)))
     map_h = max(420, min(660, int(page_h * 0.76)))
-    map_left = int(card_w * 0.12)
-    map_top = int(map_h * 0.16)
-    map_width = int(card_w * 0.28)
-    map_height = int(map_h * 0.32)
-    other_positions = [
-        (0.50, 0.14, 0.24, 0.24),
-        (0.72, 0.44, 0.22, 0.24),
+    island_positions = [
+        (0.10, 0.16, 0.29, 0.31),
+        (0.50, 0.18, 0.26, 0.24),
+        (0.76, 0.42, 0.18, 0.22),
         (0.24, 0.58, 0.22, 0.22),
-        (0.56, 0.66, 0.20, 0.22),
+        (0.56, 0.66, 0.20, 0.18),
     ]
 
-    def open_level(e):
-        state["questions_path_scene"] = "level"
-        state["questions_path_level"] = "nutrition_1"
-        state["_questions_path_level_progress"] = 0
-        state["_questions_path_level_complete"] = False
-        show_questions_path_hub(e.page, state)
+    def open_level(level_index: int):
+        def _handler(e):
+            if level_index >= unlocked_islands:
+                e.page.snack_bar = ft.SnackBar(content=ft.Text("Schließe zuerst das vorherige Level ab."), open=True)
+                e.page.update()
+                return
+            state["questions_path_scene"] = "level"
+            state["questions_path_level"] = f"level_{level_index + 1}"
+            state["_questions_path_level_progress"] = 0
+            state["_questions_path_level_complete"] = False
+            state["_questions_path_level_started"] = False
+            show_questions_path_hub(e.page, state)
 
-    island_badge = ft.Container(
-        width=map_width,
-        height=map_height,
-        border_radius=999,
-        bgcolor="#F8F6EE",
-        border=ft.border.Border.all(3, "#3B82F6" if not done else "#22C55E"),
-        shadow=ft.BoxShadow(blur_radius=20, color="#441D4ED8", spread_radius=1),
-        padding=16,
-        on_click=open_level,
-        content=ft.Column(
-            [
-                ft.Text("🌿", size=30, text_align=ft.TextAlign.CENTER),
-                ft.Text("Naturinsel", size=20, weight="bold", color="#0F172A", text_align=ft.TextAlign.CENTER),
-                ft.Text("Ernährung & gesunde Gewohnheiten", size=11, color="#475569", text_align=ft.TextAlign.CENTER),
-                ft.Text("10 Fragen", size=11, color="#1D4ED8", text_align=ft.TextAlign.CENTER),
-                ft.Container(
-                    content=ft.Text("Starten" if not done else "Abgeschlossen", size=10, weight="bold", color="white"),
-                    bgcolor="#3B82F6" if not done else "#22C55E",
-                    border_radius=999,
-                    padding=ft.Padding(10, 4, 10, 4),
-                ),
-            ],
-            spacing=4,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            alignment=ft.MainAxisAlignment.CENTER,
-        ),
-    )
+        return _handler
+
+    def visible_button(left: int, top: int, width: int, height: int, level_index: int):
+        size = max(70, min(width, height))
+        return ft.Container(
+            left=left + max(0, (width - size) // 2),
+            top=top + max(0, (height - size) // 2),
+            width=size,
+            height=size,
+            opacity=1 if level_index < unlocked_islands else 0,
+            on_click=open_level(level_index),
+            content=ft.Image(src=_questions_path_level_start_asset(), fit=ft.BoxFit.CONTAIN, expand=True),
+        )
+
+    def invisible_hotspot(left: int, top: int, width: int, height: int, level_index: int):
+        return ft.Container(
+            left=left,
+            top=top,
+            width=width,
+            height=height,
+            bgcolor="#00000001",
+            on_click=open_level(level_index),
+        )
 
     stage_layers = [
         ft.Image(src=_questions_path_island_hub_asset(), fit=ft.BoxFit.COVER, expand=True),
         ft.Container(expand=True, bgcolor="#071B12A8"),
-        ft.Container(
-            left=map_left,
-            top=map_top,
-            width=map_width,
-            height=map_height,
-            content=island_badge,
-        ),
     ]
-    for left_pct, top_pct, width_pct, height_pct in other_positions:
+    for idx, (left_pct, top_pct, width_pct, height_pct) in enumerate(island_positions):
+        left = int(card_w * left_pct)
+        top = int(map_h * top_pct)
+        width = int(card_w * width_pct)
+        height = int(map_h * height_pct)
         stage_layers.append(
-            ft.Container(
-                left=int(card_w * left_pct),
-                top=int(map_h * top_pct),
-                width=int(card_w * width_pct),
-                height=int(map_h * height_pct),
-                border_radius=999,
-                bgcolor="#F9F3D2CC",
-                border=ft.border.Border.all(2, "#A1A1AA"),
-                opacity=0.86,
-            )
+            invisible_hotspot(left, top, width, height, idx)
         )
+        stage_layers.append(visible_button(left, top, width, height, idx))
 
     page.controls.clear()
     page.add(
@@ -16098,7 +16072,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                 [
                                     ft.Row(
                                         [
-                                            _game_menu_button("← Profile", lambda e: (state.__setitem__("questions_path_scene", "profiles"), show_questions_path_hub(e.page, state)), "#475569", width=170, height=40),
+                                            _game_menu_button("← Profile", lambda e: _questions_path_render_profiles(e.page, state), "#475569", width=170, height=40),
                                             ft.Text("Fragen-Pfad", size=30, weight="bold", color="white"),
                                             ft.Container(width=170),
                                         ],
@@ -16114,8 +16088,6 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                         border=ft.border.Border.all(2, "#7DD3FC"),
                                         content=ft.Stack(stage_layers, expand=True),
                                     ),
-                                    ft.Container(height=4),
-                                    ft.Text("Klicke die große Insel oben links, um Level 1 zu öffnen.", size=12, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
                                 ],
                                 spacing=10,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -16143,24 +16115,17 @@ def _questions_path_render_level(page: ft.Page, state: dict):
 
     def start_or_question(e):
         state["_questions_path_level_started"] = True
-        show_questions_path_hub(e.page, state)
+        _questions_path_render_level(e.page, state)
 
-    point_left = int(card_w * 0.21)
-    point_top = int(card_h * 0.56)
-    point_layer = ft.Container(
+    point_left = int(card_w * 0.17)
+    point_top = int(card_h * 0.39)
+    start_button = ft.Container(
         left=point_left,
         top=point_top,
-        width=80,
-        height=80,
-        border_radius=999,
-        bgcolor="#1D4ED8",
-        border=ft.border.Border.all(5, "#93C5FD"),
-        shadow=ft.BoxShadow(blur_radius=28, color="#664F9CF9", spread_radius=2),
+        width=96,
+        height=96,
         on_click=start_or_question,
-        content=ft.Container(
-            alignment=ft.Alignment(0, 0),
-            content=ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color="white", size=38),
-        ),
+        content=ft.Image(src=_questions_path_level_start_asset(), fit=ft.BoxFit.CONTAIN, expand=True),
     )
 
     def answer_handler(answer_index: int):
@@ -16176,10 +16141,11 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                 state["_questions_path_level_complete"] = True
                 state["_questions_path_level_progress"] = len(QUESTIONS_PATH_NUTRITION_QUESTIONS)
                 state["_questions_path_level1_done"] = True
+                state["_questions_path_unlocked_islands"] = max(int(state.get("_questions_path_unlocked_islands", 1) or 1), 2)
                 render_questions_path_complete(e.page, state)
                 return
             state["_questions_path_level_progress"] = next_index
-            show_questions_path_hub(e.page, state)
+            _questions_path_render_level(e.page, state)
 
         return _handler
 
@@ -16223,7 +16189,7 @@ def _questions_path_render_level(page: ft.Page, state: dict):
             content=ft.Stack(
                 [
                     ft.Image(src=_questions_path_level_background_asset(), fit=ft.BoxFit.COVER, expand=True),
-                    ft.Container(expand=True, bgcolor="#07101882"),
+                    ft.Container(expand=True, bgcolor="#07101870"),
                     ft.Container(
                         expand=True,
                         padding=16,
@@ -16231,20 +16197,19 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                             [
                                 ft.Row(
                                     [
-                                        _game_menu_button("← Inselkarte", lambda e: (state.__setitem__("questions_path_scene", "islands"), show_questions_path_hub(e.page, state)), "#475569", width=160, height=40),
+                                        _game_menu_button("← Inselkarte", lambda e: _questions_path_render_islands(e.page, state), "#475569", width=160, height=40),
                                         ft.Text("Fragen-Pfad", size=28, weight="bold", color="white"),
                                         ft.Container(width=160),
                                     ],
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
                                 ft.Container(expand=True),
-                                ft.Container(expand=True),
-                                ft.Text("Klicke den blauen Punkt, um die Fragen zu starten.", size=12, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                                ft.Text("", size=1),
                             ],
                             spacing=8,
                         ),
                     ),
-                    point_layer,
+                    start_button,
                     ft.Container(
                         expand=True,
                         alignment=ft.Alignment(0, 0),
@@ -16285,7 +16250,10 @@ def _questions_path_render_level(page: ft.Page, state: dict):
 
 def render_questions_path_complete(page: ft.Page, state: dict):
     state["_questions_path_level_complete"] = True
-    _questions_path_render_level(page, state)
+    state["_questions_path_unlocked_islands"] = max(int(state.get("_questions_path_unlocked_islands", 1) or 1), 2)
+    state["_questions_path_level_started"] = False
+    state["questions_path_scene"] = "islands"
+    _questions_path_render_islands(page, state)
 
 
 def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
