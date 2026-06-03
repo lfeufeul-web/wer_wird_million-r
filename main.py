@@ -429,7 +429,7 @@ THEMES = {
         "answer_colors": ["#FF00FF", "#00FFFF", "#FFFF00", "#FF0055"],
     },
 }
-DEFAULT_USER_SETTINGS = {"theme": "classic", "play_audio": True}
+DEFAULT_USER_SETTINGS = {"theme": "classic", "play_audio": True, "background_music": True}
 
 SHOP_CATALOG = {
     "themes": [
@@ -485,7 +485,7 @@ try:
     os.makedirs(AUDIO_DIR, exist_ok=True)
 except Exception:
     pass  # read-only filesystem on Render is fine, TTS just won't work
-BG_MUSIC_FILE = "bg_music.mp3"
+BG_MUSIC_FILE = "bg_music.wav"
 THEME_BG_ROOT = "backgrounds"
 NEON_THEME_BG_DIR = "neon_nexus"
 ROYALE_GOLD_THEME_BG_DIR = "royale_gold"
@@ -518,12 +518,14 @@ THEME_BG_CONFIG = {
     },
 }
 
-def play_tts(page: ft.Page, text: str):
+def play_tts(page: ft.Page, text: str, state: dict | None = None):
     """Generates an MP3 via gTTS and plays it on the page."""
     if not HAS_TTS:
         return
-    # check if user disabled audio
-    # we don't have access to state directly here, but let's assume it's passed or global isn't used
+    if state is not None:
+        settings = get_user_settings(state)
+        if not bool(settings.get("play_audio", True)):
+            return
     
     async def generate_and_play():
         try:
@@ -564,11 +566,15 @@ def _cleanup_tts(e, filepath, audio_ctrl, page):
 def init_bg_music(page: ft.Page):
     """Returns the background music audio control (placeholder for now)."""
     try:
-        bg = ft.Audio(
-            src=f"audio/{BG_MUSIC_FILE}",
-            autoplay=True,
-            volume=0.3,
-        )
+        audio_kwargs = {
+            "src": f"audio/{BG_MUSIC_FILE}",
+            "autoplay": False,
+            "volume": 0.22,
+        }
+        release_mode = getattr(ft, "ReleaseMode", None)
+        if release_mode is not None and hasattr(release_mode, "LOOP"):
+            audio_kwargs["release_mode"] = release_mode.LOOP
+        bg = ft.Audio(**audio_kwargs)
         # create dummy file if not exists so it doesn't crash on load
         try:
             dummy_path = os.path.join(AUDIO_DIR, BG_MUSIC_FILE)
@@ -1355,6 +1361,43 @@ def _resolve_avatar_base_image(gender: str) -> str | None:
 def _avatar_image_source(asset_name: str | None) -> str | bytes | None:
     if not asset_name:
         return None
+
+
+def _ensure_bg_music_control(page: ft.Page, state: dict) -> ft.Audio | None:
+    audio = state.get("_bg_music_audio")
+    if audio is not None:
+        return audio
+    audio = init_bg_music(page)
+    if audio is None:
+        return None
+    state["_bg_music_audio"] = audio
+    try:
+        if audio not in page.overlay:
+            page.overlay.append(audio)
+    except Exception:
+        pass
+    return audio
+
+
+async def _sync_bg_music_async(page: ft.Page, state: dict):
+    audio = _ensure_bg_music_control(page, state)
+    if audio is None:
+        return
+    settings = get_user_settings(state)
+    enabled = bool(settings.get("play_audio", True)) and bool(settings.get("background_music", True))
+    try:
+        if enabled:
+            await audio.resume()
+        else:
+            await audio.pause()
+    except Exception:
+        try:
+            if enabled:
+                await audio.play()
+            else:
+                await audio.pause()
+        except Exception:
+            pass
     candidates = [
         os.path.join("assets", asset_name),
         asset_name,
@@ -1409,6 +1452,17 @@ def _sync_page_route(page: ft.Page, route: str):
             page.route = route
     except Exception:
         pass
+
+
+def _settings_button(page: ft.Page, state: dict, size: int = 16) -> ft.Container:
+    return ft.Container(
+        content=ft.Icon(ft.Icons.SETTINGS, size=size, color="white"),
+        bgcolor="#0000008f",
+        border_radius=14,
+        padding=ft.Padding(8, 6, 8, 6),
+        on_click=lambda e: show_settings_view(page, state),
+        tooltip="Einstellungen",
+    )
 
 
 def _go_route_or_render(page: ft.Page, route: str, renderer, state: dict):
@@ -6630,6 +6684,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
             right=20,
             alignment=ft.Alignment(1, -1),
         ),
+        _settings_corner_overlay(page, state),
         ft.Container(
             content=ft.Container(
                 content=ft.TextButton(
@@ -6642,7 +6697,7 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
                 padding=ft.Padding(6, 2, 6, 2),
             ),
             top=18,
-            left=18,
+            left=66,
             alignment=ft.Alignment(-1, -1),
         ),
     ])
@@ -7818,17 +7873,46 @@ def _points_quiz_team_label(index: int) -> str:
     return f"Team {index + 1}"
 
 
-def _game_portal_back_overlay() -> ft.Container:
+def _game_portal_back_overlay(page: ft.Page, state: dict) -> ft.Container:
+    return ft.Container(
+        content=ft.Row(
+            [
+                ft.Container(
+                    content=ft.Icon(ft.Icons.SETTINGS, size=16, color="white"),
+                    bgcolor="#0000008f",
+                    border_radius=14,
+                    padding=ft.Padding(8, 6, 8, 6),
+                    on_click=lambda e: show_settings_view(page, state),
+                    tooltip="Einstellungen",
+                ),
+                ft.Container(
+                    content=ft.TextButton(
+                        "← Spielauswahl",
+                        on_click=lambda e: e.page.go("/"),
+                        style=ft.ButtonStyle(color="white"),
+                    ),
+                    bgcolor="#0000008f",
+                    border_radius=14,
+                    padding=ft.Padding(6, 2, 6, 2),
+                ),
+            ],
+            spacing=8,
+        ),
+        top=18,
+        left=18,
+        alignment=ft.Alignment(-1, -1),
+    )
+
+
+def _settings_corner_overlay(page: ft.Page, state: dict) -> ft.Container:
     return ft.Container(
         content=ft.Container(
-            content=ft.TextButton(
-                "← Spielauswahl",
-                on_click=lambda e: e.page.go("/"),
-                style=ft.ButtonStyle(color="white"),
-            ),
+            content=ft.Icon(ft.Icons.SETTINGS, size=18, color="white"),
             bgcolor="#0000008f",
             border_radius=14,
-            padding=ft.Padding(6, 2, 6, 2),
+            padding=ft.Padding(8, 6, 8, 6),
+            on_click=lambda e: show_settings_view(page, state),
+            tooltip="Einstellungen",
         ),
         top=18,
         left=18,
@@ -7965,6 +8049,11 @@ def open_wwm_main_menu(page: ft.Page, state: dict):
     _clear_themed_game_resize(state)
     _set_resize_view(state, open_wwm_main_menu)
     _sync_page_route(page, "/wwm")
+    if state.pop("_startup_recovering", False):
+        saved = get_saved_game_for_state(state)
+        if saved:
+            resume_saved_game(page, state, saved)
+            return
     page.controls.clear()
     page.add(build_welcome_view(page, state))
     page.update()
@@ -8106,6 +8195,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
                         scroll=ft.ScrollMode.AUTO,
                     ),
                 ),
+                _settings_corner_overlay(page, state),
                 ft.Container(top=18, right=18, content=profile_chip, visible=not mobile),
             ],
             expand=True,
@@ -8235,7 +8325,7 @@ def show_points_quiz_hub(page: ft.Page, state: dict):
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                     ),
-                    _game_portal_back_overlay(),
+                    _game_portal_back_overlay(page, state),
                 ],
                 expand=True,
             ),
@@ -8361,7 +8451,7 @@ def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict, default_
                             ),
                         ),
                     ),
-                    _game_portal_back_overlay(),
+                    _game_portal_back_overlay(page, state),
                 ],
                 expand=True,
             ),
@@ -8737,7 +8827,7 @@ def show_points_quiz_question(page: ft.Page, state: dict):
                             ),
                         ),
                     ),
-                    _game_portal_back_overlay(),
+                    _game_portal_back_overlay(page, state),
                 ],
                 expand=True,
             ),
@@ -8803,7 +8893,7 @@ def show_points_quiz_answer_screen(page: ft.Page, state: dict):
                             ),
                         ),
                     ),
-                    _game_portal_back_overlay(),
+                    _game_portal_back_overlay(page, state),
                 ],
                 expand=True,
             ),
@@ -8902,7 +8992,7 @@ def show_points_quiz_summary(page: ft.Page, state: dict, finished_early: bool):
                             ),
                         ),
                     ),
-                    _game_portal_back_overlay(),
+                    _game_portal_back_overlay(page, state),
                 ],
                 expand=True,
             ),
@@ -9331,7 +9421,7 @@ def show_points_quiz_editor(page: ft.Page, state: dict, quiz_id: str | None):
                             scroll=ft.ScrollMode.AUTO,
                         ),
                     ),
-                    _game_portal_back_overlay(),
+                    _game_portal_back_overlay(page, state),
                 ],
                 expand=True,
             ),
@@ -9612,7 +9702,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
                             ),
                         ),
                     ),
-                    _game_portal_back_overlay(),
+                    _game_portal_back_overlay(page, state),
                 ],
                 expand=True,
             ),
@@ -9850,6 +9940,7 @@ def _start_question_timer(page: ft.Page, state: dict):
     stop_game_timer(state)
     state["_timer_cancel"] = False
     state["_timer_active_key"] = timer_key
+    state["_question_autosave_ts"] = float(state.get("_question_autosave_ts", 0.0) or 0.0)
     sync_timer_display(page, state)
 
     async def tick():
@@ -9902,6 +9993,11 @@ def _start_question_timer(page: ft.Page, state: dict):
                 await _flash_red_screen(page, state)
             elif 1 <= state["time_left"] <= 5:
                 await _flash_red_screen(page, state)
+
+            last_save = float(state.get("_question_autosave_ts", 0.0) or 0.0)
+            if now - last_save >= 6:
+                save_current_game(state)
+                state["_question_autosave_ts"] = now
 
     page.run_task(tick)
 
@@ -10163,7 +10259,17 @@ def render_game_screen(page: ft.Page, state: dict):
         )
         pause_btn_bg = theme.get("panel", "#0f172aee") if has_video_bg else ("#00000000" if is_nexus else theme["danger"])
         pause_btn_border = ft.border.Border.all(2, theme.get("accent", theme["danger"])) if has_video_bg else None
-        nexus_exit_btn = ft.Container(
+        nexus_settings_btn = ft.Container(
+            content=ft.Icon(ft.Icons.SETTINGS, size=14, color=theme.get("accent", theme["danger"])),
+            bgcolor=pause_btn_bg,
+            border_radius=8,
+            border=pause_btn_border,
+            padding=ft.Padding(9, 7, 9, 7),
+            alignment=ft.Alignment(0, 0),
+            on_click=lambda e: show_settings_view(page, state),
+            tooltip="Einstellungen",
+        )
+        nexus_pause_btn = ft.Container(
             content=ft.Row([
                 ft.Text("🚪", size=14, color=theme.get("accent", theme["danger"])),
                 ft.Text("Pause", size=13, weight="bold", color=theme.get("accent", theme["danger"])),
@@ -10173,6 +10279,10 @@ def render_game_screen(page: ft.Page, state: dict):
             border=pause_btn_border,
             padding=ft.Padding(10, 6, 10, 6), alignment=ft.Alignment(0, 0),
         )
+        nexus_exit_btn = ft.Row([
+            nexus_settings_btn,
+            nexus_pause_btn,
+        ], spacing=8, alignment=ft.MainAxisAlignment.CENTER)
         footer_content = ft.Column([
             _game_panel(
                 ft.Row([
@@ -10223,6 +10333,15 @@ def render_game_screen(page: ft.Page, state: dict):
     # Pause / exit button
     pause_btn_bg = theme.get("panel", "#0f172aee") if has_video_bg else theme["danger"]
     pause_btn_border = ft.border.Border.all(2, theme.get("accent", theme["danger"])) if has_video_bg else None
+    settings_btn = ft.Container(
+        content=ft.Icon(ft.Icons.SETTINGS, size=sc(12, 10), color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
+        bgcolor=pause_btn_bg,
+        border_radius=6,
+        padding=ft.Padding(sc(10, 8), sc(7, 6), sc(10, 8), sc(7, 6)),
+        border=pause_btn_border,
+        on_click=lambda e: show_settings_view(page, state),
+        tooltip="Einstellungen",
+    )
     exit_btn = ft.Container(
         content=ft.Row([
             ft.Text("🚪", size=sc(12, 10), color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
@@ -10237,6 +10356,7 @@ def render_game_screen(page: ft.Page, state: dict):
 
     # Top bar: [Pause btn] + [timer bar + countdown]
     top_bar = ft.Row([
+        settings_btn,
         exit_btn,
         ft.Container(
             content=ft.Row([
@@ -10365,7 +10485,9 @@ def show_next_question(page: ft.Page, state: dict):
         question, _, _ = state["questions"][q_idx]
         money = state.get("money", "0 €")
         text = f"Frage {q_idx + 1} für {money}. {question}"
-        play_tts(page, text)
+        save_current_game(state)
+        state["_question_autosave_ts"] = time.time()
+        play_tts(page, text, state)
 
     render_game_screen(page, state)
 
@@ -11059,12 +11181,58 @@ def show_settings_view(page: ft.Page, state: dict):
     title_color = theme["gold"] if theme_key in ("royal",) else theme_txt(theme, "primary")
     email = state.get("current_user_email")
     logged_in = bool(email)
+    settings = get_user_settings(state)
+
+    def update_setting(key: str, value):
+        if logged_in and email:
+            db = load_db()
+            if email in db.get("users", {}):
+                ensure_user_settings(db, email)
+                db["users"][email]["settings"][key] = value
+                save_db(db)
+        state.setdefault("settings", DEFAULT_USER_SETTINGS.copy())
+        state["settings"][key] = value
+
+    async def sync_audio_after_change():
+        await _sync_bg_music_async(page, state)
+
+    def set_setting_and_sync(key: str, value):
+        update_setting(key, value)
+        page.run_task(sync_audio_after_change)
 
     menu_items = [
         ft.Text("Einstellungen", size=30, weight="bold", color=title_color),
         ft.Container(height=10),
         ft.Container(
             content=ft.Column([
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("Audio", size=18, weight="bold", color=theme["gold"]),
+                        ft.Switch(
+                            label="Sound allgemein",
+                            value=bool(settings.get("play_audio", True)),
+                            on_change=lambda e: set_setting_and_sync("play_audio", bool(e.control.value)),
+                            active_color=theme["accent"],
+                        ),
+                        ft.Switch(
+                            label="Hintergrundmusik",
+                            value=bool(settings.get("background_music", True)),
+                            on_change=lambda e: set_setting_and_sync("background_music", bool(e.control.value)),
+                            active_color=theme["accent"],
+                        ),
+                        ft.Text(
+                            "Sound umfasst TTS, Effekte und Hintergrundmusik. Du kannst Musik hier separat stummschalten.",
+                            size=11,
+                            color=theme_txt(theme, "secondary"),
+                            text_align="center",
+                        ),
+                    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    width=300,
+                    padding=16,
+                    bgcolor=theme["panel"],
+                    border_radius=16,
+                    border=ft.border.Border.all(1.5, theme["border"]),
+                ),
                 _theme_action_button("Statistiken", theme, lambda e: show_stats(e.page, state), width=240),
                 _theme_action_button("Design", theme, lambda e: show_design_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240),
                 _theme_action_button("Freunde", theme, lambda e: show_friends_view(e.page, state) if logged_in else show_login_view(e.page, state), width=240),
@@ -11202,6 +11370,7 @@ def show_design_view(page: ft.Page, state: dict):
             content=ft.Stack(
                 [
                     _themed_screen_background(page, theme, "#0000008f"),
+                    _settings_corner_overlay(page, state),
                     ft.Container(
                         expand=True,
                         alignment=ft.Alignment(0, 0),
@@ -13238,6 +13407,7 @@ def show_daily_challenge_hub(page: ft.Page, state: dict):
             content=ft.Stack(
                 [
                     _themed_screen_background(page, theme, "#0000008f"),
+                    _settings_corner_overlay(page, state),
                     ft.Container(
                         expand=True,
                         alignment=ft.Alignment(0, 0),
@@ -13342,6 +13512,7 @@ def main(page: ft.Page):
     # it already handled navigation (logged-in) — in that case we skip the
     # second on_route_change that would overwrite the authenticated screen.
     app_state["_init_nav_done"] = False
+    app_state["_startup_recovering"] = True
 
     async def init_task():
         await restore_remembered_login(page, app_state)
@@ -13353,6 +13524,7 @@ def main(page: ft.Page):
         path = route.split("?")[0]
         if path in ("/wwm", "/points", "/shop", "/achievements", "/daily"):
             on_route_change(None)
+        app_state["_startup_recovering"] = False
 
     page.run_task(init_task)
     # Render a blank/loading screen immediately; init_task will replace it.
