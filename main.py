@@ -16510,17 +16510,12 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     active_index = get_questions_path_profile_index(state)
     profile = dict(profiles[active_index] if active_index < len(profiles) else profiles[0])
     custom_islands = list(profile.get("custom_islands", []) or [])
-    if not custom_islands:
-        custom_islands = [_questions_path_default_custom_island(0)]
-        profile["custom_islands"] = custom_islands
-        profiles[active_index] = profile
-        persist_questions_path_profiles(state, profiles)
-        state["questions_path_profiles"] = profiles
     custom_designs = list(profile.get("custom_designs", []) or [])
-    selected_index = max(0, min(int(state.get("_questions_path_creator_index", 0) or 0), len(custom_islands) - 1))
-    state["_questions_path_creator_index"] = selected_index
-    selected = dict(custom_islands[selected_index])
-    selected_cfg = _questions_path_custom_map(selected, selected_index)
+    selected_index = max(0, min(int(state.get("_questions_path_creator_index", 0) or 0), max(0, len(custom_islands) - 1)))
+    selected_exists = bool(custom_islands)
+    state["_questions_path_creator_index"] = selected_index if selected_exists else 0
+    selected = dict(custom_islands[selected_index]) if selected_exists else _questions_path_default_custom_island(0)
+    selected_cfg = _questions_path_custom_map(selected, selected_index if selected_exists else 0)
     add_mode = state.get("_questions_path_add_island_mode")
     choose_custom_design = bool(state.get("_questions_path_choose_custom_design", False))
     creator_world_open = bool(state.get("_questions_path_creator_world_open", False))
@@ -16577,7 +16572,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
         islands = list(current_profile.get("custom_islands", []) or [])
         if not islands:
-            islands = [_questions_path_default_custom_island(0)]
+            return
         idx = max(0, min(int(state.get("_questions_path_creator_index", 0) or 0), len(islands) - 1))
         island = dict(islands[idx])
         mutator(island)
@@ -16697,8 +16692,17 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         current_profiles = get_questions_path_profiles(state)
         current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
         islands = list(current_profile.get("custom_islands", []) or [])
+        if not islands:
+            e.page.snack_bar = ft.SnackBar(content=ft.Text("Es gibt noch keine Insel zum Löschen."), open=True)
+            e.page.update()
+            return
         if len(islands) <= 1:
-            e.page.snack_bar = ft.SnackBar(content=ft.Text("Mindestens eine Insel muss bleiben."), open=True)
+            islands = []
+            current_profile["custom_islands"] = islands
+            persist(current_profile)
+            state["_questions_path_creator_index"] = 0
+            state["_questions_path_creator_world_open"] = False
+            _questions_path_render_creator(e.page, state)
             e.page.update()
             return
         islands.pop(selected_index)
@@ -16710,6 +16714,10 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         _questions_path_render_creator(e.page, state)
 
     def toggle_world_editor(e):
+        if not custom_islands:
+            e.page.snack_bar = ft.SnackBar(content=ft.Text("Füge zuerst eine Insel hinzu."), open=True)
+            e.page.update()
+            return
         state["_questions_path_creator_world_open"] = not creator_world_open
         _questions_path_render_creator(e.page, state)
 
@@ -17181,31 +17189,63 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                     border_radius=28,
                                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                     bgcolor="#061621E8",
-                                    content=_questions_path_interactive_viewer(
-                                        ft.Container(
-                                            width=1600,
-                                            height=1000,
-                                            scale=creator_zoom,
-                                            animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
-                                            content=ft.Stack(
+                                    content=ft.Column(
+                                        [
+                                            ft.Row(
                                                 [
-                                                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#06111A", "#092638", "#06131D"])),
                                                     ft.Container(
-                                                        expand=True,
-                                                        opacity=0.34,
-                                                        content=ft.Image(
-                                                            src=selected_cfg.get("map_image_src", ""),
-                                                            fit=ft.BoxFit.COVER,
-                                                            error_content=ft.Container(),
-                                                        ) if selected_cfg.get("map_image_src") else ft.Container(),
+                                                        width=int(creator_canvas_w * creator_zoom),
+                                                        height=int(creator_canvas_h * creator_zoom),
+                                                        animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
+                                                        content=ft.Container(
+                                                            width=creator_canvas_w,
+                                                            height=creator_canvas_h,
+                                                            scale=creator_zoom,
+                                                            content=ft.Stack(
+                                                                [
+                                                                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#06111A", "#092638", "#06131D"])),
+                                                                    ft.Container(
+                                                                        expand=True,
+                                                                        opacity=0.34,
+                                                                        content=ft.Image(
+                                                                            src=selected_cfg.get("map_image_src", ""),
+                                                                            fit=ft.BoxFit.COVER,
+                                                                            error_content=ft.Container(),
+                                                                        ) if selected_cfg.get("map_image_src") else ft.Container(),
+                                                                    ),
+                                                                    ft.Container(left=140, top=80, width=320, height=180, border_radius=999, bgcolor="#0BFFFFFF"),
+                                                                    ft.Container(right=160, bottom=120, width=420, height=220, border_radius=999, bgcolor="#08FFFFFF"),
+                                                                    *island_markers,
+                                                                    ft.Container(
+                                                                        visible=not custom_islands,
+                                                                        expand=True,
+                                                                        alignment=ft.Alignment(0, 0),
+                                                                        content=ft.Container(
+                                                                            width=420,
+                                                                            padding=24,
+                                                                            border_radius=24,
+                                                                            bgcolor="#071019E6",
+                                                                            border=ft.border.Border.all(1.5, "#38BDF8"),
+                                                                            content=ft.Column(
+                                                                                [
+                                                                                    ft.Text("Leere Inselwelt", size=28, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                                                                                    ft.Text("Hier kannst du deine eigene Welt aufbauen. Starte oben rechts mit `+ Insel` und ziehe die Karten danach frei auf der Fläche herum.", size=14, color="#D5E3EE", text_align=ft.TextAlign.CENTER),
+                                                                                ],
+                                                                                spacing=10,
+                                                                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                                            ),
+                                                                        ),
+                                                                    ),
+                                                                ],
+                                                                expand=True,
+                                                            ),
+                                                        ),
                                                     ),
-                                                    ft.Container(left=140, top=80, width=320, height=180, border_radius=999, bgcolor="#0BFFFFFF"),
-                                                    ft.Container(right=160, bottom=120, width=420, height=220, border_radius=999, bgcolor="#08FFFFFF"),
-                                                    *island_markers,
                                                 ],
-                                                expand=True,
+                                                scroll=ft.ScrollMode.AUTO,
                                             ),
-                                        )
+                                        ],
+                                        scroll=ft.ScrollMode.AUTO,
                                     ),
                                 ),
                                 ft.Row(
@@ -17216,7 +17256,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
                                 ft.Container(
-                                    visible=creator_world_open,
+                                    visible=creator_world_open and selected_exists,
                                     height=620,
                                     border_radius=24,
                                     bgcolor="#071019F2",
@@ -17435,8 +17475,6 @@ def _questions_path_render_custom_menu(page: ft.Page, state: dict):
         refreshed = get_questions_path_profiles(state)
         profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
         profile["progression_mode"] = "creative"
-        if not list(profile.get("custom_islands", []) or []):
-            profile["custom_islands"] = [_questions_path_default_custom_island(0)]
         current_profiles = get_questions_path_profiles(state)
         while active_index >= len(current_profiles):
             current_profiles.append(_questions_path_default_profile(len(current_profiles)))
@@ -17734,10 +17772,6 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
     active_profile = profiles[active_index] if active_index < len(profiles) else profiles[0]
     page_w, page_h = _page_size(page)
     visible_maps = _questions_path_maps_for_profile(active_profile)
-    if not visible_maps:
-        state["questions_path_scene"] = "creator"
-        _questions_path_render_creator(page, state)
-        return
     base_canvas_w = max(2400, int(page_w * 1.6))
     base_canvas_h = max(1500, int(page_h * 1.55))
     fit_zoom = round(max(0.45, min(1.0, min(max(1, page_w - 40) / base_canvas_w, max(1, page_h - 220) / base_canvas_h))), 2)
@@ -17932,6 +17966,26 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                                     ft.Container(right=220, top=120, width=420, height=200, border_radius=999, bgcolor="#0C7DD3FC"),
                                                     *route_dots,
                                                     *stage_items,
+                                                    ft.Container(
+                                                        visible=not visible_maps,
+                                                        expand=True,
+                                                        alignment=ft.Alignment(0, 0),
+                                                        content=ft.Container(
+                                                            width=480,
+                                                            padding=26,
+                                                            border_radius=28,
+                                                            bgcolor="#071019E8",
+                                                            border=ft.border.Border.all(1.8, "#38BDF8"),
+                                                            content=ft.Column(
+                                                                [
+                                                                    ft.Text("Noch keine eigene Welt", size=30, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                                                                    ft.Text("Gehe auf `Eigenes Spiel erstellen`, füge Inseln hinzu und starte danach dein eigenes Spiel.", size=14, color="#D5E3EE", text_align=ft.TextAlign.CENTER),
+                                                                ],
+                                                                spacing=10,
+                                                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                            ),
+                                                        ),
+                                                    ),
                                                 ],
                                                 expand=True,
                                             ),
