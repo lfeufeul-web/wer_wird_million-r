@@ -6859,7 +6859,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Naturinsel",
         "subtitle": "Wald, Tiere und ruhige Pfade.",
         "topic": "natur",
-        "icon": "N",
+        "icon": "🌿",
         "accent": "#34D399",
         "panel": "#0A1712E8",
         "border": "#38BDF8",
@@ -6874,7 +6874,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Genussinsel",
         "subtitle": "Ernährung, Alltag und Energie.",
         "topic": "ernährung",
-        "icon": "G",
+        "icon": "🥗",
         "accent": "#22C55E",
         "panel": "#101B16E8",
         "border": "#6EE7B7",
@@ -6889,7 +6889,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Meeresinsel",
         "subtitle": "Fische, Wellen und Riffe.",
         "topic": "meer",
-        "icon": "M",
+        "icon": "🐠",
         "accent": "#A78BFA",
         "panel": "#120A1EE8",
         "border": "#C4B5FD",
@@ -6904,7 +6904,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Geschichtsinsel",
         "subtitle": "Zeitreisen durch Epochen und Entdeckungen.",
         "topic": "geschichte",
-        "icon": "H",
+        "icon": "🏛️",
         "accent": "#F59E0B",
         "panel": "#191105E8",
         "border": "#FCD34D",
@@ -6919,7 +6919,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Technikfjord",
         "subtitle": "Codes, Computer und digitale Wege.",
         "topic": "technik",
-        "icon": "T",
+        "icon": "💻",
         "accent": "#06B6D4",
         "panel": "#07161BE8",
         "border": "#67E8F9",
@@ -6934,7 +6934,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Sportlagune",
         "subtitle": "Bewegung, Rekorde und faire Spiele.",
         "topic": "sport",
-        "icon": "S",
+        "icon": "⚽",
         "accent": "#EF4444",
         "panel": "#1D0B0BE8",
         "border": "#FCA5A5",
@@ -6949,7 +6949,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Kulturbucht",
         "subtitle": "Kunst, Musik und große Geschichten.",
         "topic": "kultur",
-        "icon": "K",
+        "icon": "🎭",
         "accent": "#EC4899",
         "panel": "#1A0A15E8",
         "border": "#F9A8D4",
@@ -6964,7 +6964,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Matheklippen",
         "subtitle": "Zahlen, Muster und clevere Sprünge.",
         "topic": "mathematik",
-        "icon": "Z",
+        "icon": "📐",
         "accent": "#8B5CF6",
         "panel": "#110A1EE8",
         "border": "#C4B5FD",
@@ -6979,7 +6979,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Wissensriff",
         "subtitle": "Experimente, Naturgesetze und Ideen.",
         "topic": "wissenschaft",
-        "icon": "W",
+        "icon": "🔬",
         "accent": "#14B8A6",
         "panel": "#081816E8",
         "border": "#5EEAD4",
@@ -6994,7 +6994,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Wirtschaftshafen",
         "subtitle": "Preise, Geld und gute Entscheidungen.",
         "topic": "wirtschaft",
-        "icon": "Y",
+        "icon": "💼",
         "accent": "#F97316",
         "panel": "#1A1208E8",
         "border": "#FDBA74",
@@ -16240,6 +16240,22 @@ def _questions_path_zoom_controls(state: dict, key: str, rerender):
     )
 
 
+def _questions_path_interactive_viewer(content: ft.Control) -> ft.Control:
+    return ft.InteractiveViewer(
+        content=content,
+        min_scale=0.32,
+        max_scale=2.4,
+        boundary_margin=ft.Margin(240, 240, 240, 240),
+        constrained=False,
+        pan_enabled=True,
+        scale_enabled=True,
+        scale_factor=240,
+        interaction_update_interval=16,
+        trackpad_scroll_causes_scale=True,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+    )
+
+
 def _questions_path_question_card(
     page: ft.Page,
     state: dict,
@@ -16331,7 +16347,7 @@ def _questions_path_question_card(
         width=min(640, card_w - 48),
         padding=ft.Padding(24, 22, 24, 22),
         border_radius=26,
-        bgcolor="#0B1220F7",
+        bgcolor="#08111BFE",
         border=ft.border.Border.all(2, accent),
         shadow=ft.BoxShadow(blur_radius=26, color=f"#44{accent[1:]}", spread_radius=1),
         content=ft.Column(
@@ -16471,12 +16487,16 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                         height=88,
                                         border_radius=999,
                                         alignment=ft.Alignment(0, 0),
-                                        bgcolor="#17335A",
-                                        content=ft.Text(map_cfg.get("icon", "I"), size=34, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                                        gradient=ft.LinearGradient(
+                                            begin=ft.Alignment(-1, -1),
+                                            end=ft.Alignment(1, 1),
+                                            colors=["#14304A", "#1D4F73", "#17365A"],
+                                        ),
+                                        content=ft.Text(map_cfg.get("icon", "🌍"), size=38, color="white", text_align=ft.TextAlign.CENTER),
                                     ),
                                     ft.Column(
                                         [
-                                            ft.Text(map_cfg.get("title", "Insel"), size=24, weight="bold", color="white", max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                            ft.Text(map_cfg.get("title", "Insel"), size=24, weight="bold", color="white", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                                             ft.Text(map_cfg.get("subtitle", ""), size=14, color="#D3E3EE", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                                             ft.Text(f"{len(map_cfg.get('points', []))} Stationen", size=12, color=accent, weight="bold"),
                                             ft.Container(
@@ -16530,7 +16550,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
                                 ft.Text(
-                                    "Scrolle frei in alle Richtungen durch die Inselwelt und zoome wie auf einer Strategy-Map.",
+                                    "Zoome mit Touch, Touchpad oder Mausrad direkt in die Karte und verschiebe sie frei in alle Richtungen.",
                                     size=13,
                                     color=theme_txt(theme, "secondary"),
                                     text_align=ft.TextAlign.CENTER,
@@ -16541,38 +16561,30 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                     border_radius=28,
                                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                     bgcolor="#07101AE0",
-                                    content=ft.Column(
-                                        [
-                                            ft.Row(
+                                    content=_questions_path_interactive_viewer(
+                                        ft.Container(
+                                            width=canvas_w,
+                                            height=canvas_h,
+                                            scale=zoom,
+                                            content=ft.Stack(
                                                 [
                                                     ft.Container(
-                                                        width=canvas_w,
-                                                        height=canvas_h,
-                                                        content=ft.Stack(
-                                                            [
-                                                                ft.Container(
-                                                                    expand=True,
-                                                                    gradient=ft.LinearGradient(
-                                                                        begin=ft.Alignment(-1, -1),
-                                                                        end=ft.Alignment(1, 1),
-                                                                        colors=["#05131E", "#0A2A3C", "#08111D"],
-                                                                    ),
-                                                                ),
-                                                                ft.Container(left=180, top=80, width=int(360 * zoom), height=int(180 * zoom), border_radius=999, bgcolor="#0EFFFFFF"),
-                                                                ft.Container(left=900, top=500, width=int(520 * zoom), height=int(220 * zoom), border_radius=999, bgcolor="#0AFFFFFF"),
-                                                                ft.Container(right=220, top=120, width=int(420 * zoom), height=int(200 * zoom), border_radius=999, bgcolor="#0C7DD3FC"),
-                                                                *route_dots,
-                                                                *stage_items,
-                                                            ],
-                                                            expand=True,
+                                                        expand=True,
+                                                        gradient=ft.LinearGradient(
+                                                            begin=ft.Alignment(-1, -1),
+                                                            end=ft.Alignment(1, 1),
+                                                            colors=["#05131E", "#0A2A3C", "#08111D"],
                                                         ),
-                                                    )
+                                                    ),
+                                                    ft.Container(left=180, top=80, width=int(360 * zoom), height=int(180 * zoom), border_radius=999, bgcolor="#0EFFFFFF"),
+                                                    ft.Container(left=900, top=500, width=int(520 * zoom), height=int(220 * zoom), border_radius=999, bgcolor="#0AFFFFFF"),
+                                                    ft.Container(right=220, top=120, width=int(420 * zoom), height=int(200 * zoom), border_radius=999, bgcolor="#0C7DD3FC"),
+                                                    *route_dots,
+                                                    *stage_items,
                                                 ],
-                                                scroll=ft.ScrollMode.ALWAYS,
-                                            )
-                                        ],
-                                        scroll=ft.ScrollMode.ALWAYS,
-                                        expand=True,
+                                                expand=True,
+                                            ),
+                                        )
                                     ),
                                 ),
                                 ft.Row(
@@ -16745,37 +16757,29 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                                     border_radius=28,
                                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                     bgcolor="#07101AE0",
-                                    content=ft.Column(
-                                        [
-                                            ft.Row(
+                                    content=_questions_path_interactive_viewer(
+                                        ft.Container(
+                                            width=canvas_w,
+                                            height=canvas_h,
+                                            scale=zoom,
+                                            content=ft.Stack(
                                                 [
                                                     ft.Container(
-                                                        width=canvas_w,
-                                                        height=canvas_h,
-                                                        content=ft.Stack(
-                                                            [
-                                                                ft.Container(
-                                                                    expand=True,
-                                                                    gradient=ft.LinearGradient(
-                                                                        begin=ft.Alignment(-1, -1),
-                                                                        end=ft.Alignment(1, 1),
-                                                                        colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"],
-                                                                    ),
-                                                                ),
-                                                                ft.Container(left=180, top=52, width=int(280 * zoom), height=int(120 * zoom), border_radius=999, bgcolor="#0BFFFFFF"),
-                                                                ft.Container(right=120, bottom=36, width=int(260 * zoom), height=int(110 * zoom), border_radius=999, bgcolor="#08FFFFFF"),
-                                                                *route_dots,
-                                                                *stage_items,
-                                                            ],
-                                                            expand=True,
+                                                        expand=True,
+                                                        gradient=ft.LinearGradient(
+                                                            begin=ft.Alignment(-1, -1),
+                                                            end=ft.Alignment(1, 1),
+                                                            colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"],
                                                         ),
-                                                    )
+                                                    ),
+                                                    ft.Container(left=180, top=52, width=int(280 * zoom), height=int(120 * zoom), border_radius=999, bgcolor="#0BFFFFFF"),
+                                                    ft.Container(right=120, bottom=36, width=int(260 * zoom), height=int(110 * zoom), border_radius=999, bgcolor="#08FFFFFF"),
+                                                    *route_dots,
+                                                    *stage_items,
                                                 ],
-                                                scroll=ft.ScrollMode.ALWAYS,
-                                            )
-                                        ],
-                                        scroll=ft.ScrollMode.ALWAYS,
-                                        expand=True,
+                                                expand=True,
+                                            ),
+                                        )
                                     ),
                                 ),
                                 ft.Row(
@@ -16796,7 +16800,8 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                         visible=isinstance(active_node, int) and active_node == current_index,
                         content=ft.Container(
                             expand=True,
-                            bgcolor="#020617BB",
+                            bgcolor="#010611F0",
+                            blur=18,
                             alignment=ft.Alignment(0, 0),
                             content=_questions_path_question_card(page, state, game, map_cfg, current_index, card_w),
                         ),
@@ -16807,7 +16812,8 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                         visible=isinstance(replay_prompt, int),
                         content=ft.Container(
                             expand=True,
-                            bgcolor="#020617BB",
+                            bgcolor="#010611F0",
+                            blur=18,
                             alignment=ft.Alignment(0, 0),
                             content=ft.Container(
                                 width=min(520, card_w - 32),
