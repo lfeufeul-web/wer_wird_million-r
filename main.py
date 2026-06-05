@@ -7079,6 +7079,8 @@ def _questions_path_default_custom_island(index: int = 0) -> dict:
         "line": theme["line"],
         "design_id": f"theme_{index % len(QUESTIONS_PATH_CREATIVE_THEMES)}",
         "world_layout": "classic",
+        "world_name": f"Welt {index + 1}",
+        "world_description": "Gestalte hier deine eigene Fragen-Route.",
         "map_x": 6 + (index % 3) * 29,
         "map_y": 8 + (index // 3) * 24,
         "custom_points": [],
@@ -7129,6 +7131,8 @@ def _questions_path_custom_map(raw_island: dict, index: int) -> dict:
     return {
         "title": str(raw_island.get("title", f"Eigene Insel {index + 1}")).strip() or f"Eigene Insel {index + 1}",
         "subtitle": str(raw_island.get("subtitle", "Hier kannst du eigene Fragen sammeln.")).strip() or "Hier kannst du eigene Fragen sammeln.",
+        "world_name": str(raw_island.get("world_name", raw_island.get("title", f"Welt {index + 1}"))).strip() or f"Welt {index + 1}",
+        "world_description": str(raw_island.get("world_description", raw_island.get("subtitle", "Gestalte hier deine eigene Fragen-Route."))).strip() or "Gestalte hier deine eigene Fragen-Route.",
         "topic": "custom",
         "icon": str(raw_island.get("icon", theme["icon"])).strip() or theme["icon"],
         "image_src": str(raw_island.get("image_src", "")).strip(),
@@ -16527,6 +16531,8 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     island_name_ref = ft.Ref[ft.TextField]()
     island_icon_ref = ft.Ref[ft.TextField]()
     island_subtitle_ref = ft.Ref[ft.TextField]()
+    world_name_ref = ft.Ref[ft.TextField]()
+    world_description_ref = ft.Ref[ft.TextField]()
     custom_design_ref = ft.Ref[ft.TextField]()
     world_layout_ref = ft.Ref[ft.Dropdown]()
     drag_points = state.setdefault("_questions_path_drag_points", {})
@@ -16534,6 +16540,9 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     point_drag_positions = state.setdefault("_questions_path_drag_point_positions", {})
     island_marker_refs: dict[int, ft.Ref[ft.Container]] = {}
     point_marker_refs: dict[int, ft.Ref[ft.Container]] = {}
+    active_point_index = max(0, int(state.get("_questions_path_active_point_index", 0) or 0))
+    question_dialog_open = bool(state.get("_questions_path_question_dialog_open", False))
+    choose_world_map = bool(state.get("_questions_path_choose_world_map", False))
 
     def island_left_from_percent(percent_x: float) -> int:
         card_w = 240
@@ -16726,9 +16735,10 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             island["title"] = str(island_name_ref.current.value or island.get("title", "")).strip() or island.get("title", "Eigene Insel")
             island["icon"] = str(island_icon_ref.current.value or island.get("icon", "")).strip() or island.get("icon", "🏝️")
             island["subtitle"] = str(island_subtitle_ref.current.value or island.get("subtitle", "")).strip() or island.get("subtitle", "")
+            island["world_name"] = str(world_name_ref.current.value or island.get("world_name", "")).strip() or island.get("world_name", "Eigene Welt")
+            island["world_description"] = str(world_description_ref.current.value or island.get("world_description", "")).strip() or island.get("world_description", "")
             if world_layout_ref.current:
                 island["world_layout"] = str(world_layout_ref.current.value or island.get("world_layout", "classic"))
-                island["custom_points"] = []
 
         update_selected(_mutate, e.page)
 
@@ -16755,6 +16765,48 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     def pick_selected_map_image(e):
         e.page.run_task(pick_selected_map_image_task, e.page)
 
+    def open_world_map_menu(e):
+        state["_questions_path_choose_world_map"] = True
+        _questions_path_render_creator(e.page, state)
+
+    def close_world_map_menu(e):
+        state["_questions_path_choose_world_map"] = False
+        _questions_path_render_creator(e.page, state)
+
+    def choose_world_layout(layout_key: str):
+        def _handler(e):
+            def _mutate(island):
+                island["world_layout"] = layout_key
+                if not list(island.get("custom_points", []) or []):
+                    island["custom_points"] = [
+                        {"x": int(p["x"]), "y": int(p["y"]), "label": str(p.get("label", f"Punkt {idx + 1}"))}
+                        for idx, p in enumerate(QUESTIONS_PATH_WORLD_LAYOUTS.get(layout_key, QUESTIONS_PATH_WORLD_LAYOUTS["classic"])["points"][: max(1, len(list(island.get("questions", []) or [])) )])
+                    ]
+
+            state["_questions_path_choose_world_map"] = False
+            update_selected(_mutate, e.page)
+
+        return _handler
+
+    def set_active_point(index: int):
+        def _handler(e):
+            state["_questions_path_active_point_index"] = index
+            _questions_path_render_creator(e.page, state)
+
+        return _handler
+
+    def open_question_dialog_for(index: int):
+        def _handler(e):
+            state["_questions_path_active_point_index"] = index
+            state["_questions_path_question_dialog_open"] = True
+            _questions_path_render_creator(e.page, state)
+
+        return _handler
+
+    def close_question_dialog(e):
+        state["_questions_path_question_dialog_open"] = False
+        _questions_path_render_creator(e.page, state)
+
     def move_selected_island(dx: float, dy: float):
         def _handler(e):
             def _mutate(island):
@@ -16778,13 +16830,39 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
 
         return _handler
 
-    def add_question(e):
+    def add_point(e):
         def _mutate(island):
             questions = list(island.get("questions", []) or [])
             if len(questions) < 10:
                 questions.append(_questions_path_default_custom_question(len(questions)))
+                custom_points = ensure_custom_points(island)
+                custom_points.append(
+                    {
+                        "x": max(8, min(90, 18 + len(custom_points) * 7)),
+                        "y": max(10, min(86, 18 + (len(custom_points) % 4) * 10)),
+                        "label": f"Punkt {len(custom_points) + 1}",
+                    }
+                )
+                island["custom_points"] = custom_points[: len(questions)]
             island["questions"] = questions
 
+        update_selected(_mutate, e.page)
+
+    def remove_active_point(e):
+        def _mutate(island):
+            questions = list(island.get("questions", []) or [])
+            custom_points = ensure_custom_points(island)
+            point_idx = max(0, min(int(state.get("_questions_path_active_point_index", 0) or 0), len(custom_points) - 1))
+            if len(custom_points) <= 1 or len(questions) <= 1:
+                return
+            custom_points.pop(point_idx)
+            questions.pop(point_idx)
+            island["custom_points"] = custom_points
+            island["questions"] = questions
+
+        new_index = max(0, active_point_index - 1)
+        state["_questions_path_active_point_index"] = new_index
+        state["_questions_path_question_dialog_open"] = False
         update_selected(_mutate, e.page)
 
     def remove_question(question_index: int):
@@ -16819,6 +16897,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                 questions[question_index] = question
                 island["questions"] = questions
 
+            state["_questions_path_question_dialog_open"] = False
             update_selected(_mutate, e.page)
 
         return _handler
@@ -17012,8 +17091,9 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                     on_pan_start=drag_start_island(idx),
                     on_pan_update=drag_island(idx),
                     on_pan_end=drag_end_island(idx),
+                    on_tap=select_island(idx),
                     drag_interval=18,
-                    content=ft.Container(on_click=select_island(idx), content=marker_content),
+                    content=marker_content,
                 ),
             )
         )
@@ -17041,64 +17121,18 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             )
         )
 
-    question_controls = []
-    for q_index, question in enumerate(list(selected.get("questions", []) or [])):
-        answers = list(question.get("answers", []) or [])
-        while len(answers) < 4:
-            answers.append("")
-        question_ref = ft.Ref[ft.TextField]()
-        answer_refs = [ft.Ref[ft.TextField]() for _ in range(4)]
-        correct_ref = ft.Ref[ft.Dropdown]()
-        question_controls.append(
-            ft.Container(
-                padding=16,
-                border_radius=18,
-                bgcolor="#0B1220DD",
-                border=ft.border.Border.all(1.4, "#334155"),
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Text(f"Frage {q_index + 1}", size=16, weight="bold", color="white"),
-                                ft.Row(
-                                    [
-                                        _game_menu_button("Speichern", save_question(q_index, question_ref, answer_refs, correct_ref), "#0F766E", width=120, height=36),
-                                        _game_menu_button("Frage löschen", remove_question(q_index), "#7C2D12", width=150, height=36),
-                                    ],
-                                    spacing=8,
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.TextField(ref=question_ref, value=question.get("question", ""), label="Frage", bgcolor="#111827", color="white", border_color="#334155"),
-                        ft.Row(
-                            [
-                                ft.TextField(ref=answer_refs[0], value=answers[0], label="Antwort A", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                ft.TextField(ref=answer_refs[1], value=answers[1], label="Antwort B", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                            ],
-                            spacing=10,
-                        ),
-                        ft.Row(
-                            [
-                                ft.TextField(ref=answer_refs[2], value=answers[2], label="Antwort C", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                ft.TextField(ref=answer_refs[3], value=answers[3], label="Antwort D", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                            ],
-                            spacing=10,
-                        ),
-                        ft.Dropdown(
-                            ref=correct_ref,
-                            value=str(int(question.get("correct_idx", 0) or 0)),
-                            label="Richtige Antwort",
-                            bgcolor="#111827",
-                            color="white",
-                            border_color="#334155",
-                            options=[ft.dropdown.Option(str(i), text=f"{ANSWER_LETTERS[i]}") for i in range(4)],
-                        ),
-                    ],
-                    spacing=10,
-                ),
-            )
-        )
+    selected_questions = list(selected.get("questions", []) or [])
+    if not selected_questions:
+        selected_questions = [_questions_path_default_custom_question(0)]
+    active_point_index = max(0, min(active_point_index, len(selected_questions) - 1))
+    state["_questions_path_active_point_index"] = active_point_index
+    active_question = dict(selected_questions[active_point_index])
+    active_answers = list(active_question.get("answers", []) or [])
+    while len(active_answers) < 4:
+        active_answers.append("")
+    question_ref = ft.Ref[ft.TextField]()
+    answer_refs = [ft.Ref[ft.TextField]() for _ in range(4)]
+    correct_ref = ft.Ref[ft.Dropdown]()
 
     world_dropdown = ft.Dropdown(
         ref=world_layout_ref,
@@ -17125,13 +17159,14 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                     on_pan_start=point_drag_start(point_index),
                     on_pan_update=point_drag_update(point_index),
                     on_pan_end=point_drag_end(point_index),
+                    on_tap=open_question_dialog_for(point_index),
                     drag_interval=18,
                     content=ft.Container(
                         width=54,
                         height=54,
                         border_radius=999,
-                        bgcolor="#10B981",
-                        border=ft.border.Border.all(3, "#D1FAE5"),
+                        bgcolor="#10B981" if point_index == active_point_index else "#0EA5E9",
+                        border=ft.border.Border.all(3, "#D1FAE5" if point_index == active_point_index else "#BFDBFE"),
                         alignment=ft.Alignment(0, 0),
                         content=ft.Text(str(point_index + 1), size=18, weight="bold", color="#08131F"),
                     ),
@@ -17189,63 +17224,56 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                     border_radius=28,
                                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                     bgcolor="#061621E8",
-                                    content=ft.Column(
-                                        [
-                                            ft.Row(
-                                                [
-                                                    ft.Container(
-                                                        width=int(creator_canvas_w * creator_zoom),
-                                                        height=int(creator_canvas_h * creator_zoom),
-                                                        animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
-                                                        content=ft.Container(
-                                                            width=creator_canvas_w,
-                                                            height=creator_canvas_h,
-                                                            scale=creator_zoom,
-                                                            content=ft.Stack(
-                                                                [
-                                                                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#06111A", "#092638", "#06131D"])),
-                                                                    ft.Container(
-                                                                        expand=True,
-                                                                        opacity=0.34,
-                                                                        content=ft.Image(
-                                                                            src=selected_cfg.get("map_image_src", ""),
-                                                                            fit=ft.BoxFit.COVER,
-                                                                            error_content=ft.Container(),
-                                                                        ) if selected_cfg.get("map_image_src") else ft.Container(),
-                                                                    ),
-                                                                    ft.Container(left=140, top=80, width=320, height=180, border_radius=999, bgcolor="#0BFFFFFF"),
-                                                                    ft.Container(right=160, bottom=120, width=420, height=220, border_radius=999, bgcolor="#08FFFFFF"),
-                                                                    *island_markers,
-                                                                    ft.Container(
-                                                                        visible=not custom_islands,
-                                                                        expand=True,
-                                                                        alignment=ft.Alignment(0, 0),
-                                                                        content=ft.Container(
-                                                                            width=420,
-                                                                            padding=24,
-                                                                            border_radius=24,
-                                                                            bgcolor="#071019E6",
-                                                                            border=ft.border.Border.all(1.5, "#38BDF8"),
-                                                                            content=ft.Column(
-                                                                                [
-                                                                                    ft.Text("Leere Inselwelt", size=28, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                                                                                    ft.Text("Hier kannst du deine eigene Welt aufbauen. Starte oben rechts mit `+ Insel` und ziehe die Karten danach frei auf der Fläche herum.", size=14, color="#D5E3EE", text_align=ft.TextAlign.CENTER),
-                                                                                ],
-                                                                                spacing=10,
-                                                                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                                                            ),
-                                                                        ),
-                                                                    ),
-                                                                ],
-                                                                expand=True,
-                                                            ),
+                                    content=ft.Container(
+                                        alignment=ft.Alignment(0, 0),
+                                        content=ft.Container(
+                                            width=int(creator_canvas_w * creator_zoom),
+                                            height=int(creator_canvas_h * creator_zoom),
+                                            animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
+                                            content=ft.Container(
+                                                width=creator_canvas_w,
+                                                height=creator_canvas_h,
+                                                scale=creator_zoom,
+                                                content=ft.Stack(
+                                                    [
+                                                        ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#06111A", "#092638", "#06131D"])),
+                                                        ft.Container(
+                                                            expand=True,
+                                                            opacity=0.34,
+                                                            content=ft.Image(
+                                                                src=selected_cfg.get("map_image_src", ""),
+                                                                fit=ft.BoxFit.COVER,
+                                                                error_content=ft.Container(),
+                                                            ) if selected_cfg.get("map_image_src") else ft.Container(),
                                                         ),
-                                                    ),
-                                                ],
-                                                scroll=ft.ScrollMode.AUTO,
+                                                        ft.Container(left=140, top=80, width=320, height=180, border_radius=999, bgcolor="#0BFFFFFF"),
+                                                        ft.Container(right=160, bottom=120, width=420, height=220, border_radius=999, bgcolor="#08FFFFFF"),
+                                                        *island_markers,
+                                                        ft.Container(
+                                                            visible=not custom_islands,
+                                                            expand=True,
+                                                            alignment=ft.Alignment(0, 0),
+                                                            content=ft.Container(
+                                                                width=420,
+                                                                padding=24,
+                                                                border_radius=24,
+                                                                bgcolor="#071019E6",
+                                                                border=ft.border.Border.all(1.5, "#38BDF8"),
+                                                                content=ft.Column(
+                                                                    [
+                                                                        ft.Text("Leere Inselwelt", size=28, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                                                                        ft.Text("Hier kannst du deine eigene Welt aufbauen. Starte oben rechts mit `+ Insel` und ziehe die Karten danach frei auf der Fläche herum.", size=14, color="#D5E3EE", text_align=ft.TextAlign.CENTER),
+                                                                    ],
+                                                                    spacing=10,
+                                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                                ),
+                                    ),
+                                                        ),
+                                                    ],
+                                                    expand=True,
+                                                ),
                                             ),
-                                        ],
-                                        scroll=ft.ScrollMode.AUTO,
+                                        ),
                                     ),
                                 ),
                                 ft.Row(
@@ -17286,6 +17314,13 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                             ),
                                             ft.Row(
                                                 [
+                                                    ft.TextField(ref=world_name_ref, value=selected.get("world_name", selected.get("title", "Eigene Welt")), label="Weltname", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                                    ft.TextField(ref=world_description_ref, value=selected.get("world_description", selected.get("subtitle", "")), label="Weltbeschreibung", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                                ],
+                                                spacing=10,
+                                            ),
+                                            ft.Row(
+                                                [
                                                     ft.Text("Insel verschieben", size=14, weight="bold", color="white"),
                                                     ft.Row(
                                                         [
@@ -17300,7 +17335,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                             ),
                                             ft.Text("Punkt-Editor", size=16, weight="bold", color="white"),
-                                            ft.Text("Ziehe die grünen Punkte an die Positionen, an denen später die Fragen auf deiner eigenen Map anklickbar sein sollen.", size=12, color="#A8C0D2"),
+                                            ft.Text("Klicke einen Punkt an, um seine Frage zu bearbeiten. Du kannst Punkte verschieben, neue hinzufügen und löschen.", size=12, color="#A8C0D2"),
                                             ft.Container(
                                                 height=220,
                                                 border_radius=20,
@@ -17319,6 +17354,15 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                                     expand=True,
                                                 ),
                                             ),
+                                            ft.Row(
+                                                [
+                                                    _game_menu_button("Frage hinzufügen", add_point, "#0F766E", width=170, height=40),
+                                                    _game_menu_button("- Punkt", remove_active_point, "#7C2D12", width=140, height=40),
+                                                    _game_menu_button("Karte auswählen", open_world_map_menu, "#1D4ED8", width=180, height=40),
+                                                    _game_menu_button("Frage öffnen", open_question_dialog_for(active_point_index), "#7C3AED", width=170, height=40),
+                                                ],
+                                                spacing=10,
+                                            ),
                                             ft.Column(point_controls, spacing=6),
                                             ft.Row(
                                                 [
@@ -17327,16 +17371,20 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                                 ],
                                                 spacing=10,
                                             ),
-                                            ft.Row(
-                                                [
-                                                    ft.Text(f"{len(list(selected.get('questions', []) or []))} Fragen", size=14, weight="bold", color="white"),
-                                                    _game_menu_button("+ Frage", add_question, "#0F766E", width=140, height=40),
-                                                ],
-                                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                            ),
                                             ft.Container(
-                                                expand=True,
-                                                content=ft.Column(question_controls, spacing=12, scroll=ft.ScrollMode.AUTO),
+                                                padding=16,
+                                                border_radius=18,
+                                                bgcolor="#0B1220DD",
+                                                border=ft.border.Border.all(1.4, "#334155"),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text(f"Aktueller Punkt: {active_point_index + 1}", size=16, weight="bold", color="white"),
+                                                        ft.Text(active_question.get("question", "Noch keine Frage hinterlegt."), size=14, color="#D5E3EE", max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
+                                                        ft.Text(f"Richtige Antwort: {ANSWER_LETTERS[min(3, int(active_question.get('correct_idx', 0) or 0))]}", size=12, color="#86EFAC"),
+                                                        ft.Text(f"{len(selected_questions)} Fragen / Punkte in dieser Welt", size=12, color="#8FB7C9"),
+                                                    ],
+                                                    spacing=8,
+                                                ),
                                             ),
                                         ],
                                         spacing=12,
@@ -17450,6 +17498,123 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                 ],
                                 spacing=14,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                    ft.Container(
+                        expand=True,
+                        visible=choose_world_map and selected_exists,
+                        bgcolor="#010611F0",
+                        blur=16,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Container(
+                            width=min(920, max(360, int(_page_size(page)[0] - 60))),
+                            padding=24,
+                            border_radius=24,
+                            bgcolor="#08111BFE",
+                            border=ft.border.Border.all(2, "#38BDF8"),
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            ft.Text("Karte auswählen", size=28, weight="bold", color="white"),
+                                            _game_menu_button("Schließen", close_world_map_menu, "#475569", width=160, height=40),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Text("Wähle ein Grundlayout oder nutze ein eigenes Kartenbild. Punkte kannst du danach trotzdem frei hinzufügen, löschen und verschieben.", size=13, color="#B8CBD8"),
+                                    ft.Row(
+                                        [
+                                            ft.Container(
+                                                width=210,
+                                                height=140,
+                                                border_radius=20,
+                                                bgcolor="#0B1620",
+                                                border=ft.border.Border.all(1.5, "#38BDF8"),
+                                                padding=16,
+                                                on_click=choose_world_layout(layout_key),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text(layout_data["label"], size=18, weight="bold", color="white"),
+                                                        ft.Text(f"{len(layout_data['points'])} Startpunkte", size=12, color="#A8C0D2"),
+                                                        ft.Text("Vorlage auswählen", size=12, color="#7DD3FC"),
+                                                    ],
+                                                    spacing=8,
+                                                ),
+                                            )
+                                            for layout_key, layout_data in QUESTIONS_PATH_WORLD_LAYOUTS.items()
+                                        ],
+                                        wrap=True,
+                                        spacing=12,
+                                    ),
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("Eigenes Kartenbild wählen", pick_selected_map_image, "#7C3AED", width=250, height=42),
+                                            _game_menu_button("Nur Punkte behalten", close_world_map_menu, "#334155", width=200, height=42),
+                                        ],
+                                        spacing=12,
+                                    ),
+                                ],
+                                spacing=14,
+                            ),
+                        ),
+                    ),
+                    ft.Container(
+                        expand=True,
+                        visible=question_dialog_open and selected_exists,
+                        bgcolor="#010611F0",
+                        blur=18,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Container(
+                            width=min(860, max(360, int(_page_size(page)[0] - 70))),
+                            padding=24,
+                            border_radius=24,
+                            bgcolor="#08111BFE",
+                            border=ft.border.Border.all(2, "#7C3AED"),
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            ft.Text(f"Frage für Punkt {active_point_index + 1}", size=28, weight="bold", color="white"),
+                                            _game_menu_button("Schließen", close_question_dialog, "#475569", width=160, height=40),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Text("Hier legst du die Frage und die vier Antwortmöglichkeiten für den ausgewählten Punkt fest.", size=13, color="#B8CBD8"),
+                                    ft.TextField(ref=question_ref, value=active_question.get("question", ""), label="Frage", bgcolor="#111827", color="white", border_color="#334155"),
+                                    ft.Row(
+                                        [
+                                            ft.TextField(ref=answer_refs[0], value=active_answers[0], label="Antwort A", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                            ft.TextField(ref=answer_refs[1], value=active_answers[1], label="Antwort B", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                        ],
+                                        spacing=10,
+                                    ),
+                                    ft.Row(
+                                        [
+                                            ft.TextField(ref=answer_refs[2], value=active_answers[2], label="Antwort C", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                            ft.TextField(ref=answer_refs[3], value=active_answers[3], label="Antwort D", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                        ],
+                                        spacing=10,
+                                    ),
+                                    ft.Dropdown(
+                                        ref=correct_ref,
+                                        value=str(int(active_question.get("correct_idx", 0) or 0)),
+                                        label="Richtige Antwort",
+                                        bgcolor="#111827",
+                                        color="white",
+                                        border_color="#334155",
+                                        options=[ft.dropdown.Option(str(i), text=f"{ANSWER_LETTERS[i]}") for i in range(4)],
+                                    ),
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("Punkt löschen", remove_active_point, "#7C2D12", width=170, height=42),
+                                            _game_menu_button("Frage speichern", save_question(active_point_index, question_ref, answer_refs, correct_ref), "#0F766E", width=200, height=42),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.END,
+                                        spacing=12,
+                                    ),
+                                ],
+                                spacing=14,
                             ),
                         ),
                     ),
