@@ -7079,8 +7079,9 @@ def _questions_path_default_custom_island(index: int = 0) -> dict:
         "line": theme["line"],
         "design_id": f"theme_{index % len(QUESTIONS_PATH_CREATIVE_THEMES)}",
         "world_layout": "classic",
-        "map_x": 18 + (index % 3) * 26,
-        "map_y": 18 + (index // 3) * 24,
+        "map_x": 6 + (index % 3) * 29,
+        "map_y": 8 + (index // 3) * 24,
+        "custom_points": [],
         "questions": [_questions_path_default_custom_question(0)],
     }
 
@@ -7110,6 +7111,21 @@ def _questions_path_custom_map(raw_island: dict, index: int) -> dict:
         questions = [_questions_path_default_custom_question(0)]
     layout_key = str(raw_island.get("world_layout", "classic")).strip() or "classic"
     layout = QUESTIONS_PATH_WORLD_LAYOUTS.get(layout_key, QUESTIONS_PATH_WORLD_LAYOUTS["classic"])
+    custom_points = list(raw_island.get("custom_points", []) or [])
+    if custom_points:
+        point_list = []
+        labels = [f"Punkt {i + 1}" for i in range(len(custom_points))]
+        for i, raw_point in enumerate(custom_points):
+            if isinstance(raw_point, dict):
+                point_list.append(
+                    {
+                        "x": max(2, min(96, int(raw_point.get("x", 10) or 10))),
+                        "y": max(2, min(96, int(raw_point.get("y", 10) or 10))),
+                        "label": str(raw_point.get("label", labels[i])).strip() or labels[i],
+                    }
+                )
+    else:
+        point_list = layout["points"]
     return {
         "title": str(raw_island.get("title", f"Eigene Insel {index + 1}")).strip() or f"Eigene Insel {index + 1}",
         "subtitle": str(raw_island.get("subtitle", "Hier kannst du eigene Fragen sammeln.")).strip() or "Hier kannst du eigene Fragen sammeln.",
@@ -7123,7 +7139,8 @@ def _questions_path_custom_map(raw_island: dict, index: int) -> dict:
         "line": str(raw_island.get("line", theme["line"])).strip() or theme["line"],
         "questions": questions,
         "world_layout": layout_key,
-        "points": layout["points"][: max(1, min(len(layout["points"]), len(questions)))],
+        "custom_points": custom_points,
+        "points": point_list[: max(1, min(len(point_list), len(questions)))],
     }
 
 
@@ -16231,6 +16248,24 @@ def _questions_path_profile_cards(page: ft.Page, state: dict, profiles: list[dic
 
         return _handler
 
+    def remove_specific(index: int):
+        def _handler(e):
+            current_profiles = get_questions_path_profiles(state)
+            if len(current_profiles) <= QUESTIONS_PATH_PROFILE_MIN:
+                e.page.snack_bar = ft.SnackBar(content=ft.Text("Mindestens ein Profil muss bleiben."), open=True)
+                e.page.update()
+                return
+            current_profiles.pop(index)
+            for idx, profile in enumerate(current_profiles):
+                if isinstance(profile, dict) and str(profile.get("name", "")).startswith(QUESTIONS_PATH_DEFAULT_PROFILE_NAME):
+                    profile["name"] = f"{QUESTIONS_PATH_DEFAULT_PROFILE_NAME} {idx + 1}"
+            persist_questions_path_profiles(state, current_profiles)
+            state["questions_path_profiles"] = current_profiles
+            set_questions_path_profile_index(state, min(get_questions_path_profile_index(state), len(current_profiles) - 1))
+            _questions_path_render_profiles(e.page, state)
+
+        return _handler
+
     for index, profile in enumerate(profiles):
         active = index == active_index
         mode = "Kreativ" if _questions_path_profile_mode(profile) == "creative" else "Abenteuer"
@@ -16248,6 +16283,7 @@ def _questions_path_profile_cards(page: ft.Page, state: dict, profiles: list[dic
                         ft.Text(f"P{index + 1}", size=20, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
                         ft.Text(profile.get("name", f"Profil {index + 1}"), size=14, color="white", text_align=ft.TextAlign.CENTER, weight="bold"),
                         ft.Text(mode, size=11, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                        _game_menu_button("Profil löschen", remove_specific(index), "#7C2D12", width=130, height=34),
                     ],
                     spacing=5,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -16278,6 +16314,8 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
         current_profiles = get_questions_path_profiles(state)
         if not current_profiles:
             current_profiles = [_questions_path_default_profile(0)]
+        while active_index >= len(current_profiles):
+            current_profiles.append(_questions_path_default_profile(len(current_profiles)))
         current_profiles[active_index] = updated_profile
         persist_questions_path_profiles(state, current_profiles)
         state["questions_path_profiles"] = current_profiles
@@ -16295,6 +16333,10 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
         return _handler
 
     def play_selected(e):
+        refreshed = get_questions_path_profiles(state)
+        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
+        profile["progression_mode"] = "adventure"
+        save_active_profile(profile)
         state["questions_path_scene"] = "islands"
         state["_questions_path_level_progress"] = 0
         state["_questions_path_level_complete"] = False
@@ -16307,6 +16349,10 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
             profile["custom_islands"] = [_questions_path_default_custom_island(0)]
             save_active_profile(profile)
         state["questions_path_scene"] = "creator"
+        show_questions_path_hub(e.page, state)
+
+    def open_custom_menu(e):
+        state["questions_path_scene"] = "custom_menu"
         show_questions_path_hub(e.page, state)
 
     def add_profile(e):
@@ -16366,7 +16412,6 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
                                             ft.Row(
                                                 [
                                                     _game_menu_button("+ Profil", add_profile, "#0F766E", width=130, height=40),
-                                                    _game_menu_button("- Profil", remove_profile, "#7C2D12", width=130, height=40),
                                                 ],
                                                 spacing=10,
                                             ),
@@ -16393,10 +16438,10 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
                                                     [
                                                         _game_menu_button("Schnelles Spiel", play_selected, "#0F766E", width=220, height=42),
                                                         _game_menu_button(
-                                                            "Eigene Inseln bearbeiten",
-                                                            open_creator,
+                                                            "Eigenes Spiel",
+                                                            open_custom_menu,
                                                             "#1D4ED8",
-                                                            width=260,
+                                                            width=220,
                                                             height=42,
                                                         ),
                                                     ],
@@ -16481,6 +16526,8 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     creator_world_open = bool(state.get("_questions_path_creator_world_open", False))
     creator_zoom = max(0.5, min(1.8, float(state.get("questions_path_creator_zoom", 1.0) or 1.0)))
     state["questions_path_creator_zoom"] = creator_zoom
+    creator_canvas_w = 1600
+    creator_canvas_h = 1000
 
     island_name_ref = ft.Ref[ft.TextField]()
     island_icon_ref = ft.Ref[ft.TextField]()
@@ -16489,11 +16536,32 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     world_layout_ref = ft.Ref[ft.Dropdown]()
     drag_points = state.setdefault("_questions_path_drag_points", {})
     drag_positions = state.setdefault("_questions_path_drag_positions", {})
+    point_drag_positions = state.setdefault("_questions_path_drag_point_positions", {})
+    island_marker_refs: dict[int, ft.Ref[ft.Container]] = {}
+    point_marker_refs: dict[int, ft.Ref[ft.Container]] = {}
+
+    def island_left_from_percent(percent_x: float) -> int:
+        card_w = 240
+        return max(24, min(int(creator_canvas_w - card_w - 24), int((float(percent_x) / 100.0) * (creator_canvas_w - card_w))))
+
+    def island_top_from_percent(percent_y: float) -> int:
+        card_h = 176
+        return max(24, min(int(creator_canvas_h - card_h - 24), int((float(percent_y) / 100.0) * (creator_canvas_h - card_h))))
+
+    def point_left_from_percent(percent_x: float) -> int:
+        point_size = 54
+        return max(8, min(int(creator_canvas_w - point_size - 8), int((float(percent_x) / 100.0) * (creator_canvas_w - point_size))))
+
+    def point_top_from_percent(percent_y: float) -> int:
+        point_size = 54
+        return max(8, min(int(creator_canvas_h - point_size - 8), int((float(percent_y) / 100.0) * (creator_canvas_h - point_size))))
 
     def persist(current_profile: dict):
         current_profiles = get_questions_path_profiles(state)
         if not current_profiles:
             current_profiles = [_questions_path_default_profile(0)]
+        while active_index >= len(current_profiles):
+            current_profiles.append(_questions_path_default_profile(len(current_profiles)))
         current_profiles[active_index] = current_profile
         persist_questions_path_profiles(state, current_profiles)
         state["questions_path_profiles"] = current_profiles
@@ -16652,6 +16720,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             island["subtitle"] = str(island_subtitle_ref.current.value or island.get("subtitle", "")).strip() or island.get("subtitle", "")
             if world_layout_ref.current:
                 island["world_layout"] = str(world_layout_ref.current.value or island.get("world_layout", "classic"))
+                island["custom_points"] = []
 
         update_selected(_mutate, e.page)
 
@@ -16677,6 +16746,29 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
 
     def pick_selected_map_image(e):
         e.page.run_task(pick_selected_map_image_task, e.page)
+
+    def move_selected_island(dx: float, dy: float):
+        def _handler(e):
+            def _mutate(island):
+                island["map_x"] = max(2, min(88, float(island.get("map_x", 20)) + dx))
+                island["map_y"] = max(2, min(82, float(island.get("map_y", 20)) + dy))
+
+            update_selected(_mutate, e.page)
+
+        return _handler
+
+    def nudge_point(point_index: int, dx: float, dy: float):
+        def _handler(e):
+            def _mutate(island):
+                custom_points = ensure_custom_points(island)
+                if point_index < len(custom_points):
+                    custom_points[point_index]["x"] = int(max(4, min(96, float(custom_points[point_index].get("x", 10)) + dx)))
+                    custom_points[point_index]["y"] = int(max(4, min(96, float(custom_points[point_index].get("y", 10)) + dy)))
+                    island["custom_points"] = custom_points
+
+            update_selected(_mutate, e.page)
+
+        return _handler
 
     def add_question(e):
         def _mutate(island):
@@ -16708,9 +16800,12 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                 question = dict(questions[question_index])
                 question["question"] = str(question_ref.current.value or question.get("question", "")).strip() or question.get("question", "Frage")
                 answers = []
+                existing_answers = list(question.get("answers", []) or [])
+                while len(existing_answers) < 4:
+                    existing_answers.append("")
                 for idx, ref in enumerate(answer_refs):
                     answer_text = str(ref.current.value or "").strip() if ref.current else ""
-                    answers.append(answer_text or question.get("answers", [""] * 4)[idx] or f"Antwort {ANSWER_LETTERS[idx]}")
+                    answers.append(answer_text or existing_answers[idx] or f"Antwort {ANSWER_LETTERS[idx]}")
                 question["answers"] = answers[:4]
                 question["correct_idx"] = int(correct_ref.current.value or question.get("correct_idx", 0)) if correct_ref.current else int(question.get("correct_idx", 0))
                 questions[question_index] = question
@@ -16723,8 +16818,8 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     def drag_start_island(index: int):
         def _handler(e):
             drag_points[index] = (
-                float(getattr(e, "local_x", getattr(e, "global_x", 0.0)) or 0.0),
-                float(getattr(e, "local_y", getattr(e, "global_y", 0.0)) or 0.0),
+                float(getattr(e, "global_x", getattr(e, "local_x", 0.0)) or 0.0),
+                float(getattr(e, "global_y", getattr(e, "local_y", 0.0)) or 0.0),
             )
             current_profiles = get_questions_path_profiles(state)
             current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
@@ -16745,17 +16840,21 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             islands = list(current_profile.get("custom_islands", []) or [])
             if index >= len(islands):
                 return
-            current_x = float(getattr(e, "local_x", getattr(e, "global_x", 0.0)) or 0.0)
-            current_y = float(getattr(e, "local_y", getattr(e, "global_y", 0.0)) or 0.0)
+            current_x = float(getattr(e, "global_x", getattr(e, "local_x", 0.0)) or 0.0)
+            current_y = float(getattr(e, "global_y", getattr(e, "local_y", 0.0)) or 0.0)
             last_x, last_y = drag_points.get(index, (current_x, current_y))
             delta_x = current_x - last_x
             delta_y = current_y - last_y
             drag_points[index] = (current_x, current_y)
             current_drag = drag_positions.get(index, {"map_x": float(islands[index].get("map_x", 20)), "map_y": float(islands[index].get("map_y", 20))})
-            current_drag["map_x"] = max(4, min(86, float(current_drag.get("map_x", 20)) + (delta_x / max(1, page.window.width or 1200)) * 100))
-            current_drag["map_y"] = max(6, min(82, float(current_drag.get("map_y", 20)) + (delta_y / max(1, page.window.height or 800)) * 100))
+            current_drag["map_x"] = max(2, min(88, float(current_drag.get("map_x", 20)) + (delta_x / max(1, creator_canvas_w * creator_zoom)) * 100))
+            current_drag["map_y"] = max(2, min(82, float(current_drag.get("map_y", 20)) + (delta_y / max(1, creator_canvas_h * creator_zoom)) * 100))
             drag_positions[index] = current_drag
-            _questions_path_render_creator(e.page, state)
+            marker_ref = island_marker_refs.get(index)
+            if marker_ref and marker_ref.current:
+                marker_ref.current.left = island_left_from_percent(current_drag["map_x"])
+                marker_ref.current.top = island_top_from_percent(current_drag["map_y"])
+                e.page.update()
 
         return _handler
 
@@ -16777,6 +16876,78 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
 
         return _handler
 
+    def ensure_custom_points(island: dict) -> list[dict]:
+        custom_points = list(island.get("custom_points", []) or [])
+        desired_count = max(1, min(10, len(list(island.get("questions", []) or []))))
+        if not custom_points:
+            base_points = QUESTIONS_PATH_WORLD_LAYOUTS.get(str(island.get("world_layout", "classic")), QUESTIONS_PATH_WORLD_LAYOUTS["classic"])["points"]
+            custom_points = [{"x": int(p["x"]), "y": int(p["y"]), "label": str(p.get("label", f"Punkt {idx + 1}"))} for idx, p in enumerate(base_points[:desired_count])]
+        while len(custom_points) < desired_count:
+            custom_points.append({"x": 20 + len(custom_points) * 6, "y": 20 + len(custom_points) * 5, "label": f"Punkt {len(custom_points) + 1}"})
+        return custom_points[:desired_count]
+
+    def point_drag_start(index: int):
+        def _handler(e):
+            drag_points[f"point_{index}"] = (
+                float(getattr(e, "global_x", getattr(e, "local_x", 0.0)) or 0.0),
+                float(getattr(e, "global_y", getattr(e, "local_y", 0.0)) or 0.0),
+            )
+            current_profiles = get_questions_path_profiles(state)
+            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+            islands = list(current_profile.get("custom_islands", []) or [])
+            if selected_index < len(islands):
+                island = dict(islands[selected_index])
+                custom_points = ensure_custom_points(island)
+                if index < len(custom_points):
+                    point_drag_positions[index] = {
+                        "x": float(custom_points[index].get("x", 10)),
+                        "y": float(custom_points[index].get("y", 10)),
+                    }
+
+        return _handler
+
+    def point_drag_update(index: int):
+        def _handler(e):
+            current_profiles = get_questions_path_profiles(state)
+            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+            islands = list(current_profile.get("custom_islands", []) or [])
+            if selected_index >= len(islands):
+                return
+            island = dict(islands[selected_index])
+            custom_points = ensure_custom_points(island)
+            current_x = float(getattr(e, "global_x", getattr(e, "local_x", 0.0)) or 0.0)
+            current_y = float(getattr(e, "global_y", getattr(e, "local_y", 0.0)) or 0.0)
+            last_x, last_y = drag_points.get(f"point_{index}", (current_x, current_y))
+            delta_x = current_x - last_x
+            delta_y = current_y - last_y
+            drag_points[f"point_{index}"] = (current_x, current_y)
+            if index < len(custom_points):
+                current_drag = point_drag_positions.get(index, {"x": float(custom_points[index].get("x", 10)), "y": float(custom_points[index].get("y", 10))})
+                current_drag["x"] = max(4, min(96, float(current_drag.get("x", 10)) + (delta_x / max(1, creator_canvas_w * creator_zoom)) * 100))
+                current_drag["y"] = max(4, min(96, float(current_drag.get("y", 10)) + (delta_y / max(1, creator_canvas_h * creator_zoom)) * 100))
+                point_drag_positions[index] = current_drag
+                custom_points[index]["x"] = int(current_drag["x"])
+                custom_points[index]["y"] = int(current_drag["y"])
+                island["custom_points"] = custom_points
+                islands[selected_index] = island
+                current_profile["custom_islands"] = islands
+                persist(current_profile)
+                point_ref = point_marker_refs.get(index)
+                if point_ref and point_ref.current:
+                    point_ref.current.left = point_left_from_percent(current_drag["x"])
+                    point_ref.current.top = point_top_from_percent(current_drag["y"])
+                    e.page.update()
+
+        return _handler
+
+    def point_drag_end(index: int):
+        def _handler(e):
+            drag_points.pop(f"point_{index}", None)
+            point_drag_positions.pop(index, None)
+            _questions_path_render_creator(e.page, state)
+
+        return _handler
+
     island_markers = []
     for idx, island in enumerate(custom_islands):
         cfg = _questions_path_custom_map(island, idx)
@@ -16784,10 +16955,12 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         preview_position = drag_positions.get(idx, {})
         marker_x = float(preview_position.get("map_x", island.get("map_x", 20)))
         marker_y = float(preview_position.get("map_y", island.get("map_y", 20)))
+        marker_ref = ft.Ref[ft.Container]()
+        island_marker_refs[idx] = marker_ref
         marker_content = ft.Container(
-            width=196,
-            height=154,
-            padding=16,
+            width=240,
+            height=176,
+            padding=18,
             border_radius=24,
             bgcolor="#09131DE8",
             border=ft.border.Border.all(2, cfg.get("accent", "#34D399") if active else "#334155"),
@@ -16815,17 +16988,18 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                         ],
                         spacing=10,
                     ),
-                    ft.Text(cfg.get("subtitle", ""), size=12, color="#D5E3EE", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Text(cfg.get("subtitle", ""), size=12, color="#D5E3EE", max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text(f"{len(cfg.get('questions', []))} Fragen", size=12, color=cfg.get("accent", "#34D399"), weight="bold"),
                     ft.Text("Ziehen zum Verschieben", size=11, color="#7FA9BF"),
                 ],
-                spacing=8,
+                spacing=10,
             ),
         )
         island_markers.append(
             ft.Container(
-                left=int(marker_x * 12),
-                top=int(marker_y * 8.5),
+                ref=marker_ref,
+                left=island_left_from_percent(marker_x),
+                top=island_top_from_percent(marker_y),
                 content=ft.GestureDetector(
                     on_pan_start=drag_start_island(idx),
                     on_pan_update=drag_island(idx),
@@ -16928,6 +17102,53 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         options=[ft.dropdown.Option(key, text=value["label"]) for key, value in QUESTIONS_PATH_WORLD_LAYOUTS.items()],
     )
 
+    point_controls = []
+    point_overlay_controls = []
+    editable_points = ensure_custom_points(selected)
+    for point_index, point in enumerate(editable_points):
+        point_ref = ft.Ref[ft.Container]()
+        point_marker_refs[point_index] = point_ref
+        point_overlay_controls.append(
+            ft.Container(
+                ref=point_ref,
+                left=point_left_from_percent(point["x"]),
+                top=point_top_from_percent(point["y"]),
+                content=ft.GestureDetector(
+                    on_pan_start=point_drag_start(point_index),
+                    on_pan_update=point_drag_update(point_index),
+                    on_pan_end=point_drag_end(point_index),
+                    drag_interval=18,
+                    content=ft.Container(
+                        width=54,
+                        height=54,
+                        border_radius=999,
+                        bgcolor="#10B981",
+                        border=ft.border.Border.all(3, "#D1FAE5"),
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Text(str(point_index + 1), size=18, weight="bold", color="#08131F"),
+                    ),
+                ),
+            )
+        )
+        point_controls.append(
+            ft.Row(
+                [
+                    ft.Text(f"Punkt {point_index + 1}: {point.get('label', f'Punkt {point_index + 1}')}", size=12, color="#D5E3EE"),
+                    ft.Row(
+                        [
+                            ft.Text(f"x={point['x']}  y={point['y']}", size=11, color="#8FB7C9"),
+                            _game_menu_button("←", nudge_point(point_index, -2, 0), "#334155", width=40, height=30),
+                            _game_menu_button("↑", nudge_point(point_index, 0, -2), "#334155", width=40, height=30),
+                            _game_menu_button("↓", nudge_point(point_index, 0, 2), "#334155", width=40, height=30),
+                            _game_menu_button("→", nudge_point(point_index, 2, 0), "#334155", width=40, height=30),
+                        ],
+                        spacing=6,
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            )
+        )
+
     page.controls.clear()
     page.add(
         ft.Container(
@@ -16996,7 +17217,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                 ),
                                 ft.Container(
                                     visible=creator_world_open,
-                                    height=420,
+                                    height=620,
                                     border_radius=24,
                                     bgcolor="#071019F2",
                                     padding=20,
@@ -17018,11 +17239,47 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                             ),
                                             ft.Row(
                                                 [
-                                                        ft.TextField(ref=island_subtitle_ref, value=selected.get("subtitle", ""), label="Beschreibung", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                                        world_dropdown,
+                                                    ft.TextField(ref=island_subtitle_ref, value=selected.get("subtitle", ""), label="Beschreibung", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                                    world_dropdown,
                                                 ],
                                                 spacing=10,
                                             ),
+                                            ft.Row(
+                                                [
+                                                    ft.Text("Insel verschieben", size=14, weight="bold", color="white"),
+                                                    ft.Row(
+                                                        [
+                                                            _game_menu_button("←", move_selected_island(-2.5, 0), "#334155", width=52, height=36),
+                                                            _game_menu_button("↑", move_selected_island(0, -2.5), "#334155", width=52, height=36),
+                                                            _game_menu_button("↓", move_selected_island(0, 2.5), "#334155", width=52, height=36),
+                                                            _game_menu_button("→", move_selected_island(2.5, 0), "#334155", width=52, height=36),
+                                                        ],
+                                                        spacing=8,
+                                                    ),
+                                                ],
+                                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                            ),
+                                            ft.Text("Punkt-Editor", size=16, weight="bold", color="white"),
+                                            ft.Text("Ziehe die grünen Punkte an die Positionen, an denen später die Fragen auf deiner eigenen Map anklickbar sein sollen.", size=12, color="#A8C0D2"),
+                                            ft.Container(
+                                                height=220,
+                                                border_radius=20,
+                                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                bgcolor="#061621E8",
+                                                content=ft.Stack(
+                                                    [
+                                                        ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#081521", "#0A2B3E", "#07131C"])),
+                                                        ft.Container(
+                                                            expand=True,
+                                                            opacity=0.30,
+                                                            content=ft.Image(src=selected_cfg.get("map_image_src", ""), fit=ft.BoxFit.COVER, error_content=ft.Container()) if selected_cfg.get("map_image_src") else ft.Container(),
+                                                        ),
+                                                        *point_overlay_controls,
+                                                    ],
+                                                    expand=True,
+                                                ),
+                                            ),
+                                            ft.Column(point_controls, spacing=6),
                                             ft.Row(
                                                 [
                                                     _game_menu_button("Inselbild wählen", pick_selected_island_image, "#1D4ED8", width=180, height=40),
@@ -17152,6 +17409,94 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                     ),
                                 ],
                                 spacing=14,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_render_custom_menu(page: ft.Page, state: dict):
+    profiles = get_questions_path_profiles(state)
+    if not profiles:
+        profiles = [_questions_path_default_profile(0)]
+        persist_questions_path_profiles(state, profiles)
+        state["questions_path_profiles"] = profiles
+    active_index = get_questions_path_profile_index(state)
+    active_profile = profiles[active_index] if active_index < len(profiles) else _questions_path_default_profile(0)
+
+    def open_custom_creator(e):
+        refreshed = get_questions_path_profiles(state)
+        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
+        profile["progression_mode"] = "creative"
+        if not list(profile.get("custom_islands", []) or []):
+            profile["custom_islands"] = [_questions_path_default_custom_island(0)]
+        current_profiles = get_questions_path_profiles(state)
+        while active_index >= len(current_profiles):
+            current_profiles.append(_questions_path_default_profile(len(current_profiles)))
+        current_profiles[active_index] = profile
+        persist_questions_path_profiles(state, current_profiles)
+        state["questions_path_profiles"] = current_profiles
+        state["questions_path_scene"] = "creator"
+        show_questions_path_hub(e.page, state)
+
+    def play_custom_worlds(e):
+        refreshed = get_questions_path_profiles(state)
+        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
+        profile["progression_mode"] = "creative"
+        current_profiles = get_questions_path_profiles(state)
+        while active_index >= len(current_profiles):
+            current_profiles.append(_questions_path_default_profile(len(current_profiles)))
+        current_profiles[active_index] = profile
+        persist_questions_path_profiles(state, current_profiles)
+        state["questions_path_profiles"] = current_profiles
+        state["questions_path_scene"] = "islands"
+        show_questions_path_hub(e.page, state)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _questions_path_backdrop("#34D399", "#38BDF8"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=24,
+                        content=ft.Container(
+                            width=min(760, max(340, int(_page_size(page)[0] - 40))),
+                            padding=28,
+                            border_radius=28,
+                            bgcolor="#08111BFE",
+                            border=ft.border.Border.all(2, "#38BDF8"),
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("← Profile", lambda e: (state.__setitem__("questions_path_scene", "profiles"), show_questions_path_hub(e.page, state)), "#475569", width=170, height=40),
+                                            ft.Text("Eigenes Spiel", size=30, weight="bold", color="white"),
+                                            ft.Container(width=170),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Text("Wähle, ob du deine eigenen Welten bearbeiten oder direkt spielen möchtest.", size=13, color="#B8CBD8", text_align=ft.TextAlign.CENTER),
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("Eigenes Spiel erstellen", open_custom_creator, "#1D4ED8", width=260, height=48),
+                                            _game_menu_button("Eigenes Spiel spielen", play_custom_worlds, "#0F766E", width=240, height=48),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        spacing=16,
+                                    ),
+                                ],
+                                spacing=18,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                         ),
@@ -17980,6 +18325,9 @@ def render_questions_path_game(page: ft.Page, state: dict):
     if scene == "islands":
         _questions_path_render_islands(page, state)
         return
+    if scene == "custom_menu":
+        _questions_path_render_custom_menu(page, state)
+        return
     if scene == "level":
         _questions_path_render_level(page, state)
         return
@@ -17994,6 +18342,8 @@ def show_questions_path_hub(page: ft.Page, state: dict):
     scene = state.get("questions_path_scene") or "profiles"
     if scene == "islands":
         _questions_path_render_islands(page, state)
+    elif scene == "custom_menu":
+        _questions_path_render_custom_menu(page, state)
     elif scene == "creator":
         _questions_path_render_creator(page, state)
     elif scene == "level":
