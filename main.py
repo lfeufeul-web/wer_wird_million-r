@@ -16377,6 +16377,8 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     selected_index = max(0, min(int(state.get("_questions_path_creator_index", 0) or 0), len(custom_islands) - 1))
     state["_questions_path_creator_index"] = selected_index
     selected = dict(custom_islands[selected_index])
+    transfer_text = str(state.get("_questions_path_transfer_text", "") or "")
+    transfer_mode = state.get("_questions_path_transfer_mode")
 
     def persist(current_profile: dict):
         current_profiles = get_questions_path_profiles(state)
@@ -16440,6 +16442,62 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         persist(current_profile)
         state["_questions_path_creator_index"] = min(selected_index, len(islands) - 1)
         _questions_path_render_creator(e.page, state)
+
+    def open_export(e):
+        state["_questions_path_transfer_mode"] = "export"
+        state["_questions_path_transfer_text"] = json.dumps(custom_islands, ensure_ascii=False, indent=2)
+        _questions_path_render_creator(e.page, state)
+
+    def open_import(e):
+        state["_questions_path_transfer_mode"] = "import"
+        state["_questions_path_transfer_text"] = transfer_text or "[]"
+        _questions_path_render_creator(e.page, state)
+
+    def close_transfer(e):
+        state.pop("_questions_path_transfer_mode", None)
+        state.pop("_questions_path_transfer_text", None)
+        _questions_path_render_creator(e.page, state)
+
+    def set_transfer_text(e):
+        state["_questions_path_transfer_text"] = e.control.value
+
+    def apply_import(e):
+        try:
+            raw = json.loads(str(state.get("_questions_path_transfer_text", "") or "[]"))
+            if not isinstance(raw, list):
+                raise ValueError("Es muss eine Liste von Inseln sein.")
+            islands = []
+            for idx, item in enumerate(raw[:10]):
+                if not isinstance(item, dict):
+                    continue
+                island = _questions_path_default_custom_island(idx)
+                island["title"] = str(item.get("title", island["title"])).strip() or island["title"]
+                island["subtitle"] = str(item.get("subtitle", island["subtitle"])).strip() or island["subtitle"]
+                island["icon"] = str(item.get("icon", island["icon"])).strip() or island["icon"]
+                imported_questions = []
+                for q_idx, q in enumerate(list(item.get("questions", []) or [])[:10]):
+                    qd = _path_question_to_dict(q)
+                    if not list(qd.get("answers", []) or []):
+                        qd = _questions_path_default_custom_question(q_idx)
+                    imported_questions.append(qd)
+                island["questions"] = imported_questions or [_questions_path_default_custom_question(0)]
+                islands.append(island)
+            if not islands:
+                islands = [_questions_path_default_custom_island(0)]
+            current_profiles = get_questions_path_profiles(state)
+            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+            for island_idx, item in enumerate(islands):
+                item["map_key"] = f"custom_{island_idx + 1}"
+            current_profile["custom_islands"] = islands
+            current_profile["progression_mode"] = "creative"
+            persist(current_profile)
+            state["_questions_path_creator_index"] = 0
+            state.pop("_questions_path_transfer_mode", None)
+            state.pop("_questions_path_transfer_text", None)
+            _questions_path_render_creator(e.page, state)
+        except Exception as exc:
+            e.page.snack_bar = ft.SnackBar(content=ft.Text(f"Import fehlgeschlagen: {exc}"), open=True)
+            e.page.update()
 
     def set_island_field(field: str):
         def _handler(e):
@@ -16544,14 +16602,15 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                             ],
                             spacing=10,
                         ),
-                        ft.Dropdown(
-                            value=str(int(question.get("correct_idx", 0) or 0)),
-                            label="Richtige Antwort",
-                            bgcolor="#111827",
-                            color="white",
-                            border_color="#334155",
-                            options=[ft.dropdown.Option(str(i), text=f"{ANSWER_LETTERS[i]}") for i in range(4)],
-                            on_change=set_question_field(q_index, "correct_idx"),
+                        (lambda dd: (setattr(dd, "on_change", set_question_field(q_index, "correct_idx")) or dd))(
+                            ft.Dropdown(
+                                value=str(int(question.get("correct_idx", 0) or 0)),
+                                label="Richtige Antwort",
+                                bgcolor="#111827",
+                                color="white",
+                                border_color="#334155",
+                                options=[ft.dropdown.Option(str(i), text=f"{ANSWER_LETTERS[i]}") for i in range(4)],
+                            )
                         ),
                     ],
                     spacing=10,
@@ -16608,6 +16667,8 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                                 [
                                                     _game_menu_button("+ Insel", add_island, "#0F766E", width=120, height=40),
                                                     _game_menu_button("- Insel", remove_island, "#7C2D12", width=120, height=40),
+                                                    _game_menu_button("Export", open_export, "#1D4ED8", width=110, height=40),
+                                                    _game_menu_button("Import", open_import, "#7C3AED", width=110, height=40),
                                                 ],
                                                 spacing=10,
                                             ),
@@ -16643,6 +16704,46 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                     ),
                                 ],
                                 spacing=12,
+                            ),
+                        ),
+                    ),
+                    ft.Container(
+                        expand=True,
+                        visible=transfer_mode in ("export", "import"),
+                        bgcolor="#010611F0",
+                        blur=16,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Container(
+                            width=min(900, max(340, int(_page_size(page)[0] - 60))),
+                            padding=24,
+                            border_radius=24,
+                            bgcolor="#08111BFE",
+                            border=ft.border.Border.all(2, "#38BDF8"),
+                            content=ft.Column(
+                                [
+                                    ft.Text("Inseln exportieren" if transfer_mode == "export" else "Inseln importieren", size=28, weight="bold", color="white"),
+                                    ft.Text("Du kannst die JSON-Daten kopieren oder eigene Inseln im gleichen Format importieren.", size=13, color="#B8CBD8"),
+                                    ft.TextField(
+                                        value=transfer_text,
+                                        multiline=True,
+                                        min_lines=14,
+                                        max_lines=20,
+                                        bgcolor="#111827",
+                                        color="white",
+                                        border_color="#334155",
+                                        on_change=set_transfer_text,
+                                    ),
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("Schließen", close_transfer, "#475569", width=180, height=42),
+                                            _game_menu_button("Import anwenden", apply_import, "#0F766E", width=220, height=42) if transfer_mode == "import" else ft.Container(),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        spacing=12,
+                                    ),
+                                ],
+                                spacing=14,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                         ),
                     ),
@@ -16883,18 +16984,18 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
         state["questions_path_scene"] = "creator"
         _questions_path_render_creator(page, state)
         return
-    base_canvas_w = max(1900, int(page_w * 1.28))
-    base_canvas_h = max(1120, int(page_h * 1.18))
+    base_canvas_w = max(2400, int(page_w * 1.6))
+    base_canvas_h = max(1500, int(page_h * 1.55))
     fit_zoom = round(max(0.45, min(1.0, min(max(1, page_w - 40) / base_canvas_w, max(1, page_h - 220) / base_canvas_h))), 2)
     zoom = max(0.45, min(1.8, float(state.get("questions_path_map_zoom", fit_zoom) or fit_zoom)))
     state["questions_path_map_zoom"] = zoom
     card_w = max(320, int(page_w - 24))
     map_h = max(520, int(page_h - 180))
-    canvas_w = int(base_canvas_w * zoom)
-    canvas_h = int(base_canvas_h * zoom)
+    canvas_w = base_canvas_w
+    canvas_h = base_canvas_h
     scatter_template = [
-        (0.08, 0.12), (0.34, 0.10), (0.60, 0.13), (0.16, 0.38), (0.45, 0.33),
-        (0.76, 0.30), (0.12, 0.67), (0.40, 0.70), (0.68, 0.62), (0.82, 0.78),
+        (0.06, 0.08), (0.38, 0.07), (0.69, 0.10), (0.18, 0.34), (0.52, 0.29),
+        (0.82, 0.31), (0.08, 0.67), (0.38, 0.73), (0.67, 0.63), (0.81, 0.80),
     ]
     island_positions = []
     for idx, (map_key, _map_cfg) in enumerate(visible_maps):
@@ -16924,8 +17025,8 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
             ft.Container(
                 left=int(canvas_w * (0.05 + dot_index * 0.0145)),
                 top=int(canvas_h * (0.50 + (0.13 if dot_index % 4 == 1 else (-0.09 if dot_index % 4 == 2 else (0.03 if dot_index % 4 == 3 else 0.0))))),
-                width=max(8, int(10 * zoom)),
-                height=max(8, int(10 * zoom)),
+                width=10,
+                height=10,
                 border_radius=999,
                 bgcolor="#B6F0E055" if dot_index % 2 else "#7DD3FC66",
             )
@@ -16938,8 +17039,8 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
         island_state = _questions_path_level_state_for(active_profile, map_key, level_index)
         left = int(canvas_w * item["left"])
         top = int(canvas_h * item["top"])
-        width = max(250, int(canvas_w * item["w"] * 0.62))
-        height = max(190, int(canvas_h * item["h"] * 0.34))
+        width = max(260, int(canvas_w * item["w"] * 0.42))
+        height = max(210, int(canvas_h * item["h"] * 0.20))
         accent = map_cfg.get("accent", "#34D399")
         border_color = accent if island_state != "locked" else "#475569"
         glow_color = f"#44{accent[1:]}" if island_state != "locked" else "#22000000"
@@ -17061,6 +17162,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                             width=canvas_w,
                                             height=canvas_h,
                                             scale=zoom,
+                                            animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
                                             content=ft.Stack(
                                                 [
                                                     ft.Container(
@@ -17071,9 +17173,9 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                                             colors=["#05131E", "#0A2A3C", "#08111D"],
                                                         ),
                                                     ),
-                                                    ft.Container(left=180, top=80, width=int(360 * zoom), height=int(180 * zoom), border_radius=999, bgcolor="#0EFFFFFF"),
-                                                    ft.Container(left=900, top=500, width=int(520 * zoom), height=int(220 * zoom), border_radius=999, bgcolor="#0AFFFFFF"),
-                                                    ft.Container(right=220, top=120, width=int(420 * zoom), height=int(200 * zoom), border_radius=999, bgcolor="#0C7DD3FC"),
+                                                    ft.Container(left=180, top=80, width=360, height=180, border_radius=999, bgcolor="#0EFFFFFF"),
+                                                    ft.Container(left=1220, top=760, width=520, height=220, border_radius=999, bgcolor="#0AFFFFFF"),
+                                                    ft.Container(right=220, top=120, width=420, height=200, border_radius=999, bgcolor="#0C7DD3FC"),
                                                     *route_dots,
                                                     *stage_items,
                                                 ],
@@ -17087,7 +17189,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                         _questions_path_island_chip("Aktiv", "#0EA5E9"),
                                         _questions_path_island_chip("Abgeschlossen", "#16A34A"),
                                         _questions_path_island_chip("Gesperrt", "#475569"),
-                                _questions_path_island_chip(f"{len(visible_maps)} Inseln", "#334155"),
+                                        _questions_path_island_chip(f"{len(visible_maps)} Inseln", "#334155"),
                                     ],
                                     spacing=10,
                                     alignment=ft.MainAxisAlignment.CENTER,
@@ -17129,15 +17231,15 @@ def _questions_path_render_level(page: ft.Page, state: dict):
         return
 
     page_w, page_h = _page_size(page)
-    base_canvas_w = max(1320, int(page_w * 1.10))
-    base_canvas_h = max(980, int(page_h * 0.95))
+    base_canvas_w = max(1700, int(page_w * 1.30))
+    base_canvas_h = max(1100, int(page_h * 1.05))
     fit_zoom = round(max(0.45, min(1.0, min(max(1, page_w - 40) / base_canvas_w, max(1, page_h - 240) / base_canvas_h))), 2)
     zoom = max(0.45, min(1.8, float(state.get("questions_path_level_zoom", fit_zoom) or fit_zoom)))
     state["questions_path_level_zoom"] = zoom
     card_w = max(320, int(page_w - 24))
     card_h = max(440, int(page_h * 0.52))
-    canvas_w = int(base_canvas_w * zoom)
-    canvas_h = int(base_canvas_h * zoom)
+    canvas_w = base_canvas_w
+    canvas_h = base_canvas_h
     current_index = int(game.get("node_index", 0) or 0)
     completed_nodes = {int(v) for v in list(game.get("completed_nodes", [])) if str(v).isdigit() or isinstance(v, int)}
     active_node = state.get("_questions_path_active_node")
@@ -17165,8 +17267,8 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                 ft.Container(
                     left=int(canvas_w * ((x1 + (x2 - x1) * mix) / 100.0)) - 6,
                     top=int(canvas_h * ((y1 + (y2 - y1) * mix) / 100.0)) - 6,
-                    width=max(10, int(12 * zoom)),
-                    height=max(10, int(12 * zoom)),
+                    width=12,
+                    height=12,
                     border_radius=999,
                     bgcolor="#E2E8F077" if idx < current_index else "#94A3B866",
                 )
@@ -17261,6 +17363,7 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                                             width=canvas_w,
                                             height=canvas_h,
                                             scale=zoom,
+                                            animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
                                             content=ft.Stack(
                                                 [
                                                     ft.Container(
@@ -17271,8 +17374,8 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                                                             colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"],
                                                         ),
                                                     ),
-                                                    ft.Container(left=180, top=52, width=int(280 * zoom), height=int(120 * zoom), border_radius=999, bgcolor="#0BFFFFFF"),
-                                                    ft.Container(right=120, bottom=36, width=int(260 * zoom), height=int(110 * zoom), border_radius=999, bgcolor="#08FFFFFF"),
+                                                    ft.Container(left=180, top=52, width=280, height=120, border_radius=999, bgcolor="#0BFFFFFF"),
+                                                    ft.Container(right=120, bottom=36, width=260, height=110, border_radius=999, bgcolor="#08FFFFFF"),
                                                     *route_dots,
                                                     *stage_items,
                                                 ],
