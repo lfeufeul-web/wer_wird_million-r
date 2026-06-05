@@ -1537,13 +1537,19 @@ def uses_themed_game(theme: dict) -> bool:
 
 def _page_size(page: ft.Page) -> tuple[float, float]:
     """Viewport size for full-screen game layout (web + desktop)."""
-    w = page.width
-    h = page.height
+    w_candidates = [page.width]
+    h_candidates = [page.height]
     win = getattr(page, "window", None)
-    if (not w or w <= 0) and win:
-        w = win.width
-    if (not h or h <= 0) and win:
-        h = win.height
+    if win:
+        w_candidates.append(getattr(win, "width", None))
+        h_candidates.append(getattr(win, "height", None))
+    media = getattr(page, "media", None)
+    media_size = getattr(media, "size", None) if media else None
+    if media_size:
+        w_candidates.append(getattr(media_size, "width", None))
+        h_candidates.append(getattr(media_size, "height", None))
+    w = max((float(v) for v in w_candidates if v and v > 0), default=1100.0)
+    h = max((float(v) for v in h_candidates if v and v > 0), default=720.0)
     return float(w or 1100), float(h or 720)
 
 
@@ -1680,8 +1686,8 @@ def _build_looping_background_from_src(page: ft.Page, src: str | None) -> ft.Con
             playlist_mode=PlaylistMode.LOOP,
             autoplay=True,
             muted=True,
-            fill_color="#120D06",
-            fit=ft.BoxFit.COVER,
+            fill_color="#000000",
+            fit=ft.BoxFit.FILL,
             show_controls=False,
             aspect_ratio=None,
         )
@@ -1696,11 +1702,15 @@ def _build_looping_background_from_src(page: ft.Page, src: str | None) -> ft.Con
             )
         return video
 
-    return ft.Image(
-        src=src,
-        fit=ft.BoxFit.COVER,
-        width=width,
-        height=height,
+    return ft.Container(
+        expand=True,
+        content=ft.Image(
+            src=src,
+            fit=ft.BoxFit.FILL,
+            width=width,
+            height=height,
+            expand=True,
+        ),
     )
 
 
@@ -1791,8 +1801,8 @@ def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay
             playlist_mode=PlaylistMode.LOOP,
             autoplay=True,
             muted=True,
-            fill_color="#120D06",
-            fit=ft.BoxFit.COVER,
+            fill_color="#000000",
+            fit=ft.BoxFit.FILL,
             show_controls=False,
             aspect_ratio=None,
         )
@@ -1806,13 +1816,17 @@ def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay
             height=h,
         )
     else:
-        media = ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h)
+        media = ft.Container(
+            expand=True,
+            content=ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h, expand=True),
+        )
 
     return ft.Stack(
         [
             media,
-            ft.Container(width=w, height=h, bgcolor=overlay_color),
+            ft.Container(expand=True, width=w, height=h, bgcolor=overlay_color),
         ],
+        expand=True,
         width=w,
         height=h,
     )
@@ -12211,7 +12225,7 @@ def _neon_solid_panel(content: ft.Control, theme: dict, expand: bool = True, com
     pad = 6 if compact else 10
     return ft.Container(
         content=content,
-        bgcolor="#08120de0" if (is_nexus and has_video_bg) else ("#00000000" if is_nexus else theme.get("panel", "#0c1814")),
+        bgcolor="#08120df2" if is_nexus else theme.get("panel", "#0c1814"),
         border_radius=6,
         padding=ft.Padding(pad, pad - 2, pad, pad - 2),
         border=None if is_nexus else _neon_panel_border(theme),
@@ -12266,7 +12280,7 @@ def _game_panel(
     return ft.Container(
         content=content,
         width=width,
-        bgcolor="#08120de0" if (is_nexus and has_video_bg) else ("#00000000" if is_nexus else theme.get("question_bg", "#FFFFFF")),
+        bgcolor="#08120df2" if is_nexus else theme.get("question_bg", "#FFFFFF"),
         border_radius=10,
         padding=ft.Padding(12, 10, 12, 10),
         border=None if is_nexus else ft.border.Border.all(2, theme["border"]),
@@ -12387,6 +12401,11 @@ def render_game_screen(page: ft.Page, state: dict):
     answer_bg = theme_value(theme, "answer_bg", "#FFFFFF")
     question_bg_color = theme_value(theme, "question_bg", "#FFFFFF")
     question, options, correct_idx = state["questions"][state["question_index"]]
+    display_key = f"{state.get('custom_quiz_id') or 'standard'}:{state['question_index']}:{question}"
+    display_order = list(range(len(options)))
+    random.Random(display_key).shuffle(display_order)
+    display_options = [options[i] for i in display_order]
+    display_correct_idx = display_order.index(correct_idx)
     q_num = state["question_index"] + 1
     total_q = len(state["questions"])
     page_w, page_h = _page_size(page)
@@ -12402,6 +12421,19 @@ def render_game_screen(page: ft.Page, state: dict):
     theme_key = _theme_key_from_theme(theme)
     themed_bg_preview = _resolve_theme_background(theme_key, "game", allow_video=bool(FletVideo and VideoMedia and PlaylistMode)) if theme_key else None
     has_themed_video_bg = themed and _is_video_background(themed_bg_preview if themed_bg_preview else theme.get("game_bg"))
+    themed_bg = themed_bg_preview
+    bg_image = themed_bg if themed_bg else (theme.get("game_bg") if themed else None)
+    has_video_bg = _is_video_background(bg_image)
+    if bg_image:
+        overlay_color = "#000000e2" if has_video_bg else "#000000b8"
+        question_text_color = "#F8FAFC"
+        answer_text_color = "#F8FAFC"
+        question_bg_color = "#08120df8" if is_nexus else "#08121df6"
+        answer_bg = "#08120df8" if is_nexus else "#08121df6"
+    else:
+        overlay_color = "#00000000" if is_nexus else (
+            "#00000099" if not theme.get("is_light") else "#00000055"
+        )
     answer_border_default = ft.border.Border.all(
         2,
         (theme.get("border", "#60A5FA") if not has_themed_video_bg else theme.get("gold", "#93C5FD")),
@@ -12420,8 +12452,8 @@ def render_game_screen(page: ft.Page, state: dict):
 
         async def _next():
             await asyncio.sleep(1.5)
-            if chosen == correct_idx:
-                record_question_result(state, (question, options, correct_idx), was_correct=True)
+            if chosen == display_correct_idx:
+                record_question_result(state, (question, display_options, display_correct_idx), was_correct=True)
                 state["correct"] += 1
                 levels = money_levels_for_state(state)
                 state["money"] = levels[min(state["correct"] - 1, len(levels) - 1)]
@@ -12434,7 +12466,7 @@ def render_game_screen(page: ft.Page, state: dict):
                     save_current_game(state)
                     _show_correct_screen(page, state)
             else:
-                record_question_result(state, (question, options, correct_idx), was_correct=False)
+                record_question_result(state, (question, display_options, display_correct_idx), was_correct=False)
                 state["questions_answered"] += 1
                 state["game_finished"] = True
                 clear_saved_game(state)
@@ -12453,7 +12485,7 @@ def render_game_screen(page: ft.Page, state: dict):
         chosen = e.control.data
         if state.get("truefalse_mode"):
             answers_disabled[0] = True
-            is_correct = chosen == correct_idx
+            is_correct = chosen == display_correct_idx
             for idx, btn in enumerate(answer_buttons):
                 if idx == chosen:
                     btn.border = ft.border.Border.all(3, "#2ECC71" if is_correct else "#E74C3C")
@@ -12475,10 +12507,10 @@ def render_game_screen(page: ft.Page, state: dict):
             return
         answers_disabled[0] = True
         for idx, btn_container in enumerate(answer_buttons):
-            if idx == correct_idx:
+            if idx == display_correct_idx:
                 btn_container.bgcolor = "#00C853" if themed else "#2ECC71"
                 btn_container.border = ft.border.Border.all(3, "#76FF03" if themed else "#27AE60")
-            elif idx == chosen and idx != correct_idx:
+            elif idx == chosen and idx != display_correct_idx:
                 btn_container.bgcolor = "#B71C1C" if themed else "#E74C3C"
                 btn_container.border = ft.border.Border.all(3, "#FF1744" if themed else "#C0392B")
         page.update()
@@ -12530,12 +12562,12 @@ def render_game_screen(page: ft.Page, state: dict):
         answer_buttons.append(box)
         return box
 
-    answer_boxes = [make_answer_box(i, option) for i, option in enumerate(options)]
+    answer_boxes = [make_answer_box(i, option) for i, option in enumerate(display_options)]
     ctx = {
         "theme": theme,
         "question": question,
-        "options": options,
-        "correct_idx": correct_idx,
+        "options": display_options,
+        "correct_idx": display_correct_idx,
         "answer_buttons": answer_buttons,
     }
 
@@ -12564,19 +12596,6 @@ def render_game_screen(page: ft.Page, state: dict):
     state["_timer_ui"] = {"text": timer_text, "bar": timer_bar}
 
     # ── background ─────────────────────────────────────────────────────────────
-    themed_bg = themed_bg_preview
-    bg_image = themed_bg if themed_bg else (theme.get("game_bg") if themed else None)
-    has_video_bg = _is_video_background(bg_image)
-    if themed and has_video_bg:
-        overlay_color = "#000000d6"
-        question_text_color = "#F8FAFC"
-        answer_text_color = "#F8FAFC"
-        answer_bg = "#08121cee"
-        question_bg_color = "#08121cee"
-    else:
-        overlay_color = "#00000000" if is_nexus else (
-            "#00000099" if not theme.get("is_light") else "#00000055"
-        )
     if bg_image:
         bg_layer = _themed_game_background(bg_image, page_w, page_h, overlay_color)
     else:
@@ -12640,10 +12659,10 @@ def render_game_screen(page: ft.Page, state: dict):
         )
         nexus_pause_btn = ft.Container(
             content=ft.Row([
-                ft.Text("🚪", size=14, color=theme.get("accent", theme["danger"])),
-                ft.Text("Pause", size=13, weight="bold", color=theme.get("accent", theme["danger"])),
+                ft.Text("🗺️", size=14, color=theme.get("accent", theme["danger"])),
+                ft.Text("Inselkarte", size=13, weight="bold", color=theme.get("accent", theme["danger"])),
             ], spacing=6, alignment=ft.MainAxisAlignment.CENTER),
-            on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
+            on_click=lambda e: (stop_game_timer(state), save_current_game(state), e.page.go("/wwm")),
             bgcolor=pause_btn_bg, border_radius=8,
             border=pause_btn_border,
             padding=ft.Padding(10, 6, 10, 6), alignment=ft.Alignment(0, 0),
@@ -12713,10 +12732,10 @@ def render_game_screen(page: ft.Page, state: dict):
     )
     exit_btn = ft.Container(
         content=ft.Row([
-            ft.Text("🚪", size=sc(12, 10), color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
-            ft.Text("Pause", size=sc(12, 10), weight="bold", color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
+            ft.Text("🗺️", size=sc(12, 10), color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
+            ft.Text("Inselkarte", size=sc(12, 10), weight="bold", color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
         ], spacing=sc(5, 4), tight=True),
-        on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
+        on_click=lambda e: (stop_game_timer(state), save_current_game(state), e.page.go("/wwm")),
         bgcolor=pause_btn_bg,
         border_radius=6,
         padding=ft.Padding(sc(12, 9), sc(7, 6), sc(12, 9), sc(7, 6)),
