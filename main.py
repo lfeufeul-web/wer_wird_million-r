@@ -7072,6 +7072,7 @@ def _questions_path_default_custom_island(index: int = 0) -> dict:
         "topic": "custom",
         "icon": theme["icon"],
         "image_src": "",
+        "map_image_src": "",
         "accent": theme["accent"],
         "panel": theme["panel"],
         "border": theme["border"],
@@ -7115,6 +7116,7 @@ def _questions_path_custom_map(raw_island: dict, index: int) -> dict:
         "topic": "custom",
         "icon": str(raw_island.get("icon", theme["icon"])).strip() or theme["icon"],
         "image_src": str(raw_island.get("image_src", "")).strip(),
+        "map_image_src": str(raw_island.get("map_image_src", "")).strip(),
         "accent": str(raw_island.get("accent", theme["accent"])).strip() or theme["accent"],
         "panel": str(raw_island.get("panel", theme["panel"])).strip() or theme["panel"],
         "border": str(raw_island.get("border", theme["border"])).strip() or theme["border"],
@@ -7123,6 +7125,75 @@ def _questions_path_custom_map(raw_island: dict, index: int) -> dict:
         "world_layout": layout_key,
         "points": layout["points"][: max(1, min(len(layout["points"]), len(questions)))],
     }
+
+
+def _questions_path_custom_assets_dir() -> tuple[str, str]:
+    abs_dir = os.path.join("assets", "questions_path_custom")
+    rel_dir = "questions_path_custom"
+    os.makedirs(abs_dir, exist_ok=True)
+    return abs_dir, rel_dir
+
+
+async def _questions_path_pick_and_store_image(page: ft.Page, prefix: str = "island") -> str | None:
+    picker = ft.FilePicker()
+    try:
+        pick_call = picker.pick_files(
+            dialog_title="Bild auswählen",
+            allow_multiple=False,
+            with_data=True,
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["png", "jpg", "jpeg", "webp"],
+        )
+    except TypeError:
+        pick_call = picker.pick_files(
+            allow_multiple=False,
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["png", "jpg", "jpeg", "webp"],
+        )
+    picked_files = await pick_call if inspect.isawaitable(pick_call) else pick_call
+    picked_files = list(picked_files or [])
+    if not picked_files:
+        return None
+    picked = picked_files[0]
+    original_name = str(getattr(picked, "name", "") or "").strip()
+    if not original_name:
+        return None
+    ext = os.path.splitext(original_name)[1].lower() or ".png"
+    if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
+        return None
+    abs_dir, rel_dir = _questions_path_custom_assets_dir()
+    safe_base = _sanitize_filename_part(os.path.splitext(original_name)[0] or prefix)
+    unique_name = f"{prefix}_{safe_base}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
+    abs_path = os.path.join(abs_dir, unique_name)
+    rel_path = f"{rel_dir}/{unique_name}"
+    picked_bytes = getattr(picked, "bytes", None)
+    if picked_bytes:
+        with open(abs_path, "wb") as file_obj:
+            file_obj.write(picked_bytes)
+        return rel_path
+    try:
+        upload_jobs = []
+        try:
+            upload_jobs.append(
+                ft.FilePickerUploadFile(
+                    id=getattr(picked, "id", None),
+                    name=original_name,
+                    upload_url=page.get_upload_url(rel_path, 600),
+                )
+            )
+        except TypeError:
+            upload_jobs.append(
+                ft.FilePickerUploadFile(
+                    name=original_name,
+                    upload_url=page.get_upload_url(rel_path, 600),
+                )
+            )
+        upload_call = picker.upload(files=upload_jobs)
+        if inspect.isawaitable(upload_call):
+            await upload_call
+        return rel_path
+    except Exception:
+        return None
 
 
 def _questions_path_maps_for_profile(profile: dict) -> list[tuple[str, dict]]:
@@ -16414,6 +16485,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     island_subtitle_ref = ft.Ref[ft.TextField]()
     custom_design_ref = ft.Ref[ft.TextField]()
     world_layout_ref = ft.Ref[ft.Dropdown]()
+    drag_points = state.setdefault("_questions_path_drag_points", {})
 
     def persist(current_profile: dict):
         current_profiles = get_questions_path_profiles(state)
@@ -16493,6 +16565,24 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         state["_questions_path_choose_custom_design"] = True
         _questions_path_render_creator(e.page, state)
 
+    async def pick_custom_design_task(page_obj: ft.Page):
+        rel_path = await _questions_path_pick_and_store_image(page_obj, "island_design")
+        if not rel_path:
+            return
+        current_profiles = get_questions_path_profiles(state)
+        current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+        designs = list(current_profile.get("custom_designs", []) or [])
+        if rel_path not in designs:
+            designs.append(rel_path)
+        current_profile["custom_designs"] = designs[-12:]
+        persist(current_profile)
+        state["_questions_path_choose_custom_design"] = False
+        state.pop("_questions_path_add_island_mode", None)
+        _questions_path_render_creator(page_obj, state)
+
+    def pick_custom_design(e):
+        e.page.run_task(pick_custom_design_task, e.page)
+
     def add_custom_design(e):
         raw_value = str(custom_design_ref.current.value or "").strip() if custom_design_ref.current else ""
         if not raw_value:
@@ -16562,6 +16652,29 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
 
         update_selected(_mutate, e.page)
 
+    async def pick_selected_island_image_task(page_obj: ft.Page):
+        rel_path = await _questions_path_pick_and_store_image(page_obj, "island_card")
+        if not rel_path:
+            return
+        def _mutate(island):
+            island["image_src"] = rel_path
+            island["design_id"] = "custom_image"
+        update_selected(_mutate, page_obj)
+
+    async def pick_selected_map_image_task(page_obj: ft.Page):
+        rel_path = await _questions_path_pick_and_store_image(page_obj, "world_map")
+        if not rel_path:
+            return
+        def _mutate(island):
+            island["map_image_src"] = rel_path
+        update_selected(_mutate, page_obj)
+
+    def pick_selected_island_image(e):
+        e.page.run_task(pick_selected_island_image_task, e.page)
+
+    def pick_selected_map_image(e):
+        e.page.run_task(pick_selected_map_image_task, e.page)
+
     def add_question(e):
         def _mutate(island):
             questions = list(island.get("questions", []) or [])
@@ -16604,6 +16717,15 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
 
         return _handler
 
+    def drag_start_island(index: int):
+        def _handler(e):
+            drag_points[index] = (
+                float(getattr(e, "local_x", getattr(e, "global_x", 0.0)) or 0.0),
+                float(getattr(e, "local_y", getattr(e, "global_y", 0.0)) or 0.0),
+            )
+
+        return _handler
+
     def drag_island(index: int):
         def _handler(e):
             current_profiles = get_questions_path_profiles(state)
@@ -16611,13 +16733,25 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             islands = list(current_profile.get("custom_islands", []) or [])
             if index >= len(islands):
                 return
+            current_x = float(getattr(e, "local_x", getattr(e, "global_x", 0.0)) or 0.0)
+            current_y = float(getattr(e, "local_y", getattr(e, "global_y", 0.0)) or 0.0)
+            last_x, last_y = drag_points.get(index, (current_x, current_y))
+            delta_x = current_x - last_x
+            delta_y = current_y - last_y
+            drag_points[index] = (current_x, current_y)
             island = dict(islands[index])
-            island["map_x"] = max(4, min(86, float(island.get("map_x", 20)) + (e.delta_x / max(1, page.window.width or 1200)) * 100))
-            island["map_y"] = max(6, min(82, float(island.get("map_y", 20)) + (e.delta_y / max(1, page.window.height or 800)) * 100))
+            island["map_x"] = max(4, min(86, float(island.get("map_x", 20)) + (delta_x / max(1, page.window.width or 1200)) * 100))
+            island["map_y"] = max(6, min(82, float(island.get("map_y", 20)) + (delta_y / max(1, page.window.height or 800)) * 100))
             islands[index] = island
             current_profile["custom_islands"] = islands
             persist(current_profile)
             _questions_path_render_creator(e.page, state)
+
+        return _handler
+
+    def drag_end_island(index: int):
+        def _handler(e):
+            drag_points.pop(index, None)
 
         return _handler
 
@@ -16668,7 +16802,9 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                 left=int(float(island.get("map_x", 20)) * 12),
                 top=int(float(island.get("map_y", 20)) * 8.5),
                 content=ft.GestureDetector(
+                    on_pan_start=drag_start_island(idx),
                     on_pan_update=drag_island(idx),
+                    on_pan_end=drag_end_island(idx),
                     drag_interval=18,
                     content=ft.Container(on_click=select_island(idx), content=marker_content),
                 ),
@@ -16802,6 +16938,15 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                     content=ft.Stack(
                                         [
                                             ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#06111A", "#092638", "#06131D"])),
+                                            ft.Container(
+                                                expand=True,
+                                                opacity=0.34,
+                                                content=ft.Image(
+                                                    src=selected_cfg.get("map_image_src", ""),
+                                                    fit=ft.ImageFit.COVER,
+                                                    error_content=ft.Container(),
+                                                ) if selected_cfg.get("map_image_src") else ft.Container(),
+                                            ),
                                             ft.Container(left=140, top=80, width=320, height=180, border_radius=999, bgcolor="#0BFFFFFF"),
                                             ft.Container(right=160, bottom=120, width=420, height=220, border_radius=999, bgcolor="#08FFFFFF"),
                                             *island_markers,
@@ -16833,8 +16978,15 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                             ),
                                             ft.Row(
                                                 [
-                                                    ft.TextField(ref=island_subtitle_ref, value=selected.get("subtitle", ""), label="Beschreibung", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                                    world_dropdown,
+                                                        ft.TextField(ref=island_subtitle_ref, value=selected.get("subtitle", ""), label="Beschreibung", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                                        world_dropdown,
+                                                ],
+                                                spacing=10,
+                                            ),
+                                            ft.Row(
+                                                [
+                                                    _game_menu_button("Inselbild wählen", pick_selected_island_image, "#1D4ED8", width=180, height=40),
+                                                    _game_menu_button("Kartenbild wählen", pick_selected_map_image, "#7C3AED", width=180, height=40),
                                                 ],
                                                 spacing=10,
                                             ),
@@ -16904,7 +17056,20 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                                             border_radius=14,
                                                             bgcolor="#111827",
                                                             on_click=choose_saved_design(design_value),
-                                                            content=ft.Text(design_value, size=11, color="#D4E2ED", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                                                            content=ft.Row(
+                                                                [
+                                                                    ft.Container(
+                                                                        width=48,
+                                                                        height=48,
+                                                                        border_radius=12,
+                                                                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                                        bgcolor="#0B1620",
+                                                                        content=ft.Image(src=design_value, fit=ft.ImageFit.COVER, error_content=ft.Text("🖼️", size=18)),
+                                                                    ),
+                                                                    ft.Text(design_value, size=11, color="#D4E2ED", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                                                                ],
+                                                                spacing=10,
+                                                            ),
                                                         )
                                                         for design_value in custom_designs
                                                     ],
@@ -16934,11 +17099,12 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                             content=ft.Column(
                                 [
                                     ft.Text("Eigenes Design hinzufügen", size=28, weight="bold", color="white"),
-                                    ft.Text("Für maximale Kompatibilität nutze bitte einen Bildpfad aus dem Projekt oder eine direkte HTTPS-Bild-URL.", size=13, color="#B8CBD8"),
+                                    ft.Text("Für maximale Kompatibilität nutze bitte einen Bildpfad aus dem Projekt, eine direkte HTTPS-Bild-URL oder wähle eine Datei aus.", size=13, color="#B8CBD8"),
                                     ft.TextField(ref=custom_design_ref, value="", label="Bildpfad oder Bild-URL", bgcolor="#111827", color="white", border_color="#334155"),
                                     ft.Row(
                                         [
                                             _game_menu_button("Abbrechen", lambda e: (state.pop("_questions_path_choose_custom_design", None), _questions_path_render_creator(e.page, state)), "#475569", width=180, height=42),
+                                            _game_menu_button("Bild auswählen", pick_custom_design, "#1D4ED8", width=180, height=42),
                                             _game_menu_button("Design speichern", add_custom_design, "#0F766E", width=220, height=42),
                                         ],
                                         alignment=ft.MainAxisAlignment.CENTER,
@@ -17576,6 +17742,15 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                                                             end=ft.Alignment(1, 1),
                                                             colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"],
                                                         ),
+                                                    ),
+                                                    ft.Container(
+                                                        expand=True,
+                                                        opacity=0.38,
+                                                        content=ft.Image(
+                                                            src=map_cfg.get("map_image_src", ""),
+                                                            fit=ft.ImageFit.COVER,
+                                                            error_content=ft.Container(),
+                                                        ) if map_cfg.get("map_image_src") else ft.Container(),
                                                     ),
                                                     ft.Container(left=180, top=52, width=280, height=120, border_radius=999, bgcolor="#0BFFFFFF"),
                                                     ft.Container(right=120, bottom=36, width=260, height=110, border_radius=999, bgcolor="#08FFFFFF"),
