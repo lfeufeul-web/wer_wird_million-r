@@ -16479,6 +16479,8 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     add_mode = state.get("_questions_path_add_island_mode")
     choose_custom_design = bool(state.get("_questions_path_choose_custom_design", False))
     creator_world_open = bool(state.get("_questions_path_creator_world_open", False))
+    creator_zoom = max(0.5, min(1.8, float(state.get("questions_path_creator_zoom", 1.0) or 1.0)))
+    state["questions_path_creator_zoom"] = creator_zoom
 
     island_name_ref = ft.Ref[ft.TextField]()
     island_icon_ref = ft.Ref[ft.TextField]()
@@ -16486,6 +16488,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     custom_design_ref = ft.Ref[ft.TextField]()
     world_layout_ref = ft.Ref[ft.Dropdown]()
     drag_points = state.setdefault("_questions_path_drag_points", {})
+    drag_positions = state.setdefault("_questions_path_drag_positions", {})
 
     def persist(current_profile: dict):
         current_profiles = get_questions_path_profiles(state)
@@ -16723,6 +16726,15 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                 float(getattr(e, "local_x", getattr(e, "global_x", 0.0)) or 0.0),
                 float(getattr(e, "local_y", getattr(e, "global_y", 0.0)) or 0.0),
             )
+            current_profiles = get_questions_path_profiles(state)
+            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+            islands = list(current_profile.get("custom_islands", []) or [])
+            if index < len(islands):
+                island = dict(islands[index])
+                drag_positions[index] = {
+                    "map_x": float(island.get("map_x", 20)),
+                    "map_y": float(island.get("map_y", 20)),
+                }
 
         return _handler
 
@@ -16739,19 +16751,29 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             delta_x = current_x - last_x
             delta_y = current_y - last_y
             drag_points[index] = (current_x, current_y)
-            island = dict(islands[index])
-            island["map_x"] = max(4, min(86, float(island.get("map_x", 20)) + (delta_x / max(1, page.window.width or 1200)) * 100))
-            island["map_y"] = max(6, min(82, float(island.get("map_y", 20)) + (delta_y / max(1, page.window.height or 800)) * 100))
-            islands[index] = island
-            current_profile["custom_islands"] = islands
-            persist(current_profile)
+            current_drag = drag_positions.get(index, {"map_x": float(islands[index].get("map_x", 20)), "map_y": float(islands[index].get("map_y", 20))})
+            current_drag["map_x"] = max(4, min(86, float(current_drag.get("map_x", 20)) + (delta_x / max(1, page.window.width or 1200)) * 100))
+            current_drag["map_y"] = max(6, min(82, float(current_drag.get("map_y", 20)) + (delta_y / max(1, page.window.height or 800)) * 100))
+            drag_positions[index] = current_drag
             _questions_path_render_creator(e.page, state)
 
         return _handler
 
     def drag_end_island(index: int):
         def _handler(e):
+            current_profiles = get_questions_path_profiles(state)
+            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+            islands = list(current_profile.get("custom_islands", []) or [])
+            if index < len(islands) and index in drag_positions:
+                island = dict(islands[index])
+                island["map_x"] = float(drag_positions[index].get("map_x", island.get("map_x", 20)))
+                island["map_y"] = float(drag_positions[index].get("map_y", island.get("map_y", 20)))
+                islands[index] = island
+                current_profile["custom_islands"] = islands
+                persist(current_profile)
             drag_points.pop(index, None)
+            drag_positions.pop(index, None)
+            _questions_path_render_creator(e.page, state)
 
         return _handler
 
@@ -16759,6 +16781,9 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
     for idx, island in enumerate(custom_islands):
         cfg = _questions_path_custom_map(island, idx)
         active = idx == selected_index
+        preview_position = drag_positions.get(idx, {})
+        marker_x = float(preview_position.get("map_x", island.get("map_x", 20)))
+        marker_y = float(preview_position.get("map_y", island.get("map_y", 20)))
         marker_content = ft.Container(
             width=196,
             height=154,
@@ -16777,7 +16802,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                 border_radius=999,
                                 alignment=ft.Alignment(0, 0),
                                 gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#14304A", "#1D4F73", "#17365A"]),
-                                content=ft.Image(src=cfg.get("image_src", ""), fit=ft.ImageFit.COVER, border_radius=999, error_content=ft.Text(cfg.get("icon", "🏝️"), size=26, color="white")) if cfg.get("image_src") else ft.Text(cfg.get("icon", "🏝️"), size=28, color="white"),
+                                content=ft.Image(src=cfg.get("image_src", ""), fit=ft.BoxFit.COVER, border_radius=999, error_content=ft.Text(cfg.get("icon", "🏝️"), size=26, color="white")) if cfg.get("image_src") else ft.Text(cfg.get("icon", "🏝️"), size=28, color="white"),
                             ),
                             ft.Column(
                                 [
@@ -16799,8 +16824,8 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         )
         island_markers.append(
             ft.Container(
-                left=int(float(island.get("map_x", 20)) * 12),
-                top=int(float(island.get("map_y", 20)) * 8.5),
+                left=int(marker_x * 12),
+                top=int(marker_y * 8.5),
                 content=ft.GestureDetector(
                     on_pan_start=drag_start_island(idx),
                     on_pan_update=drag_island(idx),
@@ -16935,24 +16960,39 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                     border_radius=28,
                                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                     bgcolor="#061621E8",
-                                    content=ft.Stack(
-                                        [
-                                            ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#06111A", "#092638", "#06131D"])),
-                                            ft.Container(
+                                    content=_questions_path_interactive_viewer(
+                                        ft.Container(
+                                            width=1600,
+                                            height=1000,
+                                            scale=creator_zoom,
+                                            animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
+                                            content=ft.Stack(
+                                                [
+                                                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#06111A", "#092638", "#06131D"])),
+                                                    ft.Container(
+                                                        expand=True,
+                                                        opacity=0.34,
+                                                        content=ft.Image(
+                                                            src=selected_cfg.get("map_image_src", ""),
+                                                            fit=ft.BoxFit.COVER,
+                                                            error_content=ft.Container(),
+                                                        ) if selected_cfg.get("map_image_src") else ft.Container(),
+                                                    ),
+                                                    ft.Container(left=140, top=80, width=320, height=180, border_radius=999, bgcolor="#0BFFFFFF"),
+                                                    ft.Container(right=160, bottom=120, width=420, height=220, border_radius=999, bgcolor="#08FFFFFF"),
+                                                    *island_markers,
+                                                ],
                                                 expand=True,
-                                                opacity=0.34,
-                                                content=ft.Image(
-                                                    src=selected_cfg.get("map_image_src", ""),
-                                                    fit=ft.ImageFit.COVER,
-                                                    error_content=ft.Container(),
-                                                ) if selected_cfg.get("map_image_src") else ft.Container(),
                                             ),
-                                            ft.Container(left=140, top=80, width=320, height=180, border_radius=999, bgcolor="#0BFFFFFF"),
-                                            ft.Container(right=160, bottom=120, width=420, height=220, border_radius=999, bgcolor="#08FFFFFF"),
-                                            *island_markers,
-                                        ],
-                                        expand=True,
+                                        )
                                     ),
+                                ),
+                                ft.Row(
+                                    [
+                                        _questions_path_zoom_controls(state, "questions_path_creator_zoom", lambda p, s: _questions_path_render_creator(p, s)),
+                                        ft.Text("Inseln ziehen, zoomen und dann Welt betreten für Fragen/Punkte.", size=13, color="#A8C0D2"),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
                                 ft.Container(
                                     visible=creator_world_open,
@@ -17064,7 +17104,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                                                         border_radius=12,
                                                                         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                                                         bgcolor="#0B1620",
-                                                                        content=ft.Image(src=design_value, fit=ft.ImageFit.COVER, error_content=ft.Text("🖼️", size=18)),
+                                                                        content=ft.Image(src=design_value, fit=ft.BoxFit.COVER, error_content=ft.Text("🖼️", size=18)),
                                                                     ),
                                                                     ft.Text(design_value, size=11, color="#D4E2ED", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
                                                                 ],
@@ -17457,7 +17497,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                             end=ft.Alignment(1, 1),
                                             colors=["#14304A", "#1D4F73", "#17365A"],
                                         ),
-                                        content=ft.Image(src=map_cfg.get("image_src", ""), fit=ft.ImageFit.COVER, border_radius=999, error_content=ft.Text(map_cfg.get("icon", "🌍"), size=38, color="white", text_align=ft.TextAlign.CENTER)) if map_cfg.get("image_src") else ft.Text(map_cfg.get("icon", "🌍"), size=38, color="white", text_align=ft.TextAlign.CENTER),
+                                        content=ft.Image(src=map_cfg.get("image_src", ""), fit=ft.BoxFit.COVER, border_radius=999, error_content=ft.Text(map_cfg.get("icon", "🌍"), size=38, color="white", text_align=ft.TextAlign.CENTER)) if map_cfg.get("image_src") else ft.Text(map_cfg.get("icon", "🌍"), size=38, color="white", text_align=ft.TextAlign.CENTER),
                                     ),
                                     ft.Column(
                                         [
@@ -17748,7 +17788,7 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                                                         opacity=0.38,
                                                         content=ft.Image(
                                                             src=map_cfg.get("map_image_src", ""),
-                                                            fit=ft.ImageFit.COVER,
+                                                            fit=ft.BoxFit.COVER,
                                                             error_content=ft.Container(),
                                                         ) if map_cfg.get("map_image_src") else ft.Container(),
                                                     ),
