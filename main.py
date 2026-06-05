@@ -1091,8 +1091,10 @@ def _questions_path_default_profile(index: int) -> dict:
     return {
         "name": f"{QUESTIONS_PATH_DEFAULT_PROFILE_NAME} {index + 1}",
         "selected_age": "mid",
+        "progression_mode": "adventure",
         "active_level_index": 0,
         "active_game": None,
+        "custom_islands": [],
         "level_progress": {
             map_key: _questions_path_default_level_state() for map_key in QUESTIONS_PATH_LEVEL_ORDER
         },
@@ -1109,10 +1111,14 @@ def ensure_questions_path_defaults(user: dict):
         profile = _questions_path_default_profile(idx)
         profile["name"] = str(raw.get("name", profile["name"])).strip() or profile["name"]
         profile["selected_age"] = str(raw.get("selected_age", profile["selected_age"])).strip() or profile["selected_age"]
+        profile["progression_mode"] = str(raw.get("progression_mode", profile["progression_mode"])).strip() or "adventure"
         profile["active_level_index"] = max(0, min(int(raw.get("active_level_index", 0) or 0), len(QUESTIONS_PATH_LEVEL_ORDER) - 1))
         active_game = raw.get("active_game")
         if isinstance(active_game, dict):
             profile["active_game"] = active_game
+        custom_islands = raw.get("custom_islands", [])
+        if isinstance(custom_islands, list):
+            profile["custom_islands"] = [dict(item) for item in custom_islands if isinstance(item, dict)][:10]
         level_progress = raw.get("level_progress", {})
         if not isinstance(level_progress, dict):
             level_progress = {}
@@ -2088,6 +2094,7 @@ def save_questions_path_game(state: dict):
     profile_index = get_questions_path_profile_index(state)
     profile = profiles[profile_index]
     map_key = game.get("map_key", "waldpfad")
+    map_cfg = _questions_path_map_lookup_for_profile(profile, map_key)
 
     level_progress = profile.setdefault("level_progress", {})
     level_state = level_progress.setdefault(map_key, _questions_path_default_level_state())
@@ -2099,7 +2106,7 @@ def save_questions_path_game(state: dict):
     profile["selected_age"] = str(game.get("age", profile.get("selected_age", "mid"))).strip() or "mid"
     profile["active_game"] = {
         "map_key": map_key,
-        "map_title": game.get("map_title", QUESTIONS_PATH_MAPS["waldpfad"]["title"]),
+        "map_title": game.get("map_title", map_cfg.get("title", QUESTIONS_PATH_MAPS["waldpfad"]["title"])),
         "age": profile["selected_age"],
         "node_index": int(game.get("node_index", 0)),
         "completed_nodes": list(game.get("completed_nodes", [])),
@@ -2109,7 +2116,11 @@ def save_questions_path_game(state: dict):
         "current_hint": game.get("current_hint"),
         "current_level_index": int(game.get("current_level_index", profile.get("active_level_index", 0))),
     }
-    if bool(game.get("game_finished", False)) and map_key in QUESTIONS_PATH_LEVEL_ORDER:
+    if (
+        bool(game.get("game_finished", False))
+        and _questions_path_profile_mode(profile) == "adventure"
+        and map_key in QUESTIONS_PATH_LEVEL_ORDER
+    ):
         lvl_index = QUESTIONS_PATH_LEVEL_ORDER.index(map_key)
         profile["active_level_index"] = min(lvl_index + 1, len(QUESTIONS_PATH_LEVEL_ORDER) - 1)
         profile["active_game"] = None
@@ -7031,12 +7042,106 @@ def _questions_path_map_topic(map_key: str) -> str:
     return str(map_cfg.get("topic") or "natur")
 
 
+QUESTIONS_PATH_CREATIVE_THEMES = [
+    {"accent": "#34D399", "panel": "#0A1712E8", "border": "#38BDF8", "line": "#86EFAC", "icon": "🏝️"},
+    {"accent": "#A78BFA", "panel": "#120A1EE8", "border": "#C4B5FD", "line": "#DDD6FE", "icon": "🌌"},
+    {"accent": "#F97316", "panel": "#1A1208E8", "border": "#FDBA74", "line": "#FB923C", "icon": "🌋"},
+    {"accent": "#06B6D4", "panel": "#07161BE8", "border": "#67E8F9", "line": "#22D3EE", "icon": "🏖️"},
+    {"accent": "#EC4899", "panel": "#1A0A15E8", "border": "#F9A8D4", "line": "#F472B6", "icon": "🎡"},
+]
+
+
+def _questions_path_default_custom_question(index: int = 0) -> dict:
+    return {
+        "question": f"Eigene Frage {index + 1}",
+        "answers": [f"Antwort {letter}" for letter in ANSWER_LETTERS[:4]],
+        "correct_idx": 0,
+    }
+
+
+def _questions_path_default_custom_island(index: int = 0) -> dict:
+    theme = QUESTIONS_PATH_CREATIVE_THEMES[index % len(QUESTIONS_PATH_CREATIVE_THEMES)]
+    return {
+        "map_key": f"custom_{index + 1}",
+        "title": f"Eigene Insel {index + 1}",
+        "subtitle": "Hier kannst du eigene Fragen sammeln.",
+        "topic": "custom",
+        "icon": theme["icon"],
+        "accent": theme["accent"],
+        "panel": theme["panel"],
+        "border": theme["border"],
+        "line": theme["line"],
+        "questions": [_questions_path_default_custom_question(0)],
+    }
+
+
+def _questions_path_point_template() -> list[tuple[int, int]]:
+    return [(10, 62), (20, 48), (31, 32), (42, 22), (55, 28), (67, 44), (77, 60), (69, 76), (51, 82), (32, 74)]
+
+
+def _questions_path_points_for_count(count: int) -> list[dict]:
+    labels = ["Start", "Tor", "Pfad", "Brücke", "Hain", "Lichtung", "Bucht", "Gipfel", "Finale", "Ziel"]
+    template = _questions_path_point_template()
+    count = max(1, min(len(template), int(count or 1)))
+    return _path_nodes(template[:count], labels[:count])
+
+
+def _questions_path_custom_map(raw_island: dict, index: int) -> dict:
+    theme = QUESTIONS_PATH_CREATIVE_THEMES[index % len(QUESTIONS_PATH_CREATIVE_THEMES)]
+    questions = [_path_question_to_dict(q) for q in list(raw_island.get("questions", []) or [])]
+    if not questions:
+        questions = [_questions_path_default_custom_question(0)]
+    return {
+        "title": str(raw_island.get("title", f"Eigene Insel {index + 1}")).strip() or f"Eigene Insel {index + 1}",
+        "subtitle": str(raw_island.get("subtitle", "Hier kannst du eigene Fragen sammeln.")).strip() or "Hier kannst du eigene Fragen sammeln.",
+        "topic": "custom",
+        "icon": str(raw_island.get("icon", theme["icon"])).strip() or theme["icon"],
+        "accent": str(raw_island.get("accent", theme["accent"])).strip() or theme["accent"],
+        "panel": str(raw_island.get("panel", theme["panel"])).strip() or theme["panel"],
+        "border": str(raw_island.get("border", theme["border"])).strip() or theme["border"],
+        "line": str(raw_island.get("line", theme["line"])).strip() or theme["line"],
+        "questions": questions,
+        "points": _questions_path_points_for_count(len(questions)),
+    }
+
+
+def _questions_path_maps_for_profile(profile: dict) -> list[tuple[str, dict]]:
+    mode = str(profile.get("progression_mode", "adventure")).strip().lower()
+    if mode == "creative":
+        custom_islands = list(profile.get("custom_islands", []) or [])
+        return [
+            (str(item.get("map_key", f"custom_{idx + 1}")), _questions_path_custom_map(item, idx))
+            for idx, item in enumerate(custom_islands)
+            if isinstance(item, dict)
+        ]
+    return [(map_key, QUESTIONS_PATH_MAPS[map_key]) for map_key in QUESTIONS_PATH_LEVEL_ORDER]
+
+
+def _questions_path_map_lookup_for_profile(profile: dict, map_key: str) -> dict:
+    for visible_key, map_cfg in _questions_path_maps_for_profile(profile):
+        if visible_key == map_key:
+            return map_cfg
+    return QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"])
+
+
+def _questions_path_profile_mode(profile: dict) -> str:
+    mode = str(profile.get("progression_mode", "adventure")).strip().lower()
+    return "creative" if mode == "creative" else "adventure"
+
+
 def build_questions_path_questions(age: str, map_key: str, state: dict | None = None) -> list[dict]:
+    profile = _get_question_profile(state)
+    if profile:
+        mode = _questions_path_profile_mode(profile)
+        if mode == "creative":
+            map_cfg = _questions_path_map_lookup_for_profile(profile, map_key)
+            if str(map_cfg.get("topic", "")) == "custom":
+                return [_path_question_to_dict(q) for q in list(map_cfg.get("questions", []) or [])]
+
     bank = build_level_question_bank(age)
     map_cfg = QUESTIONS_PATH_MAPS.get(map_key) or QUESTIONS_PATH_MAPS["waldpfad"]
     total_nodes = len(map_cfg["points"])
     target_topic = _questions_path_map_topic(map_key)
-    profile = _get_question_profile(state)
     recent_prompts = []
     performance = {}
     if profile:
@@ -16026,25 +16131,23 @@ def _questions_path_level_start_asset() -> str:
 def _questions_path_profile_cards(page: ft.Page, state: dict, profiles: list[dict]):
     theme = get_theme(state)
     cards = []
-    active_index = int(state.get("questions_path_profile_index", 0) or 0)
+    active_index = get_questions_path_profile_index(state)
 
     def choose_profile(index: int):
         def _handler(e):
             set_questions_path_profile_index(state, index)
-            state["questions_path_scene"] = "islands"
-            state["_questions_path_level_progress"] = 0
-            state["_questions_path_level_complete"] = False
-            show_questions_path_hub(e.page, state)
+            _questions_path_render_profiles(e.page, state)
 
         return _handler
 
     for index, profile in enumerate(profiles):
         active = index == active_index
+        mode = "Kreativ" if _questions_path_profile_mode(profile) == "creative" else "Abenteuer"
         cards.append(
             ft.Container(
-                width=150,
-                padding=16,
-                border_radius=18,
+                width=180,
+                padding=18,
+                border_radius=22,
                 bgcolor="#0B1620" if active else "#07110D",
                 border=ft.border.Border.all(2.4 if active else 1.2, theme.get("accent_2", "#38BDF8") if active else "#334155"),
                 shadow=ft.BoxShadow(blur_radius=10, color="#22000000"),
@@ -16052,7 +16155,8 @@ def _questions_path_profile_cards(page: ft.Page, state: dict, profiles: list[dic
                 content=ft.Column(
                     [
                         ft.Text(f"P{index + 1}", size=20, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                        ft.Text(profile.get("name", f"Profil {index + 1}"), size=12, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                        ft.Text(profile.get("name", f"Profil {index + 1}"), size=14, color="white", text_align=ft.TextAlign.CENTER, weight="bold"),
+                        ft.Text(mode, size=11, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
                     ],
                     spacing=5,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -16077,6 +16181,42 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
     state["questions_path_profiles"] = profiles
     active_index = get_questions_path_profile_index(state)
     active_profile = profiles[active_index] if active_index < len(profiles) else profiles[0]
+    active_mode = _questions_path_profile_mode(active_profile)
+
+    def save_active_profile(updated_profile: dict):
+        current_profiles = get_questions_path_profiles(state)
+        if not current_profiles:
+            current_profiles = [_questions_path_default_profile(0)]
+        current_profiles[active_index] = updated_profile
+        persist_questions_path_profiles(state, current_profiles)
+        state["questions_path_profiles"] = current_profiles
+
+    def set_mode(mode: str):
+        def _handler(e):
+            refreshed = get_questions_path_profiles(state)
+            profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
+            profile["progression_mode"] = mode
+            if mode == "creative" and not list(profile.get("custom_islands", []) or []):
+                profile["custom_islands"] = [_questions_path_default_custom_island(0)]
+            save_active_profile(profile)
+            _questions_path_render_profiles(e.page, state)
+
+        return _handler
+
+    def play_selected(e):
+        state["questions_path_scene"] = "islands"
+        state["_questions_path_level_progress"] = 0
+        state["_questions_path_level_complete"] = False
+        show_questions_path_hub(e.page, state)
+
+    def open_creator(e):
+        refreshed = get_questions_path_profiles(state)
+        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
+        if not list(profile.get("custom_islands", []) or []):
+            profile["custom_islands"] = [_questions_path_default_custom_island(0)]
+            save_active_profile(profile)
+        state["questions_path_scene"] = "creator"
+        show_questions_path_hub(e.page, state)
 
     def add_profile(e):
         current_profiles = get_questions_path_profiles(state)
@@ -16158,6 +16298,46 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
                                                     color="#D7E6F5",
                                                     text_align=ft.TextAlign.CENTER,
                                                 ),
+                                                ft.Row(
+                                                    [
+                                                        _game_menu_button("Jetzt spielen", play_selected, "#0F766E", width=220, height=42),
+                                                        _game_menu_button(
+                                                            "Eigene Inseln bearbeiten",
+                                                            open_creator,
+                                                            "#1D4ED8",
+                                                            width=260,
+                                                            height=42,
+                                                        ),
+                                                    ],
+                                                    alignment=ft.MainAxisAlignment.CENTER,
+                                                    spacing=12,
+                                                ),
+                                                ft.Row(
+                                                    [
+                                                        _game_menu_button(
+                                                            "Abenteuer Modus",
+                                                            set_mode("adventure"),
+                                                            "#0F766E" if active_mode == "adventure" else "#334155",
+                                                            width=220,
+                                                            height=42,
+                                                        ),
+                                                        _game_menu_button(
+                                                            "Kreativ Modus",
+                                                            set_mode("creative"),
+                                                            "#0F766E" if active_mode == "creative" else "#334155",
+                                                            width=220,
+                                                            height=42,
+                                                        ),
+                                                    ],
+                                                    alignment=ft.MainAxisAlignment.CENTER,
+                                                    spacing=12,
+                                                ),
+                                                ft.Text(
+                                                    "Abenteuer schaltet Inseln nach und nach frei. Kreativ zeigt alle selbstgebauten Inseln direkt an.",
+                                                    size=12,
+                                                    color="#A8C0D2",
+                                                    text_align=ft.TextAlign.CENTER,
+                                                ),
                                             ],
                                             spacing=10,
                                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -16167,6 +16347,302 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
                                 ],
                                 spacing=10,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_render_creator(page: ft.Page, state: dict):
+    profiles = get_questions_path_profiles(state)
+    if not profiles:
+        profiles = [_questions_path_default_profile(0)]
+        persist_questions_path_profiles(state, profiles)
+    state["questions_path_profiles"] = profiles
+    active_index = get_questions_path_profile_index(state)
+    profile = dict(profiles[active_index] if active_index < len(profiles) else profiles[0])
+    custom_islands = list(profile.get("custom_islands", []) or [])
+    if not custom_islands:
+        custom_islands = [_questions_path_default_custom_island(0)]
+        profile["custom_islands"] = custom_islands
+        profiles[active_index] = profile
+        persist_questions_path_profiles(state, profiles)
+        state["questions_path_profiles"] = profiles
+    selected_index = max(0, min(int(state.get("_questions_path_creator_index", 0) or 0), len(custom_islands) - 1))
+    state["_questions_path_creator_index"] = selected_index
+    selected = dict(custom_islands[selected_index])
+
+    def persist(current_profile: dict):
+        current_profiles = get_questions_path_profiles(state)
+        if not current_profiles:
+            current_profiles = [_questions_path_default_profile(0)]
+        current_profiles[active_index] = current_profile
+        persist_questions_path_profiles(state, current_profiles)
+        state["questions_path_profiles"] = current_profiles
+
+    def update_selected(mutator):
+        current_profiles = get_questions_path_profiles(state)
+        current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+        islands = list(current_profile.get("custom_islands", []) or [])
+        if not islands:
+            islands = [_questions_path_default_custom_island(0)]
+        idx = max(0, min(int(state.get("_questions_path_creator_index", 0) or 0), len(islands) - 1))
+        island = dict(islands[idx])
+        mutator(island)
+        islands[idx] = island
+        for island_idx, item in enumerate(islands):
+            item["map_key"] = f"custom_{island_idx + 1}"
+        current_profile["custom_islands"] = islands
+        current_profile["progression_mode"] = "creative"
+        persist(current_profile)
+        _questions_path_render_creator(page, state)
+
+    def select_island(index: int):
+        def _handler(e):
+            state["_questions_path_creator_index"] = index
+            _questions_path_render_creator(e.page, state)
+
+        return _handler
+
+    def add_island(e):
+        current_profiles = get_questions_path_profiles(state)
+        current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+        islands = list(current_profile.get("custom_islands", []) or [])
+        if len(islands) >= 10:
+            e.page.snack_bar = ft.SnackBar(content=ft.Text("Maximal 10 eigene Inseln sind möglich."), open=True)
+            e.page.update()
+            return
+        islands.append(_questions_path_default_custom_island(len(islands)))
+        current_profile["custom_islands"] = islands
+        current_profile["progression_mode"] = "creative"
+        persist(current_profile)
+        state["_questions_path_creator_index"] = len(islands) - 1
+        _questions_path_render_creator(e.page, state)
+
+    def remove_island(e):
+        current_profiles = get_questions_path_profiles(state)
+        current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+        islands = list(current_profile.get("custom_islands", []) or [])
+        if len(islands) <= 1:
+            e.page.snack_bar = ft.SnackBar(content=ft.Text("Mindestens eine Insel muss bleiben."), open=True)
+            e.page.update()
+            return
+        islands.pop(selected_index)
+        for island_idx, item in enumerate(islands):
+            item["map_key"] = f"custom_{island_idx + 1}"
+        current_profile["custom_islands"] = islands
+        persist(current_profile)
+        state["_questions_path_creator_index"] = min(selected_index, len(islands) - 1)
+        _questions_path_render_creator(e.page, state)
+
+    def set_island_field(field: str):
+        def _handler(e):
+            update_selected(lambda island: island.__setitem__(field, e.control.value))
+
+        return _handler
+
+    def add_question(e):
+        def _mutate(island):
+            questions = list(island.get("questions", []) or [])
+            questions.append(_questions_path_default_custom_question(len(questions)))
+            island["questions"] = questions[:10]
+
+        update_selected(_mutate)
+
+    def remove_question(question_index: int):
+        def _handler(e):
+            def _mutate(island):
+                questions = list(island.get("questions", []) or [])
+                if len(questions) <= 1:
+                    return
+                questions.pop(question_index)
+                island["questions"] = questions
+
+            update_selected(_mutate)
+
+        return _handler
+
+    def set_question_field(question_index: int, field: str):
+        def _handler(e):
+            def _mutate(island):
+                questions = list(island.get("questions", []) or [])
+                if question_index >= len(questions):
+                    return
+                question = dict(questions[question_index])
+                question[field] = e.control.value
+                questions[question_index] = question
+                island["questions"] = questions
+
+            update_selected(_mutate)
+
+        return _handler
+
+    def set_answer_field(question_index: int, answer_index: int):
+        def _handler(e):
+            def _mutate(island):
+                questions = list(island.get("questions", []) or [])
+                if question_index >= len(questions):
+                    return
+                question = dict(questions[question_index])
+                answers = list(question.get("answers", []) or ["", "", "", ""])
+                while len(answers) < 4:
+                    answers.append("")
+                answers[answer_index] = e.control.value
+                question["answers"] = answers[:4]
+                questions[question_index] = question
+                island["questions"] = questions
+
+            update_selected(_mutate)
+
+        return _handler
+
+    question_controls = []
+    for q_index, question in enumerate(list(selected.get("questions", []) or [])):
+        answers = list(question.get("answers", []) or [])
+        while len(answers) < 4:
+            answers.append("")
+        question_controls.append(
+            ft.Container(
+                padding=16,
+                border_radius=18,
+                bgcolor="#0B1220DD",
+                border=ft.border.Border.all(1.4, "#334155"),
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Text(f"Frage {q_index + 1}", size=16, weight="bold", color="white"),
+                                _game_menu_button("Frage löschen", remove_question(q_index), "#7C2D12", width=150, height=36),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        ft.TextField(
+                            value=question.get("question", ""),
+                            label="Frage",
+                            bgcolor="#111827",
+                            color="white",
+                            border_color="#334155",
+                            on_change=set_question_field(q_index, "question"),
+                        ),
+                        ft.Row(
+                            [
+                                ft.TextField(value=answers[0], label="Antwort A", bgcolor="#111827", color="white", border_color="#334155", expand=True, on_change=set_answer_field(q_index, 0)),
+                                ft.TextField(value=answers[1], label="Antwort B", bgcolor="#111827", color="white", border_color="#334155", expand=True, on_change=set_answer_field(q_index, 1)),
+                            ],
+                            spacing=10,
+                        ),
+                        ft.Row(
+                            [
+                                ft.TextField(value=answers[2], label="Antwort C", bgcolor="#111827", color="white", border_color="#334155", expand=True, on_change=set_answer_field(q_index, 2)),
+                                ft.TextField(value=answers[3], label="Antwort D", bgcolor="#111827", color="white", border_color="#334155", expand=True, on_change=set_answer_field(q_index, 3)),
+                            ],
+                            spacing=10,
+                        ),
+                        ft.Dropdown(
+                            value=str(int(question.get("correct_idx", 0) or 0)),
+                            label="Richtige Antwort",
+                            bgcolor="#111827",
+                            color="white",
+                            border_color="#334155",
+                            options=[ft.dropdown.Option(str(i), text=f"{ANSWER_LETTERS[i]}") for i in range(4)],
+                            on_change=set_question_field(q_index, "correct_idx"),
+                        ),
+                    ],
+                    spacing=10,
+                ),
+            )
+        )
+
+    island_cards = []
+    for idx, island in enumerate(custom_islands):
+        cfg = _questions_path_custom_map(island, idx)
+        active = idx == selected_index
+        island_cards.append(
+            ft.Container(
+                width=220,
+                padding=16,
+                border_radius=20,
+                bgcolor="#0B1620" if active else "#07110D",
+                border=ft.border.Border.all(2 if active else 1.2, cfg.get("accent", "#34D399") if active else "#334155"),
+                on_click=select_island(idx),
+                content=ft.Column(
+                    [
+                        ft.Text(cfg.get("icon", "🏝️"), size=28, text_align=ft.TextAlign.CENTER),
+                        ft.Text(cfg.get("title", f"Insel {idx + 1}"), size=16, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                        ft.Text(f"{len(cfg.get('questions', []))} Fragen", size=12, color="#A8C0D2", text_align=ft.TextAlign.CENTER),
+                    ],
+                    spacing=8,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+        )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _questions_path_backdrop("#34D399", "#38BDF8"),
+                    ft.Container(
+                        expand=True,
+                        padding=14,
+                        content=ft.Container(
+                            expand=True,
+                            padding=ft.Padding(24, 20, 24, 20),
+                            border_radius=24,
+                            bgcolor="#071019F2",
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("← Profile", lambda e: (state.__setitem__("questions_path_scene", "profiles"), show_questions_path_hub(e.page, state)), "#475569", width=180, height=40),
+                                            ft.Text("Eigene Inseln", size=30, weight="bold", color="white"),
+                                            ft.Row(
+                                                [
+                                                    _game_menu_button("+ Insel", add_island, "#0F766E", width=120, height=40),
+                                                    _game_menu_button("- Insel", remove_island, "#7C2D12", width=120, height=40),
+                                                ],
+                                                spacing=10,
+                                            ),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Text("Erstelle für dieses Profil eigene Inseln und fülle sie mit deinen eigenen Fragen.", size=13, color="#A8C0D2", text_align=ft.TextAlign.CENTER),
+                                    ft.Row(island_cards, wrap=True, spacing=12, alignment=ft.MainAxisAlignment.CENTER),
+                                    ft.Container(
+                                        expand=True,
+                                        content=ft.Column(
+                                            [
+                                                ft.Row(
+                                                    [
+                                                        ft.TextField(value=selected.get("title", ""), label="Inselname", bgcolor="#111827", color="white", border_color="#334155", expand=True, on_change=set_island_field("title")),
+                                                        ft.TextField(value=selected.get("icon", "🏝️"), label="Emoji / Symbol", bgcolor="#111827", color="white", border_color="#334155", width=180, on_change=set_island_field("icon")),
+                                                    ],
+                                                    spacing=10,
+                                                ),
+                                                ft.TextField(value=selected.get("subtitle", ""), label="Beschreibung", bgcolor="#111827", color="white", border_color="#334155", on_change=set_island_field("subtitle")),
+                                                ft.Row(
+                                                    [
+                                                        ft.Text(f"{len(list(selected.get('questions', []) or []))} Fragen", size=14, weight="bold", color="white"),
+                                                        _game_menu_button("+ Frage", add_question, "#0F766E", width=140, height=40),
+                                                    ],
+                                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                ),
+                                                *question_controls,
+                                            ],
+                                            spacing=12,
+                                            scroll=ft.ScrollMode.AUTO,
+                                        ),
+                                    ),
+                                ],
+                                spacing=12,
                             ),
                         ),
                     ),
@@ -16200,6 +16676,8 @@ def _questions_path_backdrop(accent_a: str = "#34D399", accent_b: str = "#38BDF8
 
 
 def _questions_path_level_state_for(profile_data: dict, map_key: str, level_index: int) -> str:
+    if _questions_path_profile_mode(profile_data) == "creative":
+        return "active"
     level_progress = (profile_data.get("level_progress", {}) or {}).get(map_key, {})
     if bool(level_progress.get("done", False)):
         return "done"
@@ -16220,21 +16698,21 @@ def _questions_path_island_chip(label: str, color: str) -> ft.Control:
 
 def _questions_path_zoom_controls(state: dict, key: str, rerender):
     zoom_value = float(state.get(key, 1.0) or 1.0)
-    zoom_value = max(0.7, min(1.8, zoom_value))
+    zoom_value = max(0.45, min(1.8, zoom_value))
     state[key] = zoom_value
 
     def set_zoom(next_zoom: float):
         def _handler(e):
-            state[key] = max(0.7, min(1.8, round(next_zoom, 2)))
+            state[key] = max(0.45, min(1.8, round(next_zoom, 2)))
             rerender(e.page, state)
 
         return _handler
 
     return ft.Row(
         [
-            _game_menu_button("−", set_zoom(zoom_value - 0.15), "#1E293B", width=52, height=36),
+            _game_menu_button("−", set_zoom(zoom_value - 0.22), "#1E293B", width=52, height=36),
             _game_menu_button(f"{int(zoom_value * 100)}%", set_zoom(1.0), "#0F766E", width=84, height=36),
-            _game_menu_button("+", set_zoom(zoom_value + 0.15), "#1E293B", width=52, height=36),
+            _game_menu_button("+", set_zoom(zoom_value + 0.22), "#1E293B", width=52, height=36),
         ],
         spacing=8,
     )
@@ -16270,6 +16748,29 @@ def _questions_path_question_card(
     neutral_border = "#2F3B52"
     feedback = game.get("answer_feedback") if isinstance(game.get("answer_feedback"), dict) else {}
     selected_wrong = feedback.get("chosen") if feedback.get("node") == active_node and feedback.get("kind") == "wrong" else None
+    selected_correct = feedback.get("chosen") if feedback.get("node") == active_node and feedback.get("kind") == "correct" else None
+
+    def continue_after_correct(e):
+        current_game = state.get("questions_path_game") or {}
+        current_idx = int(current_game.get("node_index", 0) or 0)
+        questions = list(current_game.get("questions") or [])
+        completed = {int(v) for v in list(current_game.get("completed_nodes", [])) if str(v).isdigit() or isinstance(v, int)}
+        completed.add(current_idx)
+        current_game["completed_nodes"] = sorted(completed)
+        current_game["answer_feedback"] = None
+        next_idx = current_idx + 1
+        if next_idx >= len(questions):
+            current_game["node_index"] = len(questions)
+            current_game["game_finished"] = True
+            state["_questions_path_active_node"] = None
+            save_questions_path_game(state)
+            render_questions_path_complete(e.page, state)
+            return
+        current_game["node_index"] = next_idx
+        current_game["game_finished"] = False
+        state["_questions_path_active_node"] = None
+        save_questions_path_game(state)
+        render_questions_path_game(e.page, state)
 
     def choose_answer(answer_index: int):
         def _handler(e):
@@ -16290,23 +16791,13 @@ def _questions_path_question_card(
                 render_questions_path_game(e.page, state)
                 return
 
-            completed = {int(v) for v in list(current_game.get("completed_nodes", [])) if str(v).isdigit() or isinstance(v, int)}
-            completed.add(current_idx)
-            current_game["completed_nodes"] = sorted(completed)
-            current_game["answer_feedback"] = None
-            next_idx = current_idx + 1
-            if next_idx >= len(questions):
-                current_game["node_index"] = len(questions)
-                current_game["game_finished"] = True
-                state["_questions_path_active_node"] = None
-                save_questions_path_game(state)
-                render_questions_path_complete(e.page, state)
-                return
-
-            current_game["node_index"] = next_idx
-            current_game["game_finished"] = False
-            state["_questions_path_active_node"] = None
-            save_questions_path_game(state)
+            current_game["answer_feedback"] = {
+                "node": current_idx,
+                "chosen": answer_index,
+                "correct": int(current_question.get("correct_idx", 0)),
+                "kind": "correct",
+            }
+            state["questions_path_game"] = current_game
             render_questions_path_game(e.page, state)
 
         return _handler
@@ -16314,9 +16805,10 @@ def _questions_path_question_card(
     answer_controls = []
     for idx, answer in enumerate(question.get("answers", [])):
         is_wrong_choice = selected_wrong == idx
-        answer_bg = "#451A1A" if is_wrong_choice else neutral_bg
-        answer_border = "#F87171" if is_wrong_choice else neutral_border
-        answer_badge_bg = "#DC2626" if is_wrong_choice else accent
+        is_correct_choice = selected_correct == idx
+        answer_bg = "#451A1A" if is_wrong_choice else ("#123126" if is_correct_choice else neutral_bg)
+        answer_border = "#F87171" if is_wrong_choice else ("#34D399" if is_correct_choice else neutral_border)
+        answer_badge_bg = "#DC2626" if is_wrong_choice else ("#10B981" if is_correct_choice else accent)
         answer_controls.append(
             ft.Container(
                 width=min(520, card_w - 90),
@@ -16333,7 +16825,7 @@ def _questions_path_question_card(
                             border_radius=999,
                             bgcolor=answer_badge_bg,
                             alignment=ft.Alignment(0, 0),
-                            content=ft.Text(ANSWER_LETTERS[idx], size=13, weight="bold", color="white" if is_wrong_choice else "#08131F"),
+                            content=ft.Text(ANSWER_LETTERS[idx], size=13, weight="bold", color="white" if (is_wrong_choice or is_correct_choice) else "#08131F"),
                         ),
                         ft.Text(answer, size=15, color="white", weight="bold", expand=True),
                     ],
@@ -16362,11 +16854,12 @@ def _questions_path_question_card(
                 ft.Text(question.get("question", "Frage"), size=24, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
                 ft.Column(answer_controls, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                 ft.Text(
-                    "Diese Antwort ist falsch." if selected_wrong is not None else "Wähle eine Antwort. Falsche Antworten werden rot markiert.",
+                    f"Die richtige Antwort ist: {question.get('answers', [''])[selected_correct]}." if selected_correct is not None else ("Diese Antwort ist falsch." if selected_wrong is not None else "Wähle eine Antwort. Falsche Antworten werden rot markiert."),
                     size=12,
-                    color="#FCA5A5" if selected_wrong is not None else "#9FB3C8",
+                    color="#86EFAC" if selected_correct is not None else ("#FCA5A5" if selected_wrong is not None else "#9FB3C8"),
                     text_align=ft.TextAlign.CENTER,
                 ),
+                _game_menu_button("Nächste Frage", continue_after_correct, accent, width=220, height=40) if selected_correct is not None else ft.Container(),
                 _game_menu_button("Schließen", lambda e: (state.pop("_questions_path_active_node", None), render_questions_path_game(e.page, state)), "#475569", width=220, height=40),
             ],
             spacing=14,
@@ -16385,26 +16878,28 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
     active_index = get_questions_path_profile_index(state)
     active_profile = profiles[active_index] if active_index < len(profiles) else profiles[0]
     page_w, page_h = _page_size(page)
-    zoom = max(0.7, min(1.8, float(state.get("questions_path_map_zoom", 1.0) or 1.0)))
+    visible_maps = _questions_path_maps_for_profile(active_profile)
+    if not visible_maps:
+        state["questions_path_scene"] = "creator"
+        _questions_path_render_creator(page, state)
+        return
+    base_canvas_w = max(1900, int(page_w * 1.28))
+    base_canvas_h = max(1120, int(page_h * 1.18))
+    fit_zoom = round(max(0.45, min(1.0, min(max(1, page_w - 40) / base_canvas_w, max(1, page_h - 220) / base_canvas_h))), 2)
+    zoom = max(0.45, min(1.8, float(state.get("questions_path_map_zoom", fit_zoom) or fit_zoom)))
     state["questions_path_map_zoom"] = zoom
     card_w = max(320, int(page_w - 24))
     map_h = max(520, int(page_h - 180))
-    base_canvas_w = max(2600, int(page_w * 2.4))
-    base_canvas_h = max(900, int(page_h * 1.15))
     canvas_w = int(base_canvas_w * zoom)
     canvas_h = int(base_canvas_h * zoom)
-    island_positions = [
-        {"map_key": "waldpfad", "left": 0.03, "top": 0.57, "w": 0.18, "h": 0.19},
-        {"map_key": "stadtpfad", "left": 0.13, "top": 0.21, "w": 0.18, "h": 0.18},
-        {"map_key": "himmelsroute", "left": 0.23, "top": 0.55, "w": 0.18, "h": 0.18},
-        {"map_key": "geschichtsinsel", "left": 0.33, "top": 0.18, "w": 0.18, "h": 0.18},
-        {"map_key": "technikfjord", "left": 0.43, "top": 0.55, "w": 0.18, "h": 0.18},
-        {"map_key": "sportlagune", "left": 0.53, "top": 0.22, "w": 0.18, "h": 0.18},
-        {"map_key": "kulturbucht", "left": 0.63, "top": 0.55, "w": 0.18, "h": 0.18},
-        {"map_key": "matheklippen", "left": 0.73, "top": 0.18, "w": 0.18, "h": 0.18},
-        {"map_key": "wissenschaftsriff", "left": 0.83, "top": 0.55, "w": 0.18, "h": 0.18},
-        {"map_key": "wirtschaftshafen", "left": 0.87, "top": 0.28, "w": 0.18, "h": 0.18},
+    scatter_template = [
+        (0.08, 0.12), (0.34, 0.10), (0.60, 0.13), (0.16, 0.38), (0.45, 0.33),
+        (0.76, 0.30), (0.12, 0.67), (0.40, 0.70), (0.68, 0.62), (0.82, 0.78),
     ]
+    island_positions = []
+    for idx, (map_key, _map_cfg) in enumerate(visible_maps):
+        sx, sy = scatter_template[idx % len(scatter_template)]
+        island_positions.append({"map_key": map_key, "left": sx, "top": sy, "w": 0.20, "h": 0.20})
 
     def open_level(map_key: str, level_index: int):
         def _handler(e):
@@ -16439,7 +16934,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
     stage_items = []
     for level_index, item in enumerate(island_positions):
         map_key = item["map_key"]
-        map_cfg = QUESTIONS_PATH_MAPS[map_key]
+        map_cfg = _questions_path_map_lookup_for_profile(active_profile, map_key)
         island_state = _questions_path_level_state_for(active_profile, map_key, level_index)
         left = int(canvas_w * item["left"])
         top = int(canvas_h * item["top"])
@@ -16592,7 +17087,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                         _questions_path_island_chip("Aktiv", "#0EA5E9"),
                                         _questions_path_island_chip("Abgeschlossen", "#16A34A"),
                                         _questions_path_island_chip("Gesperrt", "#475569"),
-                                        _questions_path_island_chip("10 Inseln", "#334155"),
+                                _questions_path_island_chip(f"{len(visible_maps)} Inseln", "#334155"),
                                     ],
                                     spacing=10,
                                     alignment=ft.MainAxisAlignment.CENTER,
@@ -16618,8 +17113,11 @@ def _questions_path_render_level(page: ft.Page, state: dict):
         show_questions_path_hub(page, state)
         return
 
+    profiles = get_questions_path_profiles(state)
+    active_index = get_questions_path_profile_index(state)
+    active_profile = profiles[active_index] if active_index < len(profiles) else _questions_path_default_profile(0)
     map_key = game.get("map_key", "waldpfad")
-    map_cfg = QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"])
+    map_cfg = _questions_path_map_lookup_for_profile(active_profile, map_key)
     questions = list(game.get("questions") or [])
     points = list(map_cfg.get("points", []) or [])
     if not questions or not points:
@@ -16631,12 +17129,13 @@ def _questions_path_render_level(page: ft.Page, state: dict):
         return
 
     page_w, page_h = _page_size(page)
-    zoom = max(0.7, min(1.8, float(state.get("questions_path_level_zoom", 1.0) or 1.0)))
+    base_canvas_w = max(1320, int(page_w * 1.10))
+    base_canvas_h = max(980, int(page_h * 0.95))
+    fit_zoom = round(max(0.45, min(1.0, min(max(1, page_w - 40) / base_canvas_w, max(1, page_h - 240) / base_canvas_h))), 2)
+    zoom = max(0.45, min(1.8, float(state.get("questions_path_level_zoom", fit_zoom) or fit_zoom)))
     state["questions_path_level_zoom"] = zoom
     card_w = max(320, int(page_w - 24))
     card_h = max(440, int(page_h * 0.52))
-    base_canvas_w = max(1700, int(page_w * 1.55))
-    base_canvas_h = max(760, int(page_h * 0.92))
     canvas_w = int(base_canvas_w * zoom)
     canvas_h = int(base_canvas_h * zoom)
     current_index = int(game.get("node_index", 0) or 0)
@@ -16855,8 +17354,11 @@ def _questions_path_render_level(page: ft.Page, state: dict):
 
 def render_questions_path_complete(page: ft.Page, state: dict):
     game = state.get("questions_path_game") or {}
+    profiles = get_questions_path_profiles(state)
+    active_index = get_questions_path_profile_index(state)
+    active_profile = profiles[active_index] if active_index < len(profiles) else _questions_path_default_profile(0)
     map_key = game.get("map_key", "waldpfad")
-    map_cfg = QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"])
+    map_cfg = _questions_path_map_lookup_for_profile(active_profile, map_key)
     game["game_finished"] = True
     save_questions_path_game(state)
     state.pop("_questions_path_active_node", None)
@@ -16902,12 +17404,13 @@ def render_questions_path_complete(page: ft.Page, state: dict):
 
 
 def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
-    map_cfg = QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"])
     profiles = get_questions_path_profiles(state)
     profile_index = get_questions_path_profile_index(state)
     profile = profiles[profile_index] if profile_index < len(profiles) else _questions_path_default_profile(profile_index)
+    map_cfg = _questions_path_map_lookup_for_profile(profile, map_key)
     age = profile.get("selected_age", state.get("questions_path_age", "mid"))
     questions = build_questions_path_questions(age, map_key, state)
+    visible_map_keys = [key for key, _cfg in _questions_path_maps_for_profile(profile)] or QUESTIONS_PATH_LEVEL_ORDER
     state["questions_path_game"] = {
         "map_key": map_key,
         "map_title": map_cfg.get("title", "Fragen-Pfad"),
@@ -16918,7 +17421,7 @@ def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
         "game_finished": False,
         "checkpoint_index": 0,
         "current_hint": None,
-        "current_level_index": QUESTIONS_PATH_LEVEL_ORDER.index(map_key) if map_key in QUESTIONS_PATH_LEVEL_ORDER else 0,
+        "current_level_index": visible_map_keys.index(map_key) if map_key in visible_map_keys else 0,
     }
     state["questions_path_age"] = age
     state.pop("_questions_path_active_node", None)
@@ -16970,6 +17473,8 @@ def show_questions_path_hub(page: ft.Page, state: dict):
     scene = state.get("questions_path_scene") or "profiles"
     if scene == "islands":
         _questions_path_render_islands(page, state)
+    elif scene == "creator":
+        _questions_path_render_creator(page, state)
     elif scene == "level":
         _questions_path_render_level(page, state)
     elif scene == "complete":
