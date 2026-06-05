@@ -16218,6 +16218,28 @@ def _questions_path_island_chip(label: str, color: str) -> ft.Control:
     )
 
 
+def _questions_path_zoom_controls(state: dict, key: str, rerender):
+    zoom_value = float(state.get(key, 1.0) or 1.0)
+    zoom_value = max(0.7, min(1.8, zoom_value))
+    state[key] = zoom_value
+
+    def set_zoom(next_zoom: float):
+        def _handler(e):
+            state[key] = max(0.7, min(1.8, round(next_zoom, 2)))
+            rerender(e.page, state)
+
+        return _handler
+
+    return ft.Row(
+        [
+            _game_menu_button("−", set_zoom(zoom_value - 0.15), "#1E293B", width=52, height=36),
+            _game_menu_button(f"{int(zoom_value * 100)}%", set_zoom(1.0), "#0F766E", width=84, height=36),
+            _game_menu_button("+", set_zoom(zoom_value + 0.15), "#1E293B", width=52, height=36),
+        ],
+        spacing=8,
+    )
+
+
 def _questions_path_question_card(
     page: ft.Page,
     state: dict,
@@ -16347,10 +16369,14 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
     active_index = get_questions_path_profile_index(state)
     active_profile = profiles[active_index] if active_index < len(profiles) else profiles[0]
     page_w, page_h = _page_size(page)
+    zoom = max(0.7, min(1.8, float(state.get("questions_path_map_zoom", 1.0) or 1.0)))
+    state["questions_path_map_zoom"] = zoom
     card_w = max(320, int(page_w - 24))
     map_h = max(520, int(page_h - 180))
-    canvas_w = max(2600, int(page_w * 2.4))
-    canvas_h = map_h
+    base_canvas_w = max(2600, int(page_w * 2.4))
+    base_canvas_h = max(900, int(page_h * 1.15))
+    canvas_w = int(base_canvas_w * zoom)
+    canvas_h = int(base_canvas_h * zoom)
     island_positions = [
         {"map_key": "waldpfad", "left": 0.03, "top": 0.57, "w": 0.18, "h": 0.19},
         {"map_key": "stadtpfad", "left": 0.13, "top": 0.21, "w": 0.18, "h": 0.18},
@@ -16387,8 +16413,8 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
             ft.Container(
                 left=int(canvas_w * (0.05 + dot_index * 0.0145)),
                 top=int(canvas_h * (0.50 + (0.13 if dot_index % 4 == 1 else (-0.09 if dot_index % 4 == 2 else (0.03 if dot_index % 4 == 3 else 0.0))))),
-                width=10,
-                height=10,
+                width=max(8, int(10 * zoom)),
+                height=max(8, int(10 * zoom)),
                 border_radius=999,
                 bgcolor="#B6F0E055" if dot_index % 2 else "#7DD3FC66",
             )
@@ -16401,8 +16427,8 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
         island_state = _questions_path_level_state_for(active_profile, map_key, level_index)
         left = int(canvas_w * item["left"])
         top = int(canvas_h * item["top"])
-        width = int(canvas_w * item["w"] * 0.60)
-        height = int(canvas_h * item["h"] * 0.92)
+        width = max(250, int(canvas_w * item["w"] * 0.62))
+        height = max(190, int(canvas_h * item["h"] * 0.34))
         accent = map_cfg.get("accent", "#34D399")
         border_color = accent if island_state != "locked" else "#475569"
         glow_color = f"#44{accent[1:]}" if island_state != "locked" else "#22000000"
@@ -16434,27 +16460,41 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                         ft.Container(left=22, top=20, width=78, height=78, border_radius=999, bgcolor=f"#22{accent[1:]}"),
                         ft.Container(right=22, top=20, content=_questions_path_island_chip(chip_label, chip_color)),
                         ft.Container(
-                            left=20,
-                            right=20,
-                            top=20,
-                            bottom=18,
-                            content=ft.Column(
+                            left=26,
+                            right=24,
+                            top=26,
+                            bottom=22,
+                            content=ft.Row(
                                 [
-                                    ft.Text(map_cfg.get("icon", "I"), size=34, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                                    ft.Text(map_cfg.get("title", "Insel"), size=22, weight="bold", color="white", text_align="center"),
-                                    ft.Text(map_cfg.get("subtitle", ""), size=12, color="#B6C8D8", text_align="center"),
-                                    ft.Container(expand=True),
-                                    ft.Text(f"{len(map_cfg.get('points', []))} Stationen", size=11, color=accent, text_align=ft.TextAlign.CENTER),
                                     ft.Container(
-                                        padding=ft.Padding(12, 8, 12, 8),
-                                        border_radius=16,
-                                        bgcolor=accent,
+                                        width=88,
+                                        height=88,
+                                        border_radius=999,
                                         alignment=ft.Alignment(0, 0),
-                                        content=ft.Text(button_text, size=12, weight="bold", color="#03121A"),
+                                        bgcolor="#17335A",
+                                        content=ft.Text(map_cfg.get("icon", "I"), size=34, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                                    ),
+                                    ft.Column(
+                                        [
+                                            ft.Text(map_cfg.get("title", "Insel"), size=24, weight="bold", color="white", max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                            ft.Text(map_cfg.get("subtitle", ""), size=14, color="#D3E3EE", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                                            ft.Text(f"{len(map_cfg.get('points', []))} Stationen", size=12, color=accent, weight="bold"),
+                                            ft.Container(
+                                                margin=ft.Margin(0, 8, 0, 0),
+                                                padding=ft.Padding(12, 8, 12, 8),
+                                                border_radius=16,
+                                                bgcolor=accent,
+                                                alignment=ft.Alignment(0, 0),
+                                                content=ft.Text(button_text, size=12, weight="bold", color="#03121A"),
+                                            ),
+                                        ],
+                                        spacing=4,
+                                        expand=True,
+                                        alignment=ft.MainAxisAlignment.CENTER,
                                     ),
                                 ],
-                                spacing=6,
-                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                spacing=18,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                         ),
                     ],
@@ -16479,12 +16519,18 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                     [
                                         _game_menu_button("← Profile", lambda e: _questions_path_render_profiles(e.page, state), "#475569", width=170, height=40),
                                         ft.Text("Fragen-Pfad", size=32, weight="bold", color="white"),
-                                        _questions_path_island_chip(active_profile.get("name", f"Profil {active_index + 1}"), "#0F766E"),
+                                        ft.Row(
+                                            [
+                                                _questions_path_zoom_controls(state, "questions_path_map_zoom", lambda p, s: _questions_path_render_islands(p, s)),
+                                                _questions_path_island_chip(active_profile.get("name", f"Profil {active_index + 1}"), "#0F766E"),
+                                            ],
+                                            spacing=10,
+                                        ),
                                     ],
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
                                 ft.Text(
-                                    "Scrolle horizontal durch die Inselwelt und starte jede Insel beliebig oft erneut.",
+                                    "Scrolle frei in alle Richtungen durch die Inselwelt und zoome wie auf einer Strategy-Map.",
                                     size=13,
                                     color=theme_txt(theme, "secondary"),
                                     text_align=ft.TextAlign.CENTER,
@@ -16495,29 +16541,34 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                     border_radius=28,
                                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                     bgcolor="#07101AE0",
-                                    content=ft.Row(
+                                    content=ft.Column(
                                         [
-                                            ft.Container(
-                                                width=canvas_w,
-                                                height=map_h,
-                                                content=ft.Stack(
-                                                    [
-                                                        ft.Container(
+                                            ft.Row(
+                                                [
+                                                    ft.Container(
+                                                        width=canvas_w,
+                                                        height=canvas_h,
+                                                        content=ft.Stack(
+                                                            [
+                                                                ft.Container(
+                                                                    expand=True,
+                                                                    gradient=ft.LinearGradient(
+                                                                        begin=ft.Alignment(-1, -1),
+                                                                        end=ft.Alignment(1, 1),
+                                                                        colors=["#05131E", "#0A2A3C", "#08111D"],
+                                                                    ),
+                                                                ),
+                                                                ft.Container(left=180, top=80, width=int(360 * zoom), height=int(180 * zoom), border_radius=999, bgcolor="#0EFFFFFF"),
+                                                                ft.Container(left=900, top=500, width=int(520 * zoom), height=int(220 * zoom), border_radius=999, bgcolor="#0AFFFFFF"),
+                                                                ft.Container(right=220, top=120, width=int(420 * zoom), height=int(200 * zoom), border_radius=999, bgcolor="#0C7DD3FC"),
+                                                                *route_dots,
+                                                                *stage_items,
+                                                            ],
                                                             expand=True,
-                                                            gradient=ft.LinearGradient(
-                                                                begin=ft.Alignment(-1, -1),
-                                                                end=ft.Alignment(1, 1),
-                                                                colors=["#05131E", "#0A2A3C", "#08111D"],
-                                                            ),
                                                         ),
-                                                        ft.Container(left=180, top=80, width=360, height=180, border_radius=999, bgcolor="#0EFFFFFF"),
-                                                        ft.Container(left=900, top=500, width=520, height=220, border_radius=999, bgcolor="#0AFFFFFF"),
-                                                        ft.Container(right=220, top=120, width=420, height=200, border_radius=999, bgcolor="#0C7DD3FC"),
-                                                        *route_dots,
-                                                        *stage_items,
-                                                    ],
-                                                    expand=True,
-                                                ),
+                                                    )
+                                                ],
+                                                scroll=ft.ScrollMode.ALWAYS,
                                             )
                                         ],
                                         scroll=ft.ScrollMode.ALWAYS,
@@ -16568,16 +16619,29 @@ def _questions_path_render_level(page: ft.Page, state: dict):
         return
 
     page_w, page_h = _page_size(page)
+    zoom = max(0.7, min(1.8, float(state.get("questions_path_level_zoom", 1.0) or 1.0)))
+    state["questions_path_level_zoom"] = zoom
     card_w = max(320, int(page_w - 24))
     card_h = max(440, int(page_h * 0.52))
-    canvas_w = max(1700, int(page_w * 1.55))
+    base_canvas_w = max(1700, int(page_w * 1.55))
+    base_canvas_h = max(760, int(page_h * 0.92))
+    canvas_w = int(base_canvas_w * zoom)
+    canvas_h = int(base_canvas_h * zoom)
     current_index = int(game.get("node_index", 0) or 0)
     completed_nodes = {int(v) for v in list(game.get("completed_nodes", [])) if str(v).isdigit() or isinstance(v, int)}
     active_node = state.get("_questions_path_active_node")
+    replay_prompt = state.get("_questions_path_replay_prompt")
 
     def open_current_node(e):
         state["_questions_path_active_node"] = current_index
         render_questions_path_game(e.page, state)
+
+    def ask_restart(level_idx: int):
+        def _handler(e):
+            state["_questions_path_replay_prompt"] = level_idx
+            render_questions_path_game(e.page, state)
+
+        return _handler
 
     stage_items = []
     route_dots = []
@@ -16589,9 +16653,9 @@ def _questions_path_render_level(page: ft.Page, state: dict):
             route_dots.append(
                 ft.Container(
                     left=int(canvas_w * ((x1 + (x2 - x1) * mix) / 100.0)) - 6,
-                    top=int(card_h * ((y1 + (y2 - y1) * mix) / 100.0)) - 6,
-                    width=12,
-                    height=12,
+                    top=int(canvas_h * ((y1 + (y2 - y1) * mix) / 100.0)) - 6,
+                    width=max(10, int(12 * zoom)),
+                    height=max(10, int(12 * zoom)),
                     border_radius=999,
                     bgcolor="#E2E8F077" if idx < current_index else "#94A3B866",
                 )
@@ -16604,7 +16668,7 @@ def _questions_path_render_level(page: ft.Page, state: dict):
         elif idx == current_index:
             node_state = "current"
         left = int(canvas_w * (point["x"] / 100.0)) - 34
-        top = int(card_h * (point["y"] / 100.0)) - 34
+        top = int(canvas_h * (point["y"] / 100.0)) - 34
         if node_state == "done":
             node_bg = "#10B981"
             node_border = "#D1FAE5"
@@ -16627,7 +16691,7 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                 bgcolor=node_bg,
                 border=ft.border.Border.all(3, node_border),
                 shadow=ft.BoxShadow(blur_radius=22, color=f"#55{node_bg[1:]}" if node_bg.startswith("#") and len(node_bg) == 7 else "#33000000", spread_radius=1),
-                on_click=open_current_node if idx == current_index else None,
+                on_click=open_current_node if idx == current_index else (ask_restart(idx) if idx in completed_nodes else None),
                 content=ft.Container(
                     alignment=ft.Alignment(0, 0),
                     content=ft.Text(node_text, size=22, weight="bold", color="#08131F" if node_state != "future" else "white"),
@@ -16662,7 +16726,13 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                                     [
                                         _game_menu_button("← Inselkarte", lambda e: (state.__setitem__("questions_path_scene", "islands"), show_questions_path_hub(e.page, state)), "#475569", width=170, height=40),
                                         ft.Text("Fragen-Pfad", size=32, weight="bold", color="white"),
-                                        _questions_path_island_chip(f"{len(completed_nodes)}/{len(points)} fertig", map_cfg.get("accent", "#34D399")),
+                                        ft.Row(
+                                            [
+                                                _questions_path_zoom_controls(state, "questions_path_level_zoom", lambda p, s: _questions_path_render_level(p, s)),
+                                                _questions_path_island_chip(f"{len(completed_nodes)}/{len(points)} fertig", map_cfg.get("accent", "#34D399")),
+                                            ],
+                                            spacing=10,
+                                        ),
                                     ],
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
@@ -16675,28 +16745,33 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                                     border_radius=28,
                                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                     bgcolor="#07101AE0",
-                                    content=ft.Row(
+                                    content=ft.Column(
                                         [
-                                            ft.Container(
-                                                width=canvas_w,
-                                                height=card_h,
-                                                content=ft.Stack(
-                                                    [
-                                                        ft.Container(
+                                            ft.Row(
+                                                [
+                                                    ft.Container(
+                                                        width=canvas_w,
+                                                        height=canvas_h,
+                                                        content=ft.Stack(
+                                                            [
+                                                                ft.Container(
+                                                                    expand=True,
+                                                                    gradient=ft.LinearGradient(
+                                                                        begin=ft.Alignment(-1, -1),
+                                                                        end=ft.Alignment(1, 1),
+                                                                        colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"],
+                                                                    ),
+                                                                ),
+                                                                ft.Container(left=180, top=52, width=int(280 * zoom), height=int(120 * zoom), border_radius=999, bgcolor="#0BFFFFFF"),
+                                                                ft.Container(right=120, bottom=36, width=int(260 * zoom), height=int(110 * zoom), border_radius=999, bgcolor="#08FFFFFF"),
+                                                                *route_dots,
+                                                                *stage_items,
+                                                            ],
                                                             expand=True,
-                                                            gradient=ft.LinearGradient(
-                                                                begin=ft.Alignment(-1, -1),
-                                                                end=ft.Alignment(1, 1),
-                                                                colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"],
-                                                            ),
                                                         ),
-                                                        ft.Container(left=180, top=52, width=280, height=120, border_radius=999, bgcolor="#0BFFFFFF"),
-                                                        ft.Container(right=120, bottom=36, width=260, height=110, border_radius=999, bgcolor="#08FFFFFF"),
-                                                        *route_dots,
-                                                        *stage_items,
-                                                    ],
-                                                    expand=True,
-                                                ),
+                                                    )
+                                                ],
+                                                scroll=ft.ScrollMode.ALWAYS,
                                             )
                                         ],
                                         scroll=ft.ScrollMode.ALWAYS,
@@ -16706,16 +16781,9 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                                 ft.Row(
                                     [
                                         ft.Text(f"Aktuelle Station: {points[current_index].get('label', f'Station {current_index + 1}')}", size=13, color="white"),
-                                        ft.Text(f"{current_index}/{len(points)} erledigt", size=13, color="#B6C8D8"),
+                                        ft.Text("Klicke auf grüne Haken, um eine Inselrunde erneut zu starten.", size=13, color="#B6C8D8"),
                                     ],
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Row(
-                                    [
-                                        _game_menu_button("Aktuelle Station oeffnen", open_current_node, map_cfg.get("accent", "#34D399"), width=280, height=44),
-                                        _game_menu_button("Level neu starten", lambda e: start_questions_path_game(e.page, state, map_key), "#334155", width=220, height=44),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.CENTER,
                                 ),
                             ],
                             spacing=10,
@@ -16731,6 +16799,43 @@ def _questions_path_render_level(page: ft.Page, state: dict):
                             bgcolor="#020617BB",
                             alignment=ft.Alignment(0, 0),
                             content=_questions_path_question_card(page, state, game, map_cfg, current_index, card_w),
+                        ),
+                    ),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        visible=isinstance(replay_prompt, int),
+                        content=ft.Container(
+                            expand=True,
+                            bgcolor="#020617BB",
+                            alignment=ft.Alignment(0, 0),
+                            content=ft.Container(
+                                width=min(520, card_w - 32),
+                                padding=24,
+                                border_radius=24,
+                                bgcolor="#0B1220F4",
+                                border=ft.border.Border.all(2, map_cfg.get("accent", "#34D399")),
+                                content=ft.Column(
+                                    [
+                                        ft.Text("Level bereits geschafft", size=28, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                                        ft.Text(
+                                            "Du hast dieses Level schon geschafft. Möchtest du die Insel noch einmal von vorne spielen?",
+                                            size=14,
+                                            color="#D3E3EE",
+                                            text_align=ft.TextAlign.CENTER,
+                                        ),
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("Weiter spielen", lambda e: (state.pop("_questions_path_replay_prompt", None), render_questions_path_game(e.page, state)), "#475569", width=180, height=42),
+                                                _game_menu_button("Nochmal spielen", lambda e: (state.pop("_questions_path_replay_prompt", None), start_questions_path_game(e.page, state, map_key)), map_cfg.get("accent", "#34D399"), width=180, height=42),
+                                            ],
+                                            alignment=ft.MainAxisAlignment.CENTER,
+                                        ),
+                                    ],
+                                    spacing=16,
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                            ),
                         ),
                     ),
                 ],
