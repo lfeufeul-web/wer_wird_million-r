@@ -17092,8 +17092,24 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                     on_pan_update=drag_island(idx),
                     on_pan_end=drag_end_island(idx),
                     on_tap=select_island(idx),
-                    drag_interval=18,
-                    content=marker_content,
+                    drag_interval=6,
+                    mouse_cursor=ft.MouseCursor.MOVE,
+                    content=ft.Container(
+                        padding=4,
+                        content=ft.Column(
+                            [
+                                ft.Container(
+                                    height=24,
+                                    border_radius=12,
+                                    bgcolor="#243244",
+                                    alignment=ft.Alignment(0, 0),
+                                    content=ft.Text("ziehen", size=10, color="#D5E3EE", weight="bold"),
+                                ),
+                                marker_content,
+                            ],
+                            spacing=8,
+                        ),
+                    ),
                 ),
             )
         )
@@ -17160,7 +17176,8 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                     on_pan_update=point_drag_update(point_index),
                     on_pan_end=point_drag_end(point_index),
                     on_tap=open_question_dialog_for(point_index),
-                    drag_interval=18,
+                    drag_interval=6,
+                    mouse_cursor=ft.MouseCursor.MOVE,
                     content=ft.Container(
                         width=54,
                         height=54,
@@ -17636,33 +17653,122 @@ def _questions_path_render_custom_menu(page: ft.Page, state: dict):
     active_index = get_questions_path_profile_index(state)
     active_profile = profiles[active_index] if active_index < len(profiles) else _questions_path_default_profile(0)
 
-    def open_custom_creator(e):
-        refreshed = get_questions_path_profiles(state)
-        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
-        profile["progression_mode"] = "creative"
+    world_name_ref = ft.Ref[ft.TextField]()
+    world_create_dialog_open = bool(state.get("_questions_path_create_world_dialog", False))
+
+    def save_world(profile_index: int, profile: dict):
         current_profiles = get_questions_path_profiles(state)
-        while active_index >= len(current_profiles):
+        while profile_index >= len(current_profiles):
             current_profiles.append(_questions_path_default_profile(len(current_profiles)))
-        current_profiles[active_index] = profile
+        current_profiles[profile_index] = profile
         persist_questions_path_profiles(state, current_profiles)
         state["questions_path_profiles"] = current_profiles
+
+    def open_world(profile_index: int, edit: bool, e):
+        refreshed = get_questions_path_profiles(state)
+        profile = dict(refreshed[profile_index] if profile_index < len(refreshed) else _questions_path_default_profile(profile_index))
+        profile["progression_mode"] = "creative"
+        save_world(profile_index, profile)
+        set_questions_path_profile_index(state, profile_index)
+        state["questions_path_scene"] = "creator" if edit else "islands"
+        show_questions_path_hub(e.page, state)
+
+    def play_world(profile_index: int):
+        def _handler(e):
+            open_world(profile_index, False, e)
+
+        return _handler
+
+    def edit_world(profile_index: int):
+        def _handler(e):
+            open_world(profile_index, True, e)
+
+        return _handler
+
+    def open_create_world_dialog(e):
+        state["_questions_path_create_world_dialog"] = True
+        _questions_path_render_custom_menu(e.page, state)
+
+    def close_create_world_dialog(e):
+        state["_questions_path_create_world_dialog"] = False
+        _questions_path_render_custom_menu(e.page, state)
+
+    def create_world(e):
+        current_profiles = get_questions_path_profiles(state)
+        if len(current_profiles) >= QUESTIONS_PATH_PROFILE_MAX:
+            e.page.snack_bar = ft.SnackBar(content=ft.Text("Maximal 10 Welten sind möglich."), open=True)
+            e.page.update()
+            return
+        raw_name = str(world_name_ref.current.value or "").strip() if world_name_ref.current else ""
+        new_profile = _questions_path_default_profile(len(current_profiles))
+        if raw_name:
+            new_profile["name"] = raw_name
+        new_profile["progression_mode"] = "creative"
+        current_profiles.append(new_profile)
+        persist_questions_path_profiles(state, current_profiles)
+        state["questions_path_profiles"] = current_profiles
+        set_questions_path_profile_index(state, len(current_profiles) - 1)
+        state["_questions_path_create_world_dialog"] = False
         state["questions_path_scene"] = "creator"
         show_questions_path_hub(e.page, state)
 
-    def play_custom_worlds(e):
-        refreshed = get_questions_path_profiles(state)
-        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
-        profile["progression_mode"] = "creative"
-        current_profiles = get_questions_path_profiles(state)
-        while active_index >= len(current_profiles):
-            current_profiles.append(_questions_path_default_profile(len(current_profiles)))
-        current_profiles[active_index] = profile
-        persist_questions_path_profiles(state, current_profiles)
-        state["questions_path_profiles"] = current_profiles
-        state["questions_path_scene"] = "islands"
-        show_questions_path_hub(e.page, state)
-
     page.controls.clear()
+
+    world_cards = []
+    for idx, profile_item in enumerate(profiles):
+        is_active = idx == active_index
+        profile_name = str(profile_item.get("name", f"Profil {idx + 1}")).strip() or f"Profil {idx + 1}"
+        mode_label = "Kreativ" if _questions_path_profile_mode(profile_item) == "creative" else "Abenteuer"
+        custom_count = len(list(profile_item.get("custom_islands", []) or []))
+        last_label = "Noch keine Insel"
+        if custom_count:
+            last_label = f"{custom_count} eigene Inseln"
+        mode_description = (
+            "Bearbeiten öffnet die eigene Inselwelt mit Drag & Drop, Fragen und Layout."
+            if str(profile_item.get("progression_mode", "adventure")).lower() == "creative"
+            else "Spielen startet die standardisierte Insel-Reihenfolge."
+        )
+        world_cards.append(
+            ft.Container(
+                padding=16,
+                border_radius=22,
+                bgcolor="#0B1620F0" if is_active else "#08111BF0",
+                border=ft.border.Border.all(2, "#38BDF8" if is_active else "#1F2937"),
+                content=ft.Row(
+                    [
+                        ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        ft.Text(profile_name, size=18, weight="bold", color="white"),
+                                        _questions_path_island_chip(mode_label, "#0F766E" if mode_label == "Kreativ" else "#334155"),
+                                    ],
+                                    spacing=10,
+                                ),
+                                ft.Text(
+                                    str(profile_item.get("selected_age", "mid")).capitalize() + " / " + last_label,
+                                    size=12,
+                                    color="#A8C0D2",
+                                ),
+                                ft.Text(mode_description, size=12, color="#D5E3EE"),
+                            ],
+                            spacing=5,
+                            expand=True,
+                        ),
+                        ft.Column(
+                            [
+                                _game_menu_button("Spielen", play_world(idx), "#0F766E", width=140, height=40),
+                                _game_menu_button("Bearbeiten", edit_world(idx), "#1D4ED8", width=140, height=40),
+                            ],
+                            spacing=8,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+        )
+
     page.add(
         ft.Container(
             expand=True,
@@ -17672,10 +17778,10 @@ def _questions_path_render_custom_menu(page: ft.Page, state: dict):
                     ft.Container(
                         expand=True,
                         alignment=ft.Alignment(0, 0),
-                        padding=24,
+                        padding=20,
                         content=ft.Container(
-                            width=min(760, max(340, int(_page_size(page)[0] - 40))),
-                            padding=28,
+                            width=min(920, max(360, int(_page_size(page)[0] - 40))),
+                            padding=24,
                             border_radius=28,
                             bgcolor="#08111BFE",
                             border=ft.border.Border.all(2, "#38BDF8"),
@@ -17685,22 +17791,82 @@ def _questions_path_render_custom_menu(page: ft.Page, state: dict):
                                         [
                                             _game_menu_button("← Profile", lambda e: (state.__setitem__("questions_path_scene", "profiles"), show_questions_path_hub(e.page, state)), "#475569", width=170, height=40),
                                             ft.Text("Eigenes Spiel", size=30, weight="bold", color="white"),
-                                            ft.Container(width=170),
+                                            _game_menu_button("+ Welt", open_create_world_dialog, "#1D4ED8", width=140, height=40),
                                         ],
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
-                                    ft.Text("Wähle, ob du deine eigenen Welten bearbeiten oder direkt spielen möchtest.", size=13, color="#B8CBD8", text_align=ft.TextAlign.CENTER),
+                                    ft.Text("Hier verwaltest du deine Welten. Spielen öffnet die aktuelle Welt, Bearbeiten bringt dich in den Editor.", size=13, color="#B8CBD8", text_align=ft.TextAlign.CENTER),
+                                    ft.Container(height=4),
+                                    ft.Text("Meine Welten", size=18, weight="bold", color=theme["gold"], text_align=ft.TextAlign.LEFT),
+                                    ft.Container(
+                                        expand=True,
+                                        content=ft.Column(
+                                            world_cards if world_cards else [
+                                                ft.Container(
+                                                    padding=18,
+                                                    border_radius=22,
+                                                    bgcolor="#0B1620F0",
+                                                    border=ft.border.Border.all(1.5, "#334155"),
+                                                    content=ft.Column(
+                                                        [
+                                                            ft.Text("Noch keine eigene Welt", size=22, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                                                            ft.Text("Erstelle oben rechts mit + Welt deine erste Welt. Danach kannst du sie spielen oder bearbeiten.", size=13, color="#D5E3EE", text_align=ft.TextAlign.CENTER),
+                                                        ],
+                                                        spacing=10,
+                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                    ),
+                                                )
+                                            ],
+                                            spacing=12,
+                                            scroll=ft.ScrollMode.AUTO,
+                                        ),
+                                    ),
                                     ft.Row(
                                         [
-                                            _game_menu_button("Eigenes Spiel erstellen", open_custom_creator, "#1D4ED8", width=260, height=48),
-                                            _game_menu_button("Eigenes Spiel spielen", play_custom_worlds, "#0F766E", width=240, height=48),
+                                            _questions_path_island_chip(f"{len(profiles)} Welt(en)", "#334155"),
+                                            _questions_path_island_chip("Bearbeiten = Inseln + Punkte", "#0F766E"),
+                                            _questions_path_island_chip("Spielen = aktuelle Welt", "#1D4ED8"),
                                         ],
+                                        spacing=10,
                                         alignment=ft.MainAxisAlignment.CENTER,
-                                        spacing=16,
                                     ),
                                 ],
-                                spacing=18,
-                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                spacing=16,
+                                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                            ),
+                        ),
+                    ),
+                    ft.Container(
+                        expand=True,
+                        visible=world_create_dialog_open,
+                        bgcolor="#010611F0",
+                        blur=16,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Container(
+                            width=min(520, max(320, int(_page_size(page)[0] - 60))),
+                            padding=24,
+                            border_radius=24,
+                            bgcolor="#08111BFE",
+                            border=ft.border.Border.all(2, "#38BDF8"),
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            ft.Text("Neue Welt", size=28, weight="bold", color="white"),
+                                            _game_menu_button("Schließen", close_create_world_dialog, "#475569", width=150, height=40),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Text("Vergib direkt einen Namen für die neue Welt.", size=13, color="#B8CBD8"),
+                                    ft.TextField(ref=world_name_ref, label="Weltname", value=f"Welt {len(profiles) + 1}", bgcolor="#111827", color="white", border_color="#334155"),
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("Welt anlegen", create_world, "#1D4ED8", width=180, height=42),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.END,
+                                    ),
+                                ],
+                                spacing=14,
                             ),
                         ),
                     ),
