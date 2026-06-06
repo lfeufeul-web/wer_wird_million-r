@@ -17026,6 +17026,8 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                 island = dict(islands[index])
                 resize_positions[index] = {
                     "card_scale": island_card_scale(island),
+                    "map_x": float(island.get("map_x", 20)),
+                    "map_y": float(island.get("map_y", 20)),
                 }
 
         return _handler
@@ -17037,10 +17039,18 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             islands = list(current_profile.get("custom_islands", []) or [])
             if index >= len(islands):
                 return
+            start_data = resize_positions.get(
+                index,
+                {
+                    "card_scale": island_card_scale(islands[index]),
+                    "map_x": float(islands[index].get("map_x", 20)),
+                    "map_y": float(islands[index].get("map_y", 20)),
+                },
+            )
             delta_x = float(getattr(e, "delta_x", 0.0) or 0.0)
             delta_y = float(getattr(e, "delta_y", 0.0) or 0.0)
             delta = (delta_x + delta_y) / 2.0
-            current_drag = resize_positions.get(index, {"card_scale": island_card_scale(islands[index])})
+            current_drag = dict(start_data)
             current_drag["card_scale"] = max(0.8, min(1.8, float(current_drag.get("card_scale", 1.0)) + (delta / 220.0)))
             resize_positions[index] = current_drag
             island = dict(islands[index])
@@ -17050,14 +17060,67 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             persist(current_profile)
             marker_ref = island_marker_refs.get(index)
             if marker_ref and marker_ref.current:
-                card_w, card_h = island_card_size(island)
-                marker_ref.current.width = card_w
-                marker_ref.current.height = card_h
+                start_scale = float(start_data.get("card_scale", 1.0) or 1.0)
+                marker_ref.current.scale = current_drag["card_scale"] / max(0.01, start_scale)
                 e.page.update()
 
         return _handler
 
     def resize_end_island(index: int):
+        def _handler(e):
+            resize_positions.pop(index, None)
+            _questions_path_render_creator(e.page, state)
+
+        return _handler
+
+    def scale_start_island(index: int):
+        def _handler(e):
+            current_profiles = get_questions_path_profiles(state)
+            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+            islands = list(current_profile.get("custom_islands", []) or [])
+            if index < len(islands):
+                island = dict(islands[index])
+                resize_positions[index] = {
+                    "card_scale": island_card_scale(island),
+                    "map_x": float(island.get("map_x", 20)),
+                    "map_y": float(island.get("map_y", 20)),
+                }
+
+        return _handler
+
+    def scale_island(index: int):
+        def _handler(e):
+            current_profiles = get_questions_path_profiles(state)
+            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+            islands = list(current_profile.get("custom_islands", []) or [])
+            if index >= len(islands):
+                return
+            island = dict(islands[index])
+            start_data = resize_positions.get(index, {})
+            start_scale = float(start_data.get("card_scale", island_card_scale(island)) or 1.0)
+            try:
+                gesture_scale = max(0.05, float(getattr(e, "scale", 1.0) or 1.0))
+            except Exception:
+                gesture_scale = 1.0
+            new_scale = max(0.8, min(1.8, start_scale * gesture_scale))
+            island["card_scale"] = new_scale
+            delta = getattr(e, "focal_point_delta", None)
+            delta_x = float(getattr(delta, "x", 0.0) or 0.0)
+            delta_y = float(getattr(delta, "y", 0.0) or 0.0)
+            if delta_x or delta_y:
+                island["map_x"] = max(2, min(88, float(island.get("map_x", 20)) + (delta_x / max(1, creator_canvas_w * creator_zoom)) * 100))
+                island["map_y"] = max(2, min(82, float(island.get("map_y", 20)) + (delta_y / max(1, creator_canvas_h * creator_zoom)) * 100))
+            islands[index] = island
+            current_profile["custom_islands"] = islands
+            persist(current_profile)
+            marker_ref = island_marker_refs.get(index)
+            if marker_ref and marker_ref.current:
+                marker_ref.current.scale = new_scale / max(0.01, start_scale)
+                marker_ref.current.update()
+
+        return _handler
+
+    def scale_end_island(index: int):
         def _handler(e):
             resize_positions.pop(index, None)
             _questions_path_render_creator(e.page, state)
@@ -17200,7 +17263,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                             on_pan_start=resize_start_island(idx),
                             on_pan_update=resize_island(idx),
                             on_pan_end=resize_end_island(idx),
-                            mouse_cursor=ft.MouseCursor.SE_RESIZE,
+                            mouse_cursor=ft.MouseCursor.RESIZE_DOWN_RIGHT,
                             drag_interval=6,
                             content=ft.Text("↘", size=14, color="white", weight="bold"),
                         ),
@@ -17219,6 +17282,9 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                     on_pan_start=drag_start_island(idx),
                     on_pan_update=drag_island(idx),
                     on_pan_end=drag_end_island(idx),
+                    on_scale_start=scale_start_island(idx),
+                    on_scale_update=scale_island(idx),
+                    on_scale_end=scale_end_island(idx),
                     on_tap=select_island(idx),
                     drag_interval=6,
                     mouse_cursor=ft.MouseCursor.MOVE,
