@@ -18571,6 +18571,20 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
 
         return _handler
 
+    def add_creative_island(e):
+        refreshed_profiles = get_questions_path_profiles(state)
+        refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else active_profile)
+        islands = creative_islands_for_profile(refreshed_profile)
+        if len(islands) >= 10:
+            e.page.snack_bar = ft.SnackBar(content=ft.Text("Maximal 10 eigene Inseln sind möglich."), open=True)
+            e.page.update()
+            return
+        islands.append(_questions_path_default_custom_island(len(islands)))
+        refreshed_profile["custom_islands"] = islands
+        refreshed_profile["progression_mode"] = "creative"
+        save_active_profile(refreshed_profile)
+        _questions_path_render_islands(e.page, state)
+
     def creative_islands_for_profile(profile: dict) -> list[dict]:
         islands: list[dict] = []
         for idx, raw_island in enumerate(list(profile.get("custom_islands", []) or [])):
@@ -18679,9 +18693,10 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                     height=height,
                     content=ft.GestureDetector(
                         on_tap=open_editor(map_key),
-                        on_long_press_start=start_island_drag(level_index),
-                        on_long_press_move_update=move_island_drag(level_index),
-                        on_long_press_end=end_island_drag(level_index),
+                        on_pan_start=start_island_drag(level_index),
+                        on_pan_update=move_island_drag(level_index),
+                        on_pan_end=end_island_drag(level_index),
+                        drag_interval=1,
                         mouse_cursor=ft.MouseCursor.MOVE,
                         content=ft.Container(
                             expand=True,
@@ -18725,7 +18740,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                                         ft.Text(map_cfg.get("title", "Insel"), size=24, weight="bold", color="white", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                                                         ft.Text(map_cfg.get("subtitle", ""), size=14, color="#D3E3EE", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                                                         ft.Text(f"{len(map_cfg.get('points', []))} Punkte", size=12, color=accent, weight="bold"),
-                                                        ft.Text("Kurz tippen zum Eintauchen, gedrückt halten zum Verschieben.", size=11, color="#A8C0D2"),
+                                                        ft.Text("Tippen zum Eintauchen, direkt ziehen zum Verschieben.", size=11, color="#A8C0D2"),
                                                     ],
                                                     spacing=4,
                                                     expand=True,
@@ -18857,6 +18872,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                         ft.Text("Fragen-Pfad", size=32, weight="bold", color="white"),
                                         ft.Row(
                                             [
+                                                _game_menu_button("+ Insel", add_creative_island, "#1D4ED8", width=130, height=40) if creative_mode else ft.Container(),
                                                 _questions_path_zoom_controls(state, "questions_path_map_zoom", lambda p, s: _questions_path_render_islands(p, s)),
                                                 _questions_path_island_chip(active_profile.get("name", f"Profil {active_index + 1}"), "#0F766E"),
                                             ],
@@ -18866,7 +18882,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
                                 ft.Text(
-                                    "Zoome mit Touch, Touchpad oder Mausrad direkt in die Karte. Im Kreativmodus tauchst du per Tipp in eine Insel ein und verschiebst sie per langem Druck.",
+                                    "Zoome mit Touch, Touchpad oder Mausrad direkt in die Karte. Im Kreativmodus tauchst du per Tipp in eine Insel ein und verschiebst sie direkt per Drag.",
                                     size=13,
                                     color=theme_txt(theme, "secondary"),
                                     text_align=ft.TextAlign.CENTER,
@@ -18927,7 +18943,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                 ft.Row(
                                     [
                                         _questions_path_island_chip("Bearbeitbar", "#0EA5E9") if creative_mode else _questions_path_island_chip("Aktiv", "#0EA5E9"),
-                                        _questions_path_island_chip("Abgeschlossen", "#16A34A") if not creative_mode else _questions_path_island_chip("Drag-Hold", "#16A34A"),
+                                        _questions_path_island_chip("Abgeschlossen", "#16A34A") if not creative_mode else _questions_path_island_chip("Drag", "#16A34A"),
                                         _questions_path_island_chip("Gesperrt", "#475569") if not creative_mode else _questions_path_island_chip("Tap = Eintauchen", "#475569"),
                                         _questions_path_island_chip(f"{len(visible_maps)} Inseln", "#334155"),
                                     ],
@@ -19593,6 +19609,7 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
     map_cards = []
     for map_key, cfg, is_custom in editor_maps:
         selected = (map_key == selected_map_key) if editing_island_index is None else False
+        preview_src = str(cfg.get("map_image_src") or cfg.get("image") or cfg.get("image_src") or "").strip()
         map_cards.append(
             ft.Container(
                 padding=14,
@@ -19602,6 +19619,37 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
                 on_click=apply_template(map_key),
                 content=ft.Column(
                     [
+                        ft.Container(
+                            height=110,
+                            border_radius=14,
+                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            bgcolor="#101827",
+                            content=ft.Stack(
+                                [
+                                    ft.Container(
+                                        expand=True,
+                                        gradient=ft.LinearGradient(
+                                            begin=ft.Alignment(-1, -1),
+                                            end=ft.Alignment(1, 1),
+                                            colors=[cfg.get("panel", "#0A1712E8"), "#132235", "#0B1020"],
+                                        ),
+                                    ),
+                                    ft.Container(
+                                        expand=True,
+                                        opacity=0.78,
+                                        content=ft.Image(src=preview_src, fit=ft.BoxFit.COVER, error_content=ft.Container()),
+                                    ) if preview_src else ft.Container(),
+                                    ft.Container(
+                                        left=10,
+                                        bottom=10,
+                                        padding=ft.Padding(8, 4, 8, 4),
+                                        border_radius=999,
+                                        bgcolor="#09131DD8",
+                                        content=ft.Text("Als Vorlage nutzen", size=10, color="white", weight="bold"),
+                                    ),
+                                ]
+                            ),
+                        ),
                         ft.Row(
                             [
                                 ft.Text(cfg.get("icon", "🗺️"), size=18),
@@ -19631,10 +19679,11 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
                 width=100,
                 height=94,
                 content=ft.GestureDetector(
-                    on_long_press_start=point_drag_start(idx),
-                    on_long_press_move_update=point_drag_update(idx),
-                    on_long_press_end=point_drag_end(idx),
+                    on_pan_start=point_drag_start(idx),
+                    on_pan_update=point_drag_update(idx),
+                    on_pan_end=point_drag_end(idx),
                     on_tap=set_active_point(idx),
+                    drag_interval=1,
                     mouse_cursor=ft.MouseCursor.MOVE,
                     content=ft.Column(
                         [
@@ -19703,7 +19752,7 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
                                         )
                                     ),
                                 ),
-                                ft.Text("Kurz tippen wählt einen Punkt aus. Gedrückt halten und ziehen verschiebt ihn sauber auf Maus und Touch.", size=12, color="#A8C0D2", text_align=ft.TextAlign.CENTER),
+                                ft.Text("Kurz tippen wählt einen Punkt aus. Direkt ziehen verschiebt ihn schnell auf Maus und Touch.", size=12, color="#A8C0D2", text_align=ft.TextAlign.CENTER),
                             ],
                             spacing=10,
                         ),
