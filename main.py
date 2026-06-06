@@ -6973,6 +6973,7 @@ QUESTIONS_PATH_MAPS = {
         "panel": "#0A1712E8",
         "border": "#38BDF8",
         "line": "#86EFAC",
+        "map_image_src": "Fragenpfad/weg_wald.png",
         "image": _questions_path_map_art_asset(),
         "points": _path_nodes(
             [(10, 39), (20, 32), (32, 28), (45, 24), (58, 26), (71, 31), (82, 39), (86, 52), (76, 67), (60, 75)],
@@ -16539,6 +16540,18 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
         if not list(profile.get("custom_islands", []) or []):
             profile["custom_islands"] = [_questions_path_default_custom_island(0)]
         save_active_profile(profile)
+        state["questions_path_creative_action"] = "play"
+        state["questions_path_scene"] = "islands"
+        show_questions_path_hub(e.page, state)
+
+    def edit_custom_game(e):
+        refreshed = get_questions_path_profiles(state)
+        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
+        profile["progression_mode"] = "creative"
+        if not list(profile.get("custom_islands", []) or []):
+            profile["custom_islands"] = [_questions_path_default_custom_island(0)]
+        save_active_profile(profile)
+        state["questions_path_creative_action"] = "edit"
         state["questions_path_scene"] = "islands"
         show_questions_path_hub(e.page, state)
 
@@ -16628,6 +16641,13 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
                                                             "Eigenes Spiel",
                                                             open_custom_menu,
                                                             "#1D4ED8",
+                                                            width=220,
+                                                            height=42,
+                                                        ),
+                                                        _game_menu_button(
+                                                            "Spiel bearbeiten",
+                                                            edit_custom_game,
+                                                            "#475569",
                                                             width=220,
                                                             height=42,
                                                         ),
@@ -18505,6 +18525,8 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
     active_index = get_questions_path_profile_index(state)
     active_profile = profiles[active_index] if active_index < len(profiles) else profiles[0]
     creative_mode = _questions_path_profile_mode(active_profile) == "creative"
+    creative_action = str(state.get("questions_path_creative_action", "edit")).strip().lower()
+    creative_edit_mode = creative_mode and creative_action != "play"
     page_w, page_h = _page_size(page)
     visible_maps = _questions_path_maps_for_profile(active_profile)
     base_canvas_w = max(2400, int(page_w * 1.6))
@@ -18566,6 +18588,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
             state["_questions_path_editor_island_key"] = map_key
             state["_questions_path_editor_map_key"] = map_key
             state["_questions_path_editor_point_index"] = 0
+            state["questions_path_creative_action"] = "edit"
             state["questions_path_scene"] = "editor"
             show_questions_path_hub(e.page, state)
 
@@ -18625,11 +18648,10 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
             current_drag = dict(drag_state.get(index) or {})
             if not current_drag:
                 return
-            delta = getattr(e, "local_offset_from_origin", None) or getattr(e, "offset_from_origin", None)
-            dx = float(getattr(delta, "x", 0.0) or 0.0)
-            dy = float(getattr(delta, "y", 0.0) or 0.0)
-            current_drag["map_x"] = max(2.0, min(88.0, float(current_drag.get("start_map_x", current_drag.get("map_x", 20))) + (dx / max(1.0, canvas_w * zoom)) * 100.0))
-            current_drag["map_y"] = max(2.0, min(82.0, float(current_drag.get("start_map_y", current_drag.get("map_y", 20))) + (dy / max(1.0, canvas_h * zoom)) * 100.0))
+            dx = float(getattr(e, "delta_x", 0.0) or 0.0)
+            dy = float(getattr(e, "delta_y", 0.0) or 0.0)
+            current_drag["map_x"] = max(2.0, min(88.0, float(current_drag.get("map_x", 20)) + (dx / max(1.0, canvas_w * zoom)) * 100.0))
+            current_drag["map_y"] = max(2.0, min(82.0, float(current_drag.get("map_y", 20)) + (dy / max(1.0, canvas_h * zoom)) * 100.0))
             drag_state[index] = current_drag
             state["_questions_path_island_drag_state"] = drag_state
             marker_ref = island_marker_refs.get(index)
@@ -18692,11 +18714,11 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                     width=width,
                     height=height,
                     content=ft.GestureDetector(
-                        on_tap=open_editor(map_key),
-                        on_pan_start=start_island_drag(level_index),
-                        on_pan_update=move_island_drag(level_index),
-                        on_pan_end=end_island_drag(level_index),
-                        drag_interval=1,
+                        on_tap=open_editor(map_key) if creative_edit_mode else open_level(map_key, level_index),
+                        on_pan_start=start_island_drag(level_index) if creative_edit_mode else None,
+                        on_pan_update=move_island_drag(level_index) if creative_edit_mode else None,
+                        on_pan_end=end_island_drag(level_index) if creative_edit_mode else None,
+                        drag_interval=1 if creative_edit_mode else 0,
                         mouse_cursor=ft.MouseCursor.MOVE,
                         content=ft.Container(
                             expand=True,
@@ -18740,7 +18762,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                                         ft.Text(map_cfg.get("title", "Insel"), size=24, weight="bold", color="white", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                                                         ft.Text(map_cfg.get("subtitle", ""), size=14, color="#D3E3EE", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                                                         ft.Text(f"{len(map_cfg.get('points', []))} Punkte", size=12, color=accent, weight="bold"),
-                                                        ft.Text("Tippen zum Eintauchen, direkt ziehen zum Verschieben.", size=11, color="#A8C0D2"),
+                                                        ft.Text("Tippen zum Eintauchen, direkt ziehen zum Verschieben." if creative_edit_mode else "Tippen startet deine eigene Inselrunde.", size=11, color="#A8C0D2"),
                                                     ],
                                                     spacing=4,
                                                     expand=True,
@@ -18872,7 +18894,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                         ft.Text("Fragen-Pfad", size=32, weight="bold", color="white"),
                                         ft.Row(
                                             [
-                                                _game_menu_button("+ Insel", add_creative_island, "#1D4ED8", width=130, height=40) if creative_mode else ft.Container(),
+                                                _game_menu_button("+ Insel", add_creative_island, "#1D4ED8", width=130, height=40) if creative_edit_mode else ft.Container(),
                                                 _questions_path_zoom_controls(state, "questions_path_map_zoom", lambda p, s: _questions_path_render_islands(p, s)),
                                                 _questions_path_island_chip(active_profile.get("name", f"Profil {active_index + 1}"), "#0F766E"),
                                             ],
@@ -18882,7 +18904,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
                                 ft.Text(
-                                    "Zoome mit Touch, Touchpad oder Mausrad direkt in die Karte. Im Kreativmodus tauchst du per Tipp in eine Insel ein und verschiebst sie direkt per Drag.",
+                                    "Zoome mit Touch, Touchpad oder Mausrad direkt in die Karte. Im Bearbeiten-Modus verschiebst du einzelne Inseln per Drag, im Spiel-Modus startest du sie per Tipp.",
                                     size=13,
                                     color=theme_txt(theme, "secondary"),
                                     text_align=ft.TextAlign.CENTER,
@@ -18893,7 +18915,57 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                     border_radius=28,
                                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                     bgcolor="#07101AE0",
-                                    content=_questions_path_interactive_viewer(
+                                    content=ft.Container(
+                                        alignment=ft.Alignment(0, 0),
+                                        content=ft.Container(
+                                            width=int(canvas_w * zoom),
+                                            height=int(canvas_h * zoom),
+                                            content=ft.Container(
+                                                width=canvas_w,
+                                                height=canvas_h,
+                                                scale=zoom,
+                                                animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
+                                                content=ft.Stack(
+                                                    [
+                                                        ft.Container(
+                                                            expand=True,
+                                                            gradient=ft.LinearGradient(
+                                                                begin=ft.Alignment(-1, -1),
+                                                                end=ft.Alignment(1, 1),
+                                                                colors=["#05131E", "#0A2A3C", "#08111D"],
+                                                            ),
+                                                        ),
+                                                        ft.Container(left=180, top=80, width=360, height=180, border_radius=999, bgcolor="#0EFFFFFF"),
+                                                        ft.Container(left=1220, top=760, width=520, height=220, border_radius=999, bgcolor="#0AFFFFFF"),
+                                                        ft.Container(right=220, top=120, width=420, height=200, border_radius=999, bgcolor="#0C7DD3FC"),
+                                                        *route_dots,
+                                                        *stage_items,
+                                                        ft.Container(
+                                                            visible=not visible_maps,
+                                                            expand=True,
+                                                            alignment=ft.Alignment(0, 0),
+                                                            content=ft.Container(
+                                                                width=480,
+                                                                padding=26,
+                                                                border_radius=28,
+                                                                bgcolor="#071019E8",
+                                                                border=ft.border.Border.all(1.8, "#38BDF8"),
+                                                                content=ft.Column(
+                                                                    [
+                                                                        ft.Text("Noch keine eigene Welt", size=30, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                                                                        ft.Text("Gehe auf `Spiel bearbeiten`, füge Inseln hinzu und ordne sie dann frei auf der Fläche an.", size=14, color="#D5E3EE", text_align=ft.TextAlign.CENTER),
+                                                                    ],
+                                                                    spacing=10,
+                                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                                ),
+                                                            ),
+                                                        ),
+                                                    ],
+                                                    expand=True,
+                                                ),
+                                            ),
+                                        ),
+                                    ) if creative_mode else _questions_path_interactive_viewer(
                                         ft.Container(
                                             width=canvas_w,
                                             height=canvas_h,
@@ -18914,26 +18986,6 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                                     ft.Container(right=220, top=120, width=420, height=200, border_radius=999, bgcolor="#0C7DD3FC"),
                                                     *route_dots,
                                                     *stage_items,
-                                                    ft.Container(
-                                                        visible=not visible_maps,
-                                                        expand=True,
-                                                        alignment=ft.Alignment(0, 0),
-                                                        content=ft.Container(
-                                                            width=480,
-                                                            padding=26,
-                                                            border_radius=28,
-                                                            bgcolor="#071019E8",
-                                                            border=ft.border.Border.all(1.8, "#38BDF8"),
-                                                            content=ft.Column(
-                                                                [
-                                                                    ft.Text("Noch keine eigene Welt", size=30, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                                                                    ft.Text("Gehe auf `Eigenes Spiel erstellen`, füge Inseln hinzu und starte danach dein eigenes Spiel.", size=14, color="#D5E3EE", text_align=ft.TextAlign.CENTER),
-                                                                ],
-                                                                spacing=10,
-                                                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                                            ),
-                                                        ),
-                                                    ),
                                                 ],
                                                 expand=True,
                                             ),
@@ -18943,8 +18995,8 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                 ft.Row(
                                     [
                                         _questions_path_island_chip("Bearbeitbar", "#0EA5E9") if creative_mode else _questions_path_island_chip("Aktiv", "#0EA5E9"),
-                                        _questions_path_island_chip("Abgeschlossen", "#16A34A") if not creative_mode else _questions_path_island_chip("Drag", "#16A34A"),
-                                        _questions_path_island_chip("Gesperrt", "#475569") if not creative_mode else _questions_path_island_chip("Tap = Eintauchen", "#475569"),
+                                        _questions_path_island_chip("Abgeschlossen", "#16A34A") if not creative_mode else _questions_path_island_chip("Drag" if creative_edit_mode else "Spiel", "#16A34A"),
+                                        _questions_path_island_chip("Gesperrt", "#475569") if not creative_mode else _questions_path_island_chip("Tap = Eintauchen" if creative_edit_mode else "Tap = Start", "#475569"),
                                         _questions_path_island_chip(f"{len(visible_maps)} Inseln", "#334155"),
                                     ],
                                     spacing=10,
@@ -19566,11 +19618,10 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
             current_drag = dict(drag_state.get(idx) or {})
             if not current_drag:
                 return
-            delta = getattr(e, "local_offset_from_origin", None) or getattr(e, "offset_from_origin", None)
-            dx = float(getattr(delta, "x", 0.0) or 0.0)
-            dy = float(getattr(delta, "y", 0.0) or 0.0)
-            current_drag["x"] = max(2.0, min(96.0, float(current_drag.get("start_x", current_drag.get("x", 10))) + (dx / max(1.0, base_canvas_w * zoom)) * 100.0))
-            current_drag["y"] = max(2.0, min(96.0, float(current_drag.get("start_y", current_drag.get("y", 10))) + (dy / max(1.0, base_canvas_h * zoom)) * 100.0))
+            dx = float(getattr(e, "delta_x", 0.0) or 0.0)
+            dy = float(getattr(e, "delta_y", 0.0) or 0.0)
+            current_drag["x"] = max(2.0, min(96.0, float(current_drag.get("x", 10)) + (dx / max(1.0, base_canvas_w * zoom)) * 100.0))
+            current_drag["y"] = max(2.0, min(96.0, float(current_drag.get("y", 10)) + (dy / max(1.0, base_canvas_h * zoom)) * 100.0))
             drag_state[idx] = current_drag
             state["_questions_path_editor_drag"] = drag_state
             marker_ref = point_marker_refs.get(idx)
@@ -19736,23 +19787,28 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
                                     border_radius=28,
                                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                     bgcolor="#07101AE0",
-                                    content=_questions_path_interactive_viewer(
-                                        ft.Container(
-                                            width=base_canvas_w,
-                                            height=base_canvas_h,
-                                            scale=zoom,
-                                            content=ft.Stack(
-                                                [
-                                                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"])),
-                                                    ft.Container(expand=True, opacity=0.36, content=ft.Image(src=map_cfg.get("map_image_src") or map_cfg.get("image", ""), fit=ft.BoxFit.COVER, error_content=ft.Container()) if (map_cfg.get("map_image_src") or map_cfg.get("image")) else ft.Container()),
-                                                    *point_markers,
-                                                ],
-                                                expand=True,
+                                    content=ft.Container(
+                                        alignment=ft.Alignment(0, 0),
+                                        content=ft.Container(
+                                            width=int(base_canvas_w * zoom),
+                                            height=int(base_canvas_h * zoom),
+                                            content=ft.Container(
+                                                width=base_canvas_w,
+                                                height=base_canvas_h,
+                                                scale=zoom,
+                                                content=ft.Stack(
+                                                    [
+                                                        ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"])),
+                                                        ft.Container(expand=True, opacity=0.86, content=ft.Image(src=map_cfg.get("map_image_src") or map_cfg.get("image", ""), fit=ft.BoxFit.COVER, error_content=ft.Container()) if (map_cfg.get("map_image_src") or map_cfg.get("image")) else ft.Container()),
+                                                        *point_markers,
+                                                    ],
+                                                    expand=True,
+                                                ),
                                             ),
-                                        )
+                                        ),
                                     ),
                                 ),
-                                ft.Text("Kurz tippen wählt einen Punkt aus. Direkt ziehen verschiebt ihn schnell auf Maus und Touch.", size=12, color="#A8C0D2", text_align=ft.TextAlign.CENTER),
+                                ft.Text("Punkt antippen zum Markieren. Danach mit Maus oder Finger gedrückt halten und direkt an die gewünschte Stelle ziehen.", size=12, color="#A8C0D2", text_align=ft.TextAlign.CENTER),
                             ],
                             spacing=10,
                         ),
