@@ -1095,6 +1095,8 @@ def _questions_path_default_profile(index: int) -> dict:
         "active_level_index": 0,
         "active_game": None,
         "custom_islands": [],
+        "custom_maps": [],
+        "map_overrides": {},
         "custom_designs": [],
         "level_progress": {
             map_key: _questions_path_default_level_state() for map_key in QUESTIONS_PATH_LEVEL_ORDER
@@ -1157,6 +1159,61 @@ def ensure_questions_path_defaults(user: dict):
                     island["custom_points"] = cleaned_points
                 normalized_islands.append(island)
             profile["custom_islands"] = normalized_islands
+        map_overrides = raw.get("map_overrides", {})
+        if isinstance(map_overrides, dict):
+            cleaned_overrides = {}
+            for map_key, raw_map in list(map_overrides.items()):
+                if not isinstance(raw_map, dict):
+                    continue
+                map_cfg = dict(QUESTIONS_PATH_MAPS.get(str(map_key), _questions_path_default_custom_map(0)))
+                map_cfg.update(raw_map)
+                map_cfg["map_key"] = str(map_key)
+                map_cfg["title"] = str(map_cfg.get("title", f"Map {map_key}")).strip() or f"Map {map_key}"
+                map_cfg["subtitle"] = str(map_cfg.get("subtitle", "Eigener Hintergrund mit frei platzierbaren Punkten.")).strip() or "Eigener Hintergrund mit frei platzierbaren Punkten."
+                map_cfg["image"] = str(map_cfg.get("image", "")).strip()
+                map_cfg["map_image_src"] = str(map_cfg.get("map_image_src", "")).strip()
+                map_cfg["topic"] = str(map_cfg.get("topic", "custom")).strip() or "custom"
+                points = list(map_cfg.get("points", []) or [])
+                cleaned_points = []
+                for point_idx, raw_point in enumerate(points[:20]):
+                    if not isinstance(raw_point, dict):
+                        continue
+                    cleaned_points.append(
+                        {
+                            "x": max(2, min(96, int(raw_point.get("x", 10) or 10))),
+                            "y": max(2, min(96, int(raw_point.get("y", 10) or 10))),
+                            "label": str(raw_point.get("label", f"Punkt {point_idx + 1}")).strip() or f"Punkt {point_idx + 1}",
+                        }
+                    )
+                map_cfg["points"] = cleaned_points or _path_nodes([(50, 55)], ["Start"])
+                questions = list(map_cfg.get("questions", []) or [])
+                map_cfg["questions"] = [_path_question_to_dict(q) for q in questions[:20]] or [_questions_path_default_custom_question(0)]
+                cleaned_overrides[str(map_key)] = map_cfg
+            profile["map_overrides"] = cleaned_overrides
+        else:
+            profile["map_overrides"] = {}
+        custom_maps = raw.get("custom_maps", [])
+        if isinstance(custom_maps, list):
+            normalized_maps = []
+            for map_idx, raw_map in enumerate(custom_maps[:12]):
+                if not isinstance(raw_map, dict):
+                    continue
+                map_cfg = _questions_path_default_custom_map(map_idx)
+                map_cfg.update(dict(raw_map))
+                map_cfg["map_key"] = str(map_cfg.get("map_key", f"custom_map_{map_idx + 1}")).strip() or f"custom_map_{map_idx + 1}"
+                map_cfg["title"] = str(map_cfg.get("title", f"Eigene Map {map_idx + 1}")).strip() or f"Eigene Map {map_idx + 1}"
+                map_cfg["subtitle"] = str(map_cfg.get("subtitle", "Eigener Hintergrund mit frei platzierbaren Punkten.")).strip() or "Eigener Hintergrund mit frei platzierbaren Punkten."
+                map_cfg["image"] = str(map_cfg.get("image", "")).strip()
+                map_cfg["map_image_src"] = str(map_cfg.get("map_image_src", "")).strip()
+                map_cfg["topic"] = "custom"
+                map_cfg["points"] = list(map_cfg.get("points", []) or [])
+                if not map_cfg["points"]:
+                    map_cfg["points"] = _path_nodes([(50, 55)], ["Start"])
+                map_cfg["questions"] = [_path_question_to_dict(q) for q in list(map_cfg.get("questions", []) or [])[:20]] or [_questions_path_default_custom_question(0)]
+                normalized_maps.append(map_cfg)
+            profile["custom_maps"] = normalized_maps
+        else:
+            profile["custom_maps"] = []
         custom_designs = raw.get("custom_designs", [])
         if isinstance(custom_designs, list):
             profile["custom_designs"] = [str(item).strip() for item in custom_designs if str(item).strip()][:12]
@@ -7126,6 +7183,25 @@ def _questions_path_default_custom_island(index: int = 0) -> dict:
     }
 
 
+def _questions_path_default_custom_map(index: int = 0) -> dict:
+    theme = QUESTIONS_PATH_CREATIVE_THEMES[index % len(QUESTIONS_PATH_CREATIVE_THEMES)]
+    return {
+        "map_key": f"custom_map_{index + 1}",
+        "title": f"Eigene Map {index + 1}",
+        "subtitle": "Eigener Hintergrund mit frei platzierbaren Punkten.",
+        "topic": "custom",
+        "icon": "🗺️",
+        "image": "",
+        "map_image_src": "",
+        "accent": theme["accent"],
+        "panel": theme["panel"],
+        "border": theme["border"],
+        "line": theme["line"],
+        "points": [_path_nodes([(50, 55)], ["Start"])[0]],
+        "questions": [_questions_path_default_custom_question(0)],
+    }
+
+
 QUESTIONS_PATH_WORLD_LAYOUTS = {
     "classic": {"label": "Klassischer Pfad", "points": _path_nodes([(10, 62), (20, 48), (31, 32), (42, 22), (55, 28), (67, 44), (77, 60), (69, 76), (51, 82), (32, 74)], ["Start", "Tor", "Pfad", "Brücke", "Hain", "Lichtung", "Bucht", "Gipfel", "Finale", "Ziel"])},
     "spiral": {"label": "Spiralroute", "points": _path_nodes([(18, 18), (34, 18), (50, 26), (62, 40), (65, 56), (58, 69), (45, 76), (31, 72), (22, 60), (24, 42)], ["Start", "Tor", "Kurve", "Bogen", "Mitte", "Schleife", "Wende", "Rückweg", "Finale", "Ziel"])},
@@ -7272,6 +7348,47 @@ def _questions_path_map_lookup_for_profile(profile: dict, map_key: str) -> dict:
         if visible_key == map_key:
             return map_cfg
     return QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"])
+
+
+def _questions_path_editor_map_lookup(profile: dict, map_key: str) -> dict:
+    map_overrides = profile.get("map_overrides", {})
+    if isinstance(map_overrides, dict) and map_key in map_overrides and isinstance(map_overrides[map_key], dict):
+        return dict(map_overrides[map_key])
+    custom_maps = list(profile.get("custom_maps", []) or [])
+    for item in custom_maps:
+        if isinstance(item, dict) and str(item.get("map_key", "")).strip() == map_key:
+            return dict(item)
+    return dict(QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"]))
+
+
+def _questions_path_editor_maps_for_profile(profile: dict) -> list[tuple[str, dict, bool]]:
+    maps: list[tuple[str, dict, bool]] = []
+    for map_key in QUESTIONS_PATH_LEVEL_ORDER:
+        maps.append((map_key, _questions_path_editor_map_lookup(profile, map_key), False))
+    for item in list(profile.get("custom_maps", []) or []):
+        if isinstance(item, dict):
+            map_key = str(item.get("map_key", "")).strip()
+            if map_key:
+                maps.append((map_key, _questions_path_editor_map_lookup(profile, map_key), True))
+    return maps
+
+
+def _questions_path_editor_save_map(profile: dict, map_key: str, map_cfg: dict):
+    map_cfg = dict(map_cfg)
+    map_cfg["map_key"] = map_key
+    if map_key in QUESTIONS_PATH_MAPS:
+        overrides = dict(profile.get("map_overrides", {}) or {})
+        overrides[map_key] = map_cfg
+        profile["map_overrides"] = overrides
+        return
+    custom_maps = list(profile.get("custom_maps", []) or [])
+    for idx, item in enumerate(custom_maps):
+        if isinstance(item, dict) and str(item.get("map_key", "")).strip() == map_key:
+            custom_maps[idx] = map_cfg
+            profile["custom_maps"] = custom_maps
+            return
+    custom_maps.append(map_cfg)
+    profile["custom_maps"] = custom_maps[-12:]
 
 
 def _questions_path_profile_mode(profile: dict) -> str:
@@ -17928,7 +18045,7 @@ def _questions_path_render_custom_menu(page: ft.Page, state: dict):
         profile["progression_mode"] = "creative"
         save_world(profile_index, profile)
         set_questions_path_profile_index(state, profile_index)
-        state["questions_path_scene"] = "creator" if edit else "islands"
+        state["questions_path_scene"] = "editor" if edit else "islands"
         show_questions_path_hub(e.page, state)
 
     def play_world(profile_index: int):
@@ -18912,6 +19029,390 @@ def render_questions_path_complete(page: ft.Page, state: dict):
     page.run_task(_sync_bg_music_async, page, state)
 
 
+def _questions_path_render_editor(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    profiles = get_questions_path_profiles(state)
+    if not profiles:
+        profiles = [_questions_path_default_profile(0)]
+        persist_questions_path_profiles(state, profiles)
+    state["questions_path_profiles"] = profiles
+    active_index = get_questions_path_profile_index(state)
+    active_profile = profiles[active_index] if active_index < len(profiles) else _questions_path_default_profile(0)
+
+    editor_maps = _questions_path_editor_maps_for_profile(active_profile)
+    if not editor_maps:
+        editor_maps = [("waldpfad", QUESTIONS_PATH_MAPS["waldpfad"], False)]
+
+    selected_map_key = str(state.get("_questions_path_editor_map_key") or editor_maps[0][0]).strip() or editor_maps[0][0]
+    map_cfg = _questions_path_editor_map_lookup(active_profile, selected_map_key)
+    if selected_map_key not in {key for key, _, _ in editor_maps}:
+        selected_map_key = editor_maps[0][0]
+        map_cfg = _questions_path_editor_map_lookup(active_profile, selected_map_key)
+    state["_questions_path_editor_map_key"] = selected_map_key
+
+    page_w, page_h = _page_size(page)
+    card_w = max(320, int(page_w - 24))
+    card_h = max(520, int(page_h - 160))
+    base_canvas_w = max(1600, int(page_w * 1.25))
+    base_canvas_h = max(1100, int(page_h * 1.08))
+    fit_zoom = round(max(0.45, min(1.0, min(max(1, page_w - 40) / base_canvas_w, max(1, page_h - 220) / base_canvas_h))), 2)
+    zoom = max(0.45, min(2.2, float(state.get("questions_path_editor_zoom", fit_zoom) or fit_zoom)))
+    state["questions_path_editor_zoom"] = zoom
+
+    point_index = max(0, int(state.get("_questions_path_editor_point_index", 0) or 0))
+    points = list(map_cfg.get("points", []) or [])
+    if not points:
+        points = _path_nodes([(50, 55)], ["Start"])
+    point_index = max(0, min(point_index, len(points) - 1))
+    state["_questions_path_editor_point_index"] = point_index
+    active_point = dict(points[point_index])
+
+    question_ref = ft.Ref[ft.TextField]()
+    answer_refs = [ft.Ref[ft.TextField]() for _ in range(4)]
+    correct_ref = ft.Ref[ft.Dropdown]()
+    map_title_ref = ft.Ref[ft.TextField]()
+    map_subtitle_ref = ft.Ref[ft.TextField]()
+
+    def save_map(mutator):
+        refreshed_profiles = get_questions_path_profiles(state)
+        refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else active_profile)
+        current_map = dict(_questions_path_editor_map_lookup(refreshed_profile, selected_map_key))
+        mutator(current_map)
+        _questions_path_editor_save_map(refreshed_profile, selected_map_key, current_map)
+        refreshed_profiles[active_index] = refreshed_profile
+        persist_questions_path_profiles(state, refreshed_profiles)
+        state["questions_path_profiles"] = refreshed_profiles
+
+    def select_map(map_key: str):
+        def _handler(e):
+            state["_questions_path_editor_map_key"] = map_key
+            state["_questions_path_editor_point_index"] = 0
+            _questions_path_render_editor(e.page, state)
+
+        return _handler
+
+    def set_active_point(index: int):
+        def _handler(e):
+            state["_questions_path_editor_point_index"] = index
+            _questions_path_render_editor(e.page, state)
+
+        return _handler
+
+    def ensure_points_list(raw_map: dict) -> list[dict]:
+        pts = list(raw_map.get("points", []) or [])
+        if not pts:
+            pts = _path_nodes([(50, 55)], ["Start"])
+        cleaned = []
+        for idx, p in enumerate(pts[:20]):
+            if not isinstance(p, dict):
+                continue
+            cleaned.append(
+                {
+                    "x": max(2, min(96, int(p.get("x", 10) or 10))),
+                    "y": max(2, min(96, int(p.get("y", 10) or 10))),
+                    "label": str(p.get("label", f"Punkt {idx + 1}")).strip() or f"Punkt {idx + 1}",
+                }
+            )
+        return cleaned or _path_nodes([(50, 55)], ["Start"])
+
+    def add_point(e):
+        def _mutate(raw_map):
+            raw_points = ensure_points_list(raw_map)
+            raw_points.append({"x": 50 if not raw_points else max(8, min(92, raw_points[-1]["x"] + 6)), "y": 55 if not raw_points else max(8, min(92, raw_points[-1]["y"] + 4)), "label": f"Punkt {len(raw_points) + 1}"})
+            raw_map["points"] = raw_points[:20]
+            raw_questions = list(raw_map.get("questions", []) or [])
+            raw_questions.append(_questions_path_default_custom_question(len(raw_questions)))
+            raw_map["questions"] = raw_questions[:20]
+
+        save_map(_mutate)
+        state["_questions_path_editor_point_index"] = max(0, len(ensure_points_list(_questions_path_editor_map_lookup(active_profile, selected_map_key))) - 1)
+        _questions_path_render_editor(e.page, state)
+
+    def remove_point(e):
+        def _mutate(raw_map):
+            raw_points = ensure_points_list(raw_map)
+            if len(raw_points) <= 1:
+                return
+            idx = max(0, min(int(state.get("_questions_path_editor_point_index", 0) or 0), len(raw_points) - 1))
+            raw_points.pop(idx)
+            raw_map["points"] = raw_points
+            raw_questions = list(raw_map.get("questions", []) or [])
+            if idx < len(raw_questions) and len(raw_questions) > 1:
+                raw_questions.pop(idx)
+            raw_map["questions"] = raw_questions or [_questions_path_default_custom_question(0)]
+
+        save_map(_mutate)
+        state["_questions_path_editor_point_index"] = max(0, point_index - 1)
+        _questions_path_render_editor(e.page, state)
+
+    async def pick_custom_map_task(page_obj: ft.Page):
+        rel_path = await _questions_path_pick_and_store_image(page_obj, "custom_map")
+        if not rel_path:
+            return
+        refreshed_profiles = get_questions_path_profiles(state)
+        refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else active_profile)
+        custom_maps = list(refreshed_profile.get("custom_maps", []) or [])
+        new_map = _questions_path_default_custom_map(len(custom_maps))
+        new_map["map_key"] = f"custom_map_{len(custom_maps) + 1}"
+        new_map["title"] = f"Eigene Map {len(custom_maps) + 1}"
+        new_map["map_image_src"] = rel_path
+        new_map["image"] = rel_path
+        new_map["points"] = _path_nodes([(50, 55)], ["Start"])
+        custom_maps.append(new_map)
+        refreshed_profile["custom_maps"] = custom_maps
+        refreshed_profiles[active_index] = refreshed_profile
+        persist_questions_path_profiles(state, refreshed_profiles)
+        state["questions_path_profiles"] = get_questions_path_profiles(state)
+        state["_questions_path_editor_map_key"] = new_map["map_key"]
+        state["_questions_path_editor_point_index"] = 0
+        _questions_path_render_editor(page_obj, state)
+
+    def pick_custom_map(e):
+        e.page.run_task(pick_custom_map_task, e.page)
+
+    def save_point_details(e):
+        def _mutate(raw_map):
+            raw_points = ensure_points_list(raw_map)
+            idx = max(0, min(int(state.get("_questions_path_editor_point_index", 0) or 0), len(raw_points) - 1))
+            raw_questions = list(raw_map.get("questions", []) or [])
+            while len(raw_questions) < len(raw_points):
+                raw_questions.append(_questions_path_default_custom_question(len(raw_questions)))
+            if idx < len(raw_points):
+                raw_points[idx]["label"] = str(map_title_ref.current.value or raw_points[idx].get("label", f"Punkt {idx + 1}")).strip() or f"Punkt {idx + 1}"
+                raw_points[idx]["x"] = max(2, min(96, int(raw_points[idx].get("x", 10) or 10)))
+                raw_points[idx]["y"] = max(2, min(96, int(raw_points[idx].get("y", 10) or 10)))
+            raw_map["points"] = raw_points
+            if idx < len(raw_questions):
+                q = dict(raw_questions[idx])
+                q["question"] = str(question_ref.current.value or q.get("question", "")).strip() or q.get("question", "Frage")
+                answers = []
+                existing_answers = list(q.get("answers", []) or [])
+                while len(existing_answers) < 4:
+                    existing_answers.append("")
+                for answer_idx, ref in enumerate(answer_refs):
+                    value = str(ref.current.value or "").strip() if ref.current else ""
+                    answers.append(value or existing_answers[answer_idx] or f"Antwort {ANSWER_LETTERS[answer_idx]}")
+                q["answers"] = answers[:4]
+                q["correct_idx"] = int(correct_ref.current.value or q.get("correct_idx", 0)) if correct_ref.current else int(q.get("correct_idx", 0))
+                raw_questions[idx] = q
+            raw_map["questions"] = raw_questions
+
+        save_map(_mutate)
+        _questions_path_render_editor(e.page, state)
+
+    def move_point(point_idx: int, dx: float, dy: float):
+        def _handler(e):
+            def _mutate(raw_map):
+                raw_points = ensure_points_list(raw_map)
+                if point_idx < len(raw_points):
+                    raw_points[point_idx]["x"] = max(2, min(96, int(raw_points[point_idx].get("x", 10) + dx)))
+                    raw_points[point_idx]["y"] = max(2, min(96, int(raw_points[point_idx].get("y", 10) + dy)))
+                    raw_map["points"] = raw_points
+
+            save_map(_mutate)
+            _questions_path_render_editor(e.page, state)
+
+        return _handler
+
+    def drag_point_start(idx: int):
+        def _handler(e):
+            state["_questions_path_editor_point_index"] = idx
+            state.setdefault("_questions_path_editor_drag", {})[idx] = {
+                "x": float(active_point.get("x", 10)),
+                "y": float(active_point.get("y", 10)),
+            }
+
+        return _handler
+
+    def drag_point_update(idx: int):
+        def _handler(e):
+            refreshed_profiles = get_questions_path_profiles(state)
+            refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else active_profile)
+            raw_map = dict(_questions_path_editor_map_lookup(refreshed_profile, selected_map_key))
+            raw_points = ensure_points_list(raw_map)
+            if idx >= len(raw_points):
+                return
+            delta_x = float(getattr(e, "delta_x", 0.0) or 0.0)
+            delta_y = float(getattr(e, "delta_y", 0.0) or 0.0)
+            raw_points[idx]["x"] = max(2, min(96, int(raw_points[idx].get("x", 10) + (delta_x / max(1, base_canvas_w * zoom)) * 100)))
+            raw_points[idx]["y"] = max(2, min(96, int(raw_points[idx].get("y", 10) + (delta_y / max(1, base_canvas_h * zoom)) * 100)))
+            raw_map["points"] = raw_points
+            _questions_path_editor_save_map(refreshed_profile, selected_map_key, raw_map)
+            refreshed_profiles[active_index] = refreshed_profile
+            persist_questions_path_profiles(state, refreshed_profiles)
+            state["questions_path_profiles"] = get_questions_path_profiles(state)
+            _questions_path_render_editor(e.page, state)
+
+        return _handler
+
+    def drag_point_end(idx: int):
+        def _handler(e):
+            state.pop("_questions_path_editor_drag", None)
+            _questions_path_render_editor(e.page, state)
+
+        return _handler
+
+    current_questions = list(map_cfg.get("questions", []) or [])
+    while len(current_questions) < len(points):
+        current_questions.append(_questions_path_default_custom_question(len(current_questions)))
+    active_question = dict(current_questions[point_index]) if current_questions else _questions_path_default_custom_question(0)
+    active_answers = list(active_question.get("answers", []) or [])
+    while len(active_answers) < 4:
+        active_answers.append("")
+    map_cards = []
+    for map_key, cfg, is_custom in editor_maps:
+        selected = map_key == selected_map_key
+        map_cards.append(
+            ft.Container(
+                padding=14,
+                border_radius=18,
+                bgcolor="#0C1723F0" if selected else "#08111BF0",
+                border=ft.border.Border.all(2, cfg.get("accent", "#38BDF8") if selected else "#233244"),
+                on_click=select_map(map_key),
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Text(cfg.get("icon", "🗺️"), size=18),
+                                ft.Text(cfg.get("title", map_key), size=16, weight="bold", color="white"),
+                            ],
+                            spacing=8,
+                        ),
+                        ft.Text(cfg.get("subtitle", ""), size=11, color="#A8C0D2"),
+                        ft.Text(f"{len(cfg.get('points', []) or [])} Punkte", size=11, color=cfg.get("accent", "#38BDF8")),
+                    ],
+                    spacing=6,
+                ),
+            )
+        )
+
+    point_markers = []
+    for idx, point in enumerate(points):
+        left = int(base_canvas_w * (point["x"] / 100.0)) - 32
+        top = int(base_canvas_h * (point["y"] / 100.0)) - 32
+        point_markers.append(
+            ft.Container(
+                left=left,
+                top=top,
+                width=64,
+                height=64,
+                content=ft.GestureDetector(
+                    on_pan_start=drag_point_start(idx),
+                    on_pan_update=drag_point_update(idx),
+                    on_pan_end=drag_point_end(idx),
+                    on_tap=set_active_point(idx),
+                    drag_interval=4,
+                    mouse_cursor=ft.MouseCursor.MOVE,
+                    content=ft.Container(
+                        border_radius=999,
+                        bgcolor="#EC4899" if idx == point_index else "#0EA5E9",
+                        border=ft.border.Border.all(3, "#FCE7F3" if idx == point_index else "#DBEAFE"),
+                        content=ft.Container(alignment=ft.Alignment(0, 0), content=ft.Text(str(idx + 1), size=20, weight="bold", color="#08131F")),
+                    ),
+                ),
+            )
+        )
+        point_markers.append(
+            ft.Container(
+                left=left - 18,
+                top=top + 68,
+                width=100,
+                alignment=ft.Alignment(0, 0),
+                content=ft.Text(point.get("label", f"Punkt {idx + 1}"), size=10, color="white", text_align=ft.TextAlign.CENTER),
+            )
+        )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Row(
+                [
+                    ft.Container(
+                        expand=True,
+                        padding=12,
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        _game_menu_button("← Inselkarte", lambda e: (state.__setitem__("questions_path_scene", "islands"), show_questions_path_hub(e.page, state)), "#475569", width=170, height=40),
+                                        ft.Text("Fragen-Pfad", size=32, weight="bold", color="white"),
+                                        ft.Row(
+                                            [
+                                                _questions_path_zoom_controls(state, "questions_path_editor_zoom", lambda p, s: _questions_path_render_editor(p, s)),
+                                                _questions_path_island_chip(map_cfg.get("title", "Map"), map_cfg.get("accent", "#38BDF8")),
+                                            ],
+                                            spacing=10,
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
+                                ft.Text(map_cfg.get("subtitle", ""), size=13, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                                ft.Container(
+                                    expand=True,
+                                    border_radius=28,
+                                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                    bgcolor="#07101AE0",
+                                    content=_questions_path_interactive_viewer(
+                                        ft.Container(
+                                            width=base_canvas_w,
+                                            height=base_canvas_h,
+                                            scale=zoom,
+                                            content=ft.Stack(
+                                                [
+                                                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"])),
+                                                    ft.Container(expand=True, opacity=0.36, content=ft.Image(src=map_cfg.get("map_image_src") or map_cfg.get("image", ""), fit=ft.BoxFit.COVER, error_content=ft.Container()) if (map_cfg.get("map_image_src") or map_cfg.get("image")) else ft.Container()),
+                                                    *point_markers,
+                                                ],
+                                                expand=True,
+                                            ),
+                                        )
+                                    ),
+                                ),
+                                ft.Text("Punkte kannst du per Drag bewegen und rechts die Fragen bearbeiten.", size=12, color="#A8C0D2", text_align=ft.TextAlign.CENTER),
+                            ],
+                            spacing=10,
+                        ),
+                    ),
+                    ft.Container(
+                        width=390,
+                        padding=12,
+                        content=ft.Column(
+                            [
+                                ft.Text("Maps", size=20, weight="bold", color="white"),
+                                ft.Container(height=220, content=ft.Column(map_cards, spacing=10, scroll=ft.ScrollMode.AUTO)),
+                                _game_menu_button("Eigene Map hinzufügen", pick_custom_map, "#1D4ED8", width=280, height=40),
+                                ft.Row([
+                                    _game_menu_button("Punkt hinzufügen", add_point, "#0F766E", width=130, height=40),
+                                    _game_menu_button("Punkt löschen", remove_point, "#7C2D12", width=130, height=40),
+                                ], spacing=10),
+                                ft.Divider(color="#243244"),
+                                ft.TextField(ref=map_title_ref, value=active_point.get("label", ""), label="Punktname", bgcolor="#111827", color="white", border_color="#334155"),
+                                ft.TextField(ref=question_ref, value=active_question.get("question", ""), label="Frage", bgcolor="#111827", color="white", border_color="#334155"),
+                                ft.Row([
+                                    ft.TextField(ref=answer_refs[0], value=active_answers[0], label="Antwort A", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                    ft.TextField(ref=answer_refs[1], value=active_answers[1], label="Antwort B", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                ], spacing=8),
+                                ft.Row([
+                                    ft.TextField(ref=answer_refs[2], value=active_answers[2], label="Antwort C", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                    ft.TextField(ref=answer_refs[3], value=active_answers[3], label="Antwort D", bgcolor="#111827", color="white", border_color="#334155", expand=True),
+                                ], spacing=8),
+                                ft.Dropdown(ref=correct_ref, value=str(int(active_question.get("correct_idx", 0) or 0)), label="Richtige Antwort", bgcolor="#111827", color="white", border_color="#334155", options=[ft.dropdown.Option(str(i), text=f"{ANSWER_LETTERS[i]}") for i in range(4)]),
+                                _game_menu_button("Speichern", save_point_details, "#0F766E", width=180, height=42),
+                            ],
+                            spacing=10,
+                            scroll=ft.ScrollMode.AUTO,
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
 def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
     profiles = get_questions_path_profiles(state)
     profile_index = get_questions_path_profile_index(state)
@@ -18974,6 +19475,9 @@ def render_questions_path_game(page: ft.Page, state: dict):
     if scene == "level":
         _questions_path_render_level(page, state)
         return
+    if scene == "editor":
+        _questions_path_render_editor(page, state)
+        return
     if scene == "complete":
         render_questions_path_complete(page, state)
         return
@@ -18991,6 +19495,8 @@ def show_questions_path_hub(page: ft.Page, state: dict):
         _questions_path_render_creator(page, state)
     elif scene == "level":
         _questions_path_render_level(page, state)
+    elif scene == "editor":
+        _questions_path_render_editor(page, state)
     elif scene == "complete":
         render_questions_path_complete(page, state)
     else:
