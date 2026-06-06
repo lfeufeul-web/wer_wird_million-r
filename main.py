@@ -17652,6 +17652,7 @@ def _questions_path_render_custom_menu(page: ft.Page, state: dict):
         state["questions_path_profiles"] = profiles
     active_index = get_questions_path_profile_index(state)
     active_profile = profiles[active_index] if active_index < len(profiles) else _questions_path_default_profile(0)
+    theme = get_theme(state)
 
     world_name_ref = ft.Ref[ft.TextField]()
     world_create_dialog_open = bool(state.get("_questions_path_create_world_dialog", False))
@@ -17797,7 +17798,7 @@ def _questions_path_render_custom_menu(page: ft.Page, state: dict):
                                     ),
                                     ft.Text("Hier verwaltest du deine Welten. Spielen öffnet die aktuelle Welt, Bearbeiten bringt dich in den Editor.", size=13, color="#B8CBD8", text_align=ft.TextAlign.CENTER),
                                     ft.Container(height=4),
-                                    ft.Text("Meine Welten", size=18, weight="bold", color=theme["gold"], text_align=ft.TextAlign.LEFT),
+                                    ft.Text("Meine Welten", size=18, weight="bold", color=theme_value(theme, "gold", "#F6C453"), text_align=ft.TextAlign.LEFT),
                                     ft.Container(
                                         expand=True,
                                         content=ft.Column(
