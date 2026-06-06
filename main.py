@@ -16993,8 +16993,9 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             drag_positions[index] = current_drag
             marker_ref = island_marker_refs.get(index)
             if marker_ref and marker_ref.current:
-                marker_ref.current.left = island_left_from_percent(current_drag["map_x"])
-                marker_ref.current.top = island_top_from_percent(current_drag["map_y"])
+                current_card_w, current_card_h = island_card_size(islands[index])
+                marker_ref.current.left = island_left_from_percent(current_drag["map_x"], current_card_w)
+                marker_ref.current.top = island_top_from_percent(current_drag["map_y"], current_card_h)
                 e.page.update()
 
         return _handler
@@ -17024,10 +17025,17 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             islands = list(current_profile.get("custom_islands", []) or [])
             if index < len(islands):
                 island = dict(islands[index])
+                card_w, card_h = island_card_size(island)
+                left_px = island_left_from_percent(float(island.get("map_x", 20) or 20), card_w)
+                top_px = island_top_from_percent(float(island.get("map_y", 20) or 20), card_h)
                 resize_positions[index] = {
                     "card_scale": island_card_scale(island),
-                    "map_x": float(island.get("map_x", 20)),
-                    "map_y": float(island.get("map_y", 20)),
+                    "card_w": card_w,
+                    "card_h": card_h,
+                    "left_px": left_px,
+                    "top_px": top_px,
+                    "anchor_x": float(card_w),
+                    "anchor_y": float(card_h),
                 }
 
         return _handler
@@ -17039,29 +17047,51 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             islands = list(current_profile.get("custom_islands", []) or [])
             if index >= len(islands):
                 return
-            start_data = resize_positions.get(
-                index,
-                {
-                    "card_scale": island_card_scale(islands[index]),
-                    "map_x": float(islands[index].get("map_x", 20)),
-                    "map_y": float(islands[index].get("map_y", 20)),
-                },
-            )
+            island = dict(islands[index])
+            start_data = resize_positions.get(index)
+            if not start_data:
+                card_w, card_h = island_card_size(island)
+                start_data = {
+                    "card_scale": island_card_scale(island),
+                    "card_w": card_w,
+                    "card_h": card_h,
+                    "left_px": island_left_from_percent(float(island.get("map_x", 20) or 20), card_w),
+                    "top_px": island_top_from_percent(float(island.get("map_y", 20) or 20), card_h),
+                    "anchor_x": float(card_w),
+                    "anchor_y": float(card_h),
+                }
+                resize_positions[index] = dict(start_data)
             delta_x = float(getattr(e, "delta_x", 0.0) or 0.0)
             delta_y = float(getattr(e, "delta_y", 0.0) or 0.0)
             delta = (delta_x + delta_y) / 2.0
             current_drag = dict(start_data)
-            current_drag["card_scale"] = max(0.8, min(1.8, float(current_drag.get("card_scale", 1.0)) + (delta / 220.0)))
+            new_scale = max(0.8, min(1.8, float(current_drag.get("card_scale", 1.0)) + (delta / 220.0)))
+            new_w = max(180, int(240 * new_scale))
+            new_h = max(132, int(176 * new_scale))
+            left_px = int(current_drag.get("left_px", 0))
+            top_px = int(current_drag.get("top_px", 0))
+            anchor_x = float(current_drag.get("anchor_x", current_drag.get("card_w", new_w)))
+            anchor_y = float(current_drag.get("anchor_y", current_drag.get("card_h", new_h)))
+            map_x = max(2, min(96, (left_px / max(1, creator_canvas_w - new_w)) * 100))
+            map_y = max(2, min(96, (top_px / max(1, creator_canvas_h - new_h)) * 100))
+            current_drag["card_scale"] = new_scale
+            current_drag["card_w"] = new_w
+            current_drag["card_h"] = new_h
+            current_drag["map_x"] = map_x
+            current_drag["map_y"] = map_y
             resize_positions[index] = current_drag
-            island = dict(islands[index])
-            island["card_scale"] = current_drag["card_scale"]
+            island["card_scale"] = new_scale
+            island["map_x"] = map_x
+            island["map_y"] = map_y
             islands[index] = island
             current_profile["custom_islands"] = islands
             persist(current_profile)
             marker_ref = island_marker_refs.get(index)
             if marker_ref and marker_ref.current:
-                start_scale = float(start_data.get("card_scale", 1.0) or 1.0)
-                marker_ref.current.scale = current_drag["card_scale"] / max(0.01, start_scale)
+                marker_ref.current.width = new_w
+                marker_ref.current.height = new_h
+                marker_ref.current.left = left_px
+                marker_ref.current.top = top_px
                 e.page.update()
 
         return _handler
@@ -17080,10 +17110,20 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             islands = list(current_profile.get("custom_islands", []) or [])
             if index < len(islands):
                 island = dict(islands[index])
+                card_w, card_h = island_card_size(island)
+                left_px = island_left_from_percent(float(island.get("map_x", 20) or 20), card_w)
+                top_px = island_top_from_percent(float(island.get("map_y", 20) or 20), card_h)
+                focal = getattr(e, "local_focal_point", None)
+                focal_x = float(getattr(focal, "x", card_w / 2) or (card_w / 2))
+                focal_y = float(getattr(focal, "y", card_h / 2) or (card_h / 2))
                 resize_positions[index] = {
                     "card_scale": island_card_scale(island),
-                    "map_x": float(island.get("map_x", 20)),
-                    "map_y": float(island.get("map_y", 20)),
+                    "card_w": card_w,
+                    "card_h": card_h,
+                    "left_px": left_px,
+                    "top_px": top_px,
+                    "anchor_x": focal_x,
+                    "anchor_y": focal_y,
                 }
 
         return _handler
@@ -17096,26 +17136,45 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             if index >= len(islands):
                 return
             island = dict(islands[index])
-            start_data = resize_positions.get(index, {})
+            start_data = resize_positions.get(index)
+            if not start_data:
+                card_w, card_h = island_card_size(island)
+                start_data = {
+                    "card_scale": island_card_scale(island),
+                    "card_w": card_w,
+                    "card_h": card_h,
+                    "left_px": island_left_from_percent(float(island.get("map_x", 20) or 20), card_w),
+                    "top_px": island_top_from_percent(float(island.get("map_y", 20) or 20), card_h),
+                    "anchor_x": card_w / 2,
+                    "anchor_y": card_h / 2,
+                }
+                resize_positions[index] = dict(start_data)
             start_scale = float(start_data.get("card_scale", island_card_scale(island)) or 1.0)
             try:
                 gesture_scale = max(0.05, float(getattr(e, "scale", 1.0) or 1.0))
             except Exception:
                 gesture_scale = 1.0
             new_scale = max(0.8, min(1.8, start_scale * gesture_scale))
+            start_w = int(start_data.get("card_w", 240))
+            start_h = int(start_data.get("card_h", 176))
+            new_w = max(180, int(240 * new_scale))
+            new_h = max(132, int(176 * new_scale))
+            left_px = int(start_data.get("left_px", 0) + float(start_data.get("anchor_x", start_w / 2)) * (1 - (new_w / max(1, start_w))))
+            top_px = int(start_data.get("top_px", 0) + float(start_data.get("anchor_y", start_h / 2)) * (1 - (new_h / max(1, start_h))))
+            map_x = max(2, min(96, (left_px / max(1, creator_canvas_w - new_w)) * 100))
+            map_y = max(2, min(96, (top_px / max(1, creator_canvas_h - new_h)) * 100))
             island["card_scale"] = new_scale
-            delta = getattr(e, "focal_point_delta", None)
-            delta_x = float(getattr(delta, "x", 0.0) or 0.0)
-            delta_y = float(getattr(delta, "y", 0.0) or 0.0)
-            if delta_x or delta_y:
-                island["map_x"] = max(2, min(88, float(island.get("map_x", 20)) + (delta_x / max(1, creator_canvas_w * creator_zoom)) * 100))
-                island["map_y"] = max(2, min(82, float(island.get("map_y", 20)) + (delta_y / max(1, creator_canvas_h * creator_zoom)) * 100))
+            island["map_x"] = map_x
+            island["map_y"] = map_y
             islands[index] = island
             current_profile["custom_islands"] = islands
             persist(current_profile)
             marker_ref = island_marker_refs.get(index)
             if marker_ref and marker_ref.current:
-                marker_ref.current.scale = new_scale / max(0.01, start_scale)
+                marker_ref.current.width = new_w
+                marker_ref.current.height = new_h
+                marker_ref.current.left = left_px
+                marker_ref.current.top = top_px
                 marker_ref.current.update()
 
         return _handler
