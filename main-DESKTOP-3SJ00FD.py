@@ -16544,10 +16544,30 @@ def _questions_path_world_background_controls(world: dict) -> tuple[ft.Control, 
     preset = _questions_path_preset_cfg(str(world.get("background_preset", "forest")))
     custom_image = str(world.get("background_image") or "").strip()
     image_asset = str(world.get("image") or "").strip()
-    if image_asset and os.path.exists(image_asset):
-        return ft.Image(src=image_asset, fit=ft.BoxFit.COVER, expand=True), preset["label"]
+    overlay_image = image_asset if image_asset and os.path.exists(image_asset) else None
     if custom_image and os.path.exists(custom_image):
-        return ft.Image(src=custom_image, fit=ft.BoxFit.COVER, expand=True), preset["label"]
+        overlay_image = custom_image
+    if overlay_image:
+        return (
+            ft.Container(
+                expand=True,
+                content=ft.Stack(
+                    [
+                        ft.Container(
+                            expand=True,
+                            gradient=ft.LinearGradient(
+                                begin=ft.Alignment(-1, -1),
+                                end=ft.Alignment(1, 1),
+                                colors=preset["colors"],
+                            ),
+                        ),
+                        ft.Image(src=overlay_image, fit=ft.BoxFit.COVER, expand=True),
+                    ],
+                    expand=True,
+                ),
+            ),
+            preset["label"],
+        )
     return (
         ft.Container(
             expand=True,
@@ -17605,7 +17625,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                             content=ft.Container(
                                                                 expand=True,
                                                                 scale=state.get("_questions_path_editor_zoom", 1.0),
-                                                                content=ft.Stack(controls=map_layers, expand=True),
+                                                                content=ft.Stack(map_layers, expand=True),
                                                             ),
                                                         ),
                                                     ),
@@ -17741,10 +17761,10 @@ def render_questions_path_game(page: ft.Page, state: dict):
         padding=10,
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         content=ft.Stack(
-            controls=[
+            [
                 map_bg,
                 ft.Container(expand=True, bgcolor="#06140B8C"),
-                ft.Container(expand=True, padding=6, content=ft.Stack(controls=map_items, expand=True)),
+                ft.Container(expand=True, padding=6, content=ft.Stack(map_items, expand=True)),
             ],
             expand=True,
         ),
