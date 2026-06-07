@@ -16548,26 +16548,23 @@ def _questions_path_world_background_controls(world: dict) -> tuple[ft.Control, 
     if custom_image and os.path.exists(custom_image):
         overlay_image = custom_image
     if overlay_image:
-        return (
-            ft.Container(
-                expand=True,
-                content=ft.Stack(
-                    [
-                        ft.Container(
-                            expand=True,
-                            gradient=ft.LinearGradient(
-                                begin=ft.Alignment(-1, -1),
-                                end=ft.Alignment(1, 1),
-                                colors=preset["colors"],
-                            ),
-                        ),
-                        ft.Image(src=overlay_image, fit=ft.BoxFit.COVER, expand=True),
-                    ],
+        try:
+            return (
+                ft.Container(
                     expand=True,
+                    image_src=overlay_image,
+                    image_fit=ft.BoxFit.COVER,
                 ),
-            ),
-            preset["label"],
-        )
+                preset["label"],
+            )
+        except TypeError:
+            return (
+                ft.Container(
+                    expand=True,
+                    content=ft.Image(src=overlay_image, fit=ft.BoxFit.COVER, expand=True),
+                ),
+                preset["label"],
+            )
     return (
         ft.Container(
             expand=True,
@@ -17542,10 +17539,12 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     )
     background_dropdown.on_change = lambda e: set_preset(e.control.value)
 
-    bg_layer, bg_label = _questions_path_world_background_controls(world)
+    preset_cfg = _questions_path_preset_cfg(world.get("background_preset", "forest"))
+    bg_label = preset_cfg["label"]
+    background_layer, _ = _questions_path_world_background_controls(world)
     map_layers = [
-        bg_layer,
-        ft.Container(expand=True, bgcolor="#04110B76"),
+        ft.Container(width=map_w, height=map_h, content=background_layer),
+        ft.Container(width=map_w, height=map_h, bgcolor="#04110B76"),
         *_questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
     ]
 
@@ -17618,7 +17617,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                         border_radius=28,
                                                         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                                         border=ft.border.Border.all(2, "#7DD3FC"),
-                                                        content=ft.Stack(map_layers, expand=True),
+                                                        content=ft.Stack(map_layers),
                                                     ),
                                                     ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus. Mit zwei Fingern zoomst du die Karte.", size=11, color=theme_txt(theme, "secondary"), text_align="center"),
                                                 ],
