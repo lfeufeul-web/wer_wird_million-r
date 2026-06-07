@@ -15919,6 +15919,23 @@ def _questions_path_island_hub_asset() -> str:
     return os.path.join("Fragenpfad", "Inseln.png")
 
 
+_QUESTIONS_PATH_ASSET_BYTES_CACHE: dict[str, bytes | None] = {}
+
+
+def _questions_path_asset_bytes(rel_path: str) -> bytes | None:
+    cached = _QUESTIONS_PATH_ASSET_BYTES_CACHE.get(rel_path)
+    if rel_path in _QUESTIONS_PATH_ASSET_BYTES_CACHE:
+        return cached
+    abs_path = os.path.join("assets", rel_path)
+    try:
+        with open(abs_path, "rb") as f:
+            data = f.read()
+    except OSError:
+        data = None
+    _QUESTIONS_PATH_ASSET_BYTES_CACHE[rel_path] = data
+    return data
+
+
 def _questions_path_level_background_asset() -> str:
     return os.path.join("Fragenpfad", "level_insel_1.png")
 
@@ -17005,6 +17022,7 @@ def _questions_path_create_world_dialog(page: ft.Page, state: dict):
 
 
 def _questions_path_render_quick(page: ft.Page, state: dict):
+    page.bgcolor = "#F3F5F7"
     theme = get_theme(state)
     profile = _questions_path_active_profile(state)
     page.controls.clear()
@@ -17085,6 +17103,7 @@ def _questions_path_render_quick(page: ft.Page, state: dict):
 
 
 def _questions_path_render_owned(page: ft.Page, state: dict):
+    page.bgcolor = "#F3F5F7"
     theme = get_theme(state)
     profile = _questions_path_active_profile(state)
     worlds = list(profile.get("worlds", []) or [])
@@ -17423,6 +17442,7 @@ def _questions_path_world_background_preview(world: dict) -> ft.Control:
 
 
 def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: str | None):
+    page.bgcolor = "#F3F5F7"
     theme = get_theme(state)
     profile = _questions_path_active_profile(state)
     worlds = list(profile.get("worlds", []) or [])
@@ -17569,7 +17589,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 content=ft.Stack(
                     [
                         ft.Container(expand=True, bgcolor="#0B1624"),
-                        ft.Image(src=_questions_path_island_hub_asset(), fit=ft.BoxFit.COVER, expand=True),
+                        ft.Image(src=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
                     ],
                     expand=True,
                 ),
@@ -17809,9 +17829,11 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         border_color="#D1D5DB",
     )
     bg_label = "Leere Karte"
-    background_layer = ft.Container(expand=True, bgcolor="#F8FAFC")
     map_layers = [
-        ft.Container(width=map_w, height=map_h, content=background_layer),
+        ft.Container(width=map_w, height=map_h, content=ft.Stack([
+            ft.Container(expand=True, bgcolor="#F8FAFC"),
+            ft.Image(src=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
+        ], expand=True)),
         ft.Container(width=map_w, height=map_h, bgcolor="#FFFFFF00"),
         *_questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
     ]
@@ -17968,6 +17990,7 @@ def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
 
 
 def render_questions_path_game(page: ft.Page, state: dict):
+    page.bgcolor = "#F3F5F7"
     game = state.get("questions_path_game")
     if not game:
         show_questions_path_hub(page, state)
@@ -18105,6 +18128,7 @@ def render_questions_path_game(page: ft.Page, state: dict):
 
 
 def render_questions_path_complete(page: ft.Page, state: dict):
+    page.bgcolor = "#F3F5F7"
     game = state.get("questions_path_game") or {}
     map_cfg = _questions_path_game_map_cfg(state, game.get("map_key", "waldpfad"))
     clear_questions_path_game(state)
