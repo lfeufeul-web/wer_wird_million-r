@@ -16401,6 +16401,70 @@ def _questions_path_default_point(index: int) -> dict:
     }
 
 
+def _questions_path_default_island(index: int = 0, name: str | None = None) -> dict:
+    preset = QUESTIONS_PATH_WORLD_PRESETS[index % len(QUESTIONS_PATH_WORLD_PRESETS)]
+    return {
+        "id": str(uuid.uuid4()),
+        "name": name or f"Insel {index + 1}",
+        "design": preset["key"],
+        "x": 18.0 + index * 16.0,
+        "y": 50.0 + (index % 2) * 10.0,
+        "points": [],
+    }
+
+
+def _questions_path_normalize_points(raw_points) -> list[dict]:
+    points = raw_points if isinstance(raw_points, list) else []
+    if not points:
+        return []
+    normalized_points = []
+    for p_idx, point in enumerate(points):
+        point = point if isinstance(point, dict) else {}
+        normalized_points.append(
+            {
+                "x": _questions_path_clamp_pct(point.get("x", 50.0)),
+                "y": _questions_path_clamp_pct(point.get("y", 50.0)),
+                "name": str(point.get("name", f"Punkt {p_idx + 1}")).strip() or f"Punkt {p_idx + 1}",
+                "question": str(point.get("question", "")).strip(),
+                "answers": _questions_path_normalize_answers(point.get("answers", [])),
+                "correct": max(0, min(int(point.get("correct", 0) or 0), 3)),
+            }
+        )
+    return normalized_points
+
+
+def _questions_path_normalize_islands(raw_islands, legacy_points=None, world_index: int = 0) -> list[dict]:
+    islands = raw_islands if isinstance(raw_islands, list) else []
+    normalized = []
+    for i_idx, island in enumerate(islands):
+        island = island if isinstance(island, dict) else {}
+        preset_key = str(island.get("design", QUESTIONS_PATH_WORLD_PRESETS[i_idx % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"])).strip()
+        if preset_key not in {p["key"] for p in QUESTIONS_PATH_WORLD_PRESETS}:
+            preset_key = QUESTIONS_PATH_WORLD_PRESETS[i_idx % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"]
+        normalized.append(
+            {
+                "id": str(island.get("id") or uuid.uuid4()),
+                "name": str(island.get("name", f"Insel {i_idx + 1}")).strip() or f"Insel {i_idx + 1}",
+                "design": preset_key,
+                "x": _questions_path_clamp_pct(island.get("x", 50.0)),
+                "y": _questions_path_clamp_pct(island.get("y", 50.0)),
+                "points": _questions_path_normalize_points(island.get("points", [])),
+            }
+        )
+    if not normalized and legacy_points:
+        normalized.append(
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Insel 1",
+                "design": QUESTIONS_PATH_WORLD_PRESETS[world_index % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"],
+                "x": 50.0,
+                "y": 50.0,
+                "points": _questions_path_normalize_points(legacy_points),
+            }
+        )
+    return normalized
+
+
 def _questions_path_default_world(index: int = 0, name: str | None = None) -> dict:
     preset = QUESTIONS_PATH_WORLD_PRESETS[index % len(QUESTIONS_PATH_WORLD_PRESETS)]
     return {
@@ -16408,7 +16472,8 @@ def _questions_path_default_world(index: int = 0, name: str | None = None) -> di
         "name": name or f"Welt {index + 1}",
         "background_preset": preset["key"],
         "background_image": None,
-        "points": [_questions_path_default_point(0)],
+        "points": [],
+        "islands": [],
     }
 
 
@@ -16451,22 +16516,13 @@ def ensure_questions_path_defaults(user: dict):
             preset_key = str(world.get("background_preset", QUESTIONS_PATH_WORLD_PRESETS[w_idx % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"])).strip()
             if preset_key not in {p["key"] for p in QUESTIONS_PATH_WORLD_PRESETS}:
                 preset_key = "forest"
-            points = world.get("points", [])
-            if not isinstance(points, list) or not points:
-                points = [_questions_path_default_point(0)]
-            normalized_points = []
-            for p_idx, point in enumerate(points):
-                point = point if isinstance(point, dict) else {}
-                normalized_points.append(
-                    {
-                        "x": _questions_path_clamp_pct(point.get("x", 50.0)),
-                        "y": _questions_path_clamp_pct(point.get("y", 50.0)),
-                        "name": str(point.get("name", f"Punkt {p_idx + 1}")).strip() or f"Punkt {p_idx + 1}",
-                        "question": str(point.get("question", "")).strip(),
-                        "answers": _questions_path_normalize_answers(point.get("answers", [])),
-                        "correct": max(0, min(int(point.get("correct", 0) or 0), 3)),
-                    }
-                )
+            legacy_points = world.get("points", [])
+            if not isinstance(legacy_points, list):
+                legacy_points = []
+            islands = _questions_path_normalize_islands(world.get("islands", []), legacy_points, w_idx)
+            if not islands and not legacy_points:
+                islands = []
+            normalized_points = _questions_path_normalize_points(legacy_points)
             normalized_worlds.append(
                 {
                     "id": str(world.get("id") or uuid.uuid4()),
@@ -16474,6 +16530,7 @@ def ensure_questions_path_defaults(user: dict):
                     "background_preset": preset_key,
                     "background_image": str(world.get("background_image") or "").strip() or None,
                     "points": normalized_points,
+                    "islands": islands,
                 }
             )
         profile["worlds"] = normalized_worlds
@@ -16581,8 +16638,24 @@ def _questions_path_world_background_controls(world: dict) -> tuple[ft.Control, 
 def _questions_path_world_points(world: dict) -> list[dict]:
     points = world.setdefault("points", [])
     if not isinstance(points, list) or not points:
-        world["points"] = [_questions_path_default_point(0)]
+        world["points"] = []
     return world["points"]
+
+
+def _questions_path_world_islands(world: dict) -> list[dict]:
+    islands = world.setdefault("islands", [])
+    if not isinstance(islands, list):
+        islands = []
+    if not islands and world.get("points"):
+        islands = _questions_path_normalize_islands([], world.get("points", []), 0)
+        world["islands"] = islands
+    elif not islands:
+        world["islands"] = []
+    return world["islands"]
+
+
+def _questions_path_default_island_points(index: int = 0) -> list[dict]:
+    return []
 
 
 def _questions_path_save_current_profiles(state: dict):
@@ -16807,7 +16880,7 @@ def _questions_path_make_world_editor_map(world: dict) -> dict:
         "panel": "#0A1320E8",
         "border": _questions_path_preset_cfg(world.get("background_preset", "forest"))["colors"][2],
         "line": "#D1FAE5",
-        "image": str(world.get("background_image") or "").strip() or None,
+        "image": None,
         "points": world.get("points", []),
         "_world": world,
     }
@@ -16910,14 +16983,14 @@ def _questions_path_create_world_dialog(page: ft.Page, state: dict):
             border=ft.border.Border.all(2, theme["border"]),
             content=ft.Column(
                 [
-                    ft.Text("Neue Insel", size=28, weight="bold", color="white", text_align="center"),
+                    ft.Text("Neue Welt", size=28, weight="bold", color="white", text_align="center"),
                     ft.Text("Name und Design auswählen.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
                     name_field,
                     preset_dropdown,
                     ft.Row(
                         [
                             _game_menu_button("Abbrechen", lambda e: close_dialog(), "#475569", width=170, height=42),
-                            _game_menu_button("Insel erstellen", create_world, theme["success"], width=180, height=42),
+                            _game_menu_button("Welt erstellen", create_world, theme["success"], width=180, height=42),
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
                         spacing=12,
@@ -17147,7 +17220,7 @@ def _questions_path_render_owned(page: ft.Page, state: dict):
                                         [
                                             _game_menu_button("← Zurück", lambda e: _questions_path_render_home(e.page, state), "#475569", width=150, height=40),
                                             ft.Text("Eigenes Spiel", size=30, weight="bold", color="white"),
-                                            _game_menu_button("+ Insel", lambda e: _questions_path_create_world_dialog(e.page, state), theme["accent"], width=150, height=40),
+                                            _game_menu_button("+ Welt hinzufügen", lambda e: _questions_path_create_world_dialog(e.page, state), theme["accent"], width=170, height=40),
                                         ],
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
@@ -17379,6 +17452,249 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     map_w = max(520, min(980, int(page_w * 0.62)))
     map_h = max(420, min(760, int(page_h * 0.72)))
     selected_point = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+    islands = _questions_path_world_islands(world)
+    selected_island_id = state.get("_questions_path_selected_island_id")
+    selected_island = None
+    for island in islands:
+        if str(island.get("id")) == str(selected_island_id):
+            selected_island = island
+            break
+
+    def back_to_owned(e):
+        state.pop("_questions_path_selected_island_id", None)
+        state["questions_path_scene"] = "own"
+        _questions_path_render_owned(e.page, state)
+
+    if selected_island is None:
+        state.pop("_questions_path_selected_island_id", None)
+
+        def move_island(index: int, dx: float, dy: float):
+            if 0 <= index < len(islands):
+                islands[index]["x"] = _questions_path_clamp_pct(islands[index].get("x", 50.0) + dx * 0.08)
+                islands[index]["y"] = _questions_path_clamp_pct(islands[index].get("y", 50.0) + dy * 0.08)
+                persist_world = lambda: _questions_path_save_world(state, world)
+                persist_world()
+                _questions_path_render_world_editor(page, state, world["id"])
+
+        def open_island(island_id: str):
+            def _handler(e):
+                state["_questions_path_selected_island_id"] = island_id
+                _questions_path_render_world_editor(e.page, state, world["id"])
+
+            return _handler
+
+        def create_island_dialog(e):
+            theme_local = get_theme(state)
+            name_field = ft.TextField(
+                label="Inselname",
+                width=360,
+                bgcolor=theme_local["question_bg"],
+                color=theme_local["question_text"],
+                border_color=theme_local["border"],
+                autofocus=True,
+            )
+            design_dropdown = ft.Dropdown(
+                label="Design",
+                width=360,
+                value=QUESTIONS_PATH_WORLD_PRESETS[len(islands) % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"],
+                options=[ft.dropdown.Option(p["key"], p["label"]) for p in QUESTIONS_PATH_WORLD_PRESETS],
+                bgcolor=theme_local["question_bg"],
+                color=theme_local["question_text"],
+                border_color=theme_local["border"],
+            )
+            overlay_ref = [None]
+
+            def close_dialog():
+                overlay = overlay_ref[0]
+                if overlay is not None:
+                    try:
+                        while overlay in e.page.overlay:
+                            e.page.overlay.remove(overlay)
+                    except Exception:
+                        pass
+                e.page.update()
+
+            def save_island(ev):
+                islands.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "name": (name_field.value or "").strip() or f"Insel {len(islands) + 1}",
+                        "design": design_dropdown.value or QUESTIONS_PATH_WORLD_PRESETS[0]["key"],
+                        "x": 18.0 + len(islands) * 14.0,
+                        "y": 42.0 + (len(islands) % 2) * 12.0,
+                        "points": [],
+                    }
+                )
+                _questions_path_save_world(state, world)
+                close_dialog()
+                _questions_path_render_world_editor(ev.page, state, world["id"])
+
+            overlay = ft.Container(
+                expand=True,
+                bgcolor="#000000AA",
+                alignment=ft.Alignment(0, 0),
+                content=ft.Container(
+                    width=min(520, int((_page_size(e.page)[0]) - 24)),
+                    padding=24,
+                    border_radius=24,
+                    bgcolor="#0A1320F4",
+                    border=ft.border.Border.all(2, theme_local["border"]),
+                    content=ft.Column(
+                        [
+                            ft.Text("Neue Insel", size=28, weight="bold", color="white", text_align="center"),
+                            ft.Text("Name und Design auswählen.", size=13, color=theme_txt(theme_local, "secondary"), text_align="center"),
+                            name_field,
+                            design_dropdown,
+                            ft.Row(
+                                [
+                                    _game_menu_button("Abbrechen", lambda ev: close_dialog(), "#475569", width=180, height=42),
+                                    _game_menu_button("Insel erstellen", save_island, theme_local["success"], width=180, height=42),
+                                ],
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=12,
+                                wrap=True,
+                            ),
+                        ],
+                        spacing=12,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ),
+            )
+            overlay_ref[0] = overlay
+            e.page.overlay.append(overlay)
+            e.page.update()
+
+        island_layers: list[ft.Control] = [
+            ft.Container(
+                width=map_w,
+                height=map_h,
+                border_radius=28,
+                bgcolor="#0B1624",
+                border=ft.border.Border.all(2, "#49D6C8"),
+            )
+        ]
+        for idx, island in enumerate(islands):
+            preset = _questions_path_preset_cfg(island.get("design", QUESTIONS_PATH_WORLD_PRESETS[0]["key"]))
+            island_layers.append(
+                ft.Container(
+                    left=(map_w * float(island.get("x", 50.0)) / 100.0) - 36,
+                    top=(map_h * float(island.get("y", 50.0)) / 100.0) - 36,
+                    width=72,
+                    height=72,
+                    content=ft.GestureDetector(
+                        on_tap=open_island(island["id"]),
+                        on_pan_update=lambda ev, p=idx: move_island(p, ev.delta_x, ev.delta_y),
+                        content=ft.Container(
+                            expand=True,
+                            shape=ft.BoxShape.CIRCLE,
+                            bgcolor=preset["colors"][1],
+                            border=ft.border.Border.all(3, "#FFFFFF"),
+                            alignment=ft.Alignment(0, 0),
+                            shadow=ft.BoxShadow(blur_radius=16, color="#55000000"),
+                            content=ft.Column(
+                                [
+                                    ft.Icon(ft.Icons.LANDSCAPE, size=22, color="white"),
+                                    ft.Text(str(island.get("name", f"Insel {idx + 1}"))[:10], size=10, weight="bold", color="white", text_align="center"),
+                                ],
+                                spacing=0,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                )
+            )
+
+        page.controls.clear()
+        page.add(
+            ft.Container(
+                expand=True,
+                content=ft.Stack(
+                    [
+                        ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#03110C", "#0D1720", "#08131F"])),
+                        ft.Container(
+                            expand=True,
+                            alignment=ft.Alignment(0, 0),
+                            padding=16,
+                            content=ft.Container(
+                                width=min(1280, max(320, int(_page_size(page)[0] - 24))),
+                                padding=ft.Padding(22, 20, 22, 20),
+                                border_radius=30,
+                                bgcolor="#0A1320EE",
+                                border=ft.border.Border.all(2, "#49D6C8"),
+                                content=ft.Column(
+                                    [
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("← Eigenes Spiel", back_to_owned, "#475569", width=170, height=40),
+                                                ft.Text("Inselmenü", size=28, weight="bold", color="white"),
+                                                _game_menu_button("+ Insel hinzufügen", create_island_dialog, theme["accent"], width=170, height=40),
+                                            ],
+                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        ),
+                                        ft.Container(height=8),
+                                        ft.Row(
+                                            [
+                                                ft.Container(
+                                                    expand=True,
+                                                    border_radius=24,
+                                                    padding=16,
+                                                    bgcolor="#0A1320EE",
+                                                    border=ft.border.Border.all(2, "#49D6C8"),
+                                                    content=ft.Column(
+                                                        [
+                                                            ft.Text("Leere Map", size=16, weight="bold", color=theme["gold"], text_align="center"),
+                                                            ft.Text("Klicke eine Insel an oder füge oben rechts eine neue Insel hinzu.", size=12, color=theme_txt(theme, "secondary"), text_align="center"),
+                                                            ft.Container(height=8),
+                                                            ft.Container(
+                                                                width=min(980, map_w),
+                                                                height=map_h,
+                                                                border_radius=28,
+                                                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                                content=ft.Stack(island_layers),
+                                                            ),
+                                                        ],
+                                                        spacing=10,
+                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                    ),
+                                                ),
+                                                ft.Container(
+                                                    width=min(360, max(280, int(page_w * 0.28))),
+                                                    border_radius=24,
+                                                    padding=16,
+                                                    bgcolor="#0A1320EE",
+                                                    border=ft.border.Border.all(2, "#49D6C8"),
+                                                    content=ft.Column(
+                                                        [
+                                                            ft.Text("Inseln", size=18, weight="bold", color=theme["gold"], text_align="center"),
+                                                            ft.Text(f"Vorhanden: {len(islands)}", size=12, color=theme_txt(theme, "secondary"), text_align="center"),
+                                                            ft.Text("Ziehe Inseln, um sie zu verschieben. Tippe eine Insel an, um in den Punkt-Editor zu wechseln.", size=12, color=theme_txt(theme, "secondary"), text_align="center"),
+                                                        ],
+                                                        spacing=8,
+                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                    ),
+                                                ),
+                                            ],
+                                            spacing=14,
+                                            wrap=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.START,
+                                        ),
+                                    ],
+                                    spacing=12,
+                                    scroll=ft.ScrollMode.AUTO,
+                                ),
+                            ),
+                        ),
+                    ],
+                    expand=True,
+                ),
+            )
+        )
+        page.update()
+        page.run_task(_sync_bg_music_async, page, state)
+        return
+
+    world["points"] = list(selected_island.get("points", []) or [])
+    world["background_preset"] = str(selected_island.get("design", world.get("background_preset", "forest")))
 
     def persist_world():
         _questions_path_save_world(state, world)
@@ -17426,55 +17742,14 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             point["answers"].append("")
         point["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
         world["name"] = str(world_name_field.value or "").strip() or world["name"]
-        world["background_preset"] = background_dropdown.value or world.get("background_preset", "forest")
         persist_world()
         _questions_path_render_world_editor(e.page, state, world["id"])
 
-    def set_preset(preset_key: str):
-        world["background_preset"] = preset_key
-        world["background_image"] = None
-        persist_world()
-        _questions_path_render_world_editor(page, state, world["id"])
-
-    def upload_background(e):
-        picker = ft.FilePicker()
-
-        def on_pick(result):
-            try:
-                if not result.files:
-                    return
-                src = result.files[0].path
-                if not src:
-                    return
-                os.makedirs(QUESTIONS_PATH_CUSTOM_ASSET_DIR, exist_ok=True)
-                ext = os.path.splitext(src)[1] or ".png"
-                dst = os.path.join(QUESTIONS_PATH_CUSTOM_ASSET_DIR, f"{uuid.uuid4().hex}{ext}")
-                shutil.copy2(src, dst)
-                world["background_image"] = dst
-                persist_world()
-                _questions_path_render_world_editor(page, state, world["id"])
-            except Exception as ex:
-                page.snack_bar = ft.SnackBar(content=ft.Text(f"Bild konnte nicht übernommen werden: {ex}"), open=True)
-                page.update()
-
-        picker.on_result = on_pick
-        page.overlay.append(picker)
-        picker.pick_files(dialog_title="Map-Hintergrund auswählen", allow_multiple=False, file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["png", "jpg", "jpeg", "webp"])
-        page.update()
-
-    def zoom_handler(delta: float):
-        return
-
-    def map_scale_update(e):
-        scale = getattr(e, "scale", None)
-        if scale is not None and scale > 0:
-            state["_questions_path_editor_zoom"] = max(0.55, min(2.6, float(state.get("_questions_path_editor_zoom", 1.0) or 1.0) * float(scale)))
-            _questions_path_render_world_editor(page, state, world["id"])
-
-    def back_to_owned(e):
-        persist_world()
-        state["questions_path_scene"] = "own"
-        _questions_path_render_owned(e.page, state)
+    def back_to_islands(e):
+        selected_island["points"] = list(world.get("points", []) or [])
+        _questions_path_save_world(state, world)
+        state.pop("_questions_path_selected_island_id", None)
+        _questions_path_render_world_editor(e.page, state, world["id"])
 
     point = _questions_path_world_points(world)[selected_point]
     name_field = ft.TextField(
@@ -17528,23 +17803,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         color=theme["question_text"],
         border_color=theme["border"],
     )
-    background_dropdown = ft.Dropdown(
-        label="Standard-Design",
-        value=world.get("background_preset", "forest"),
-        width=320,
-        options=[ft.dropdown.Option(p["key"], p["label"]) for p in QUESTIONS_PATH_WORLD_PRESETS],
-        bgcolor=theme["question_bg"],
-        color=theme["question_text"],
-        border_color=theme["border"],
-    )
-    background_dropdown.on_change = lambda e: set_preset(e.control.value)
-
-    preset_cfg = _questions_path_preset_cfg(world.get("background_preset", "forest"))
-    bg_label = preset_cfg["label"]
-    background_layer, _ = _questions_path_world_background_controls(world)
+    bg_label = "Leere Karte"
     map_layers = [
-        ft.Container(width=map_w, height=map_h, content=background_layer),
-        ft.Container(width=map_w, height=map_h, bgcolor="#04110B76"),
+        ft.Container(width=map_w, height=map_h, bgcolor="#0B1624"),
+        ft.Container(width=map_w, height=map_h, bgcolor="#07131B66"),
         *_questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
     ]
 
@@ -17562,8 +17824,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                             [
                                 ft.Row(
                                     [
-                                        _game_menu_button("← Eigenes Spiel", back_to_owned, "#475569", width=170, height=40),
-                                        ft.Text("Inselmenü", size=28, weight="bold", color="white"),
+                                        _game_menu_button("← Inseln", back_to_owned, "#475569", width=150, height=40),
+                                        ft.Text("Insel", size=28, weight="bold", color="white"),
                                         ft.Row(
                                             [
                                                 _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
@@ -17586,29 +17848,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                 [
                                                     ft.Row(
                                                         [
-                                                            ft.Text("Map", size=16, weight="bold", color=theme["gold"]),
+                                                            ft.Text("Leere Karte", size=16, weight="bold", color=theme["gold"]),
                                                             ft.Text(bg_label, size=11, color=theme_txt(theme, "secondary")),
-                                                            ft.Container(width=10),
-                                                            _game_menu_button("Hintergrund hochladen", upload_background, "#334155", width=180, height=34),
                                                         ],
                                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                                    ),
-                                                    ft.Column(
-                                                        [
-                                                            ft.Container(
-                                                                width=110,
-                                                                height=64,
-                                                                border_radius=16,
-                                                                bgcolor=preset["colors"][0],
-                                                                border=ft.border.Border.all(2, "#FFFFFF" if world.get("background_preset") == preset["key"] else "#00000000"),
-                                                                alignment=ft.Alignment(0, 0),
-                                                                on_click=lambda e, key=preset["key"]: set_preset(key),
-                                                                content=ft.Text(preset["label"], color="white", weight="bold", text_align="center"),
-                                                            )
-                                                            for preset in QUESTIONS_PATH_WORLD_PRESETS
-                                                        ],
-                                                        spacing=10,
-                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                                     ),
                                                     ft.Container(height=8),
                                                     ft.Container(
@@ -17619,7 +17862,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                         border=ft.border.Border.all(2, "#7DD3FC"),
                                                         content=ft.Stack(map_layers),
                                                     ),
-                                                    ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus. Mit zwei Fingern zoomst du die Karte.", size=11, color=theme_txt(theme, "secondary"), text_align="center"),
+                                                    ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus.", size=11, color=theme_txt(theme, "secondary"), text_align="center"),
                                                 ],
                                                 spacing=10,
                                             ),
