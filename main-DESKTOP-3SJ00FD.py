@@ -17570,7 +17570,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 content=ft.Stack(
                     [
                         ft.Container(expand=True, bgcolor="#0B1624"),
-                        ft.Image(src_base64=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
+                        ft.Image(src=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
                     ],
                     expand=True,
                 ),
@@ -17813,7 +17813,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     map_layers = [
         ft.Container(width=map_w, height=map_h, content=ft.Stack([
             ft.Container(expand=True, bgcolor="#F8FAFC"),
-            ft.Image(src_base64=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
+            ft.Image(src=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
         ], expand=True)),
         ft.Container(width=map_w, height=map_h, bgcolor="#FFFFFF00"),
         *_questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
