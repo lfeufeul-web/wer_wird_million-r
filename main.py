@@ -1,4 +1,4 @@
-﻿import flet as ft
+import flet as ft
 import asyncio
 import copy
 import inspect
@@ -1074,6 +1074,9 @@ QUESTIONS_PATH_LEVEL_ORDER = [
     "matheklippen",
     "wissenschaftsriff",
     "wirtschaftshafen",
+    "island_escape",
+    "city_patrol",
+    "school_detective",
 ]
 QUESTIONS_PATH_DEFAULT_PROFILE_NAME = "Profil"
 
@@ -7115,6 +7118,56 @@ QUESTIONS_PATH_MAPS = {
             ["Markt", "Budget", "Preis", "Rabatt", "Kasse", "Währung", "Handel", "Lager", "Chance", "Ziel"],
         ),
     },
+    "island_escape": {
+        "title": "Island Escape",
+        "subtitle": "Level 1: The Beach",
+        "topic": "custom",
+        "icon": "🌴",
+        "accent": "#34D399",
+        "panel": "#0A1712E8",
+        "border": "#38BDF8",
+        "line": "#86EFAC",
+        "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuDujYeVOIbjHkAOgwaWo1l43M9PdBhcp_Tz6uDLFmu1NLafK-PLEkC0vDKCFYzUpw17iVPc1y1fNeT3T4pAgWo36rp32MPs9EyRZ6vq0AGXhjdiu8UNMtjLz-iHYZSbjaJmYlcLOYLxuNBeaFNRs71Owjo0nU-EsMadqASfgzM9aAA80sQBA43I2uUuuKNx-GjueU5h1sMIU3JZeBVLChZmMcCBmVjAMS5svthvFwu5w1sGbNcCkcUezc_YJQIDcqTxCc-tocuH8GzV",
+        "points": [{"x": 38.3, "y": 41.5, "label": "Punkt 1"}, {"x": 54.0, "y": 53.0, "label": "Punkt 2"}, {"x": 73.5, "y": 59.5, "label": "Punkt 3"}, {"x": 82.0, "y": 47.0, "label": "Punkt 4"}],
+        "questions": [
+            {"question": "Was ist das Hauptmerkmal dieser mystischen Waldregion?", "answers": ["Kakaobäume", "Fruchtbare Vulkanerde", "Dichte Nadelwälder & Teiche", "Unterseeische Riffe"], "correct_idx": 2},
+            {"question": "Welches magische Reittier haust der Legende nach am Ufer des glitzernden Teichs?", "answers": ["Der Smaragdfrosch", "Der Moos-Hirsch", "Die Nebel-Schildkröte", "Das Silberfischchen"], "correct_idx": 0},
+            {"question": "Wer hat das rote Abenteurerzelt im östlichen Außenposten aufgeschlagen?", "answers": ["Die QuestMapper Gilde", "Eine Gruppe Naturforscher", "Verlorene Holzfäller", "Ein mürrischer Einsiedler"], "correct_idx": 1},
+            {"question": "Durch welches Element ist der Teich gegenüber dem Pfad an der Ostgrenze gesichert?", "answers": ["Ein massives Holztor", "Einen antiken Steinkreis", "Eine charmante Bogenbrücke", "Einen tiefen Graben"], "correct_idx": 2}
+        ]
+    },
+    "city_patrol": {
+        "title": "Metropolis Mission",
+        "subtitle": "Level 2: City Streets",
+        "topic": "custom",
+        "icon": "🏙️",
+        "accent": "#38BDF8",
+        "panel": "#0A1712E8",
+        "border": "#38BDF8",
+        "line": "#86EFAC",
+        "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuDfspSd7Wwcnu0lQLSC2lVPDEYSdC4-GTaDqJlMm6PMNBKbcRWouRydApMgIvd7l0m1xYRC7grM44qJTuz5xjKZ-Itgc-eSBQYIMc0uNzD9HXlqRsmDkUUjw_DRjsiNDcq0_NkBeTBbjheWT4uV5DQp4CYtDc1EpASZr12rH5kRYNqFj2LiuwDYfknWs3GVHnEpMFzkNNxyxbb_pEI4zM3Jj7xbIWlgxNhaGzDEyhTeO0i4Ho9njkOXRkf6HQmvVt4PWvh3E2FwmV96",
+        "points": [{"x": 30.0, "y": 45.0, "label": "Punkt 1"}, {"x": 65.0, "y": 35.0, "label": "Punkt 2"}],
+        "questions": [
+            {"question": "Welcher Architekturstil prägt die isometrischen Hochhäuser im Stadtzentrum?", "answers": ["Klassizismus", "Brutalistisch-Modern", "Retro-Futuristisch", "Gotisch"], "correct_idx": 2},
+            {"question": "Wie viele Grünstreifen säumen die Hauptverkehrsstraßen dieser Miniaturstadt?", "answers": ["Keine, alles ist asphaltiert", "Jede Straße ist doppelspurig begrünt", "Einige ausgewählte Alleenhälften", "Nur der zentrale Stadtpark"], "correct_idx": 1}
+        ]
+    },
+    "school_detective": {
+        "title": "Akademie Rätsel",
+        "subtitle": "Level 1: Flurgang",
+        "topic": "custom",
+        "icon": "🏫",
+        "accent": "#F59E0B",
+        "panel": "#0A1712E8",
+        "border": "#38BDF8",
+        "line": "#86EFAC",
+        "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuCj9Z2m4Wtvdm5wtPsCQhSh9WHcLV1H1Jp6u78BHSaDfPJMeRhAgQ47gUl0_k38dR7BhUe2MFs8wvzOK7zfMC9GhuoIR2MI-ckFINWZ8QF7n1qtSYSt8BJuPXpykiH3xYZXETYRvNZVlhtgLIJSzneLMFiAviPxwta5y8kjXQS9UdVkt8bf90MgL-gk1MJ-oRp-m4DEyJAVKKLY8cpFebn5uNiSzvxKG4CvMRAwNlVpJchuZP1zD-0e1lM1oXE7uD0rr0I05mJJaQKp",
+        "points": [{"x": 40.0, "y": 50.0, "label": "Punkt 1"}, {"x": 72.0, "y": 60.0, "label": "Punkt 2"}],
+        "questions": [
+            {"question": "Welche Farbe hat das geöffnete Spind, in dem die Questnotiz versteckt ist?", "answers": ["Signalgelb", "Himmelblau", "Türkis", "Pastellrosa"], "correct_idx": 2},
+            {"question": "Welches Fachgebiet wird auf dem Hauptplakat neben dem Trinkbrunnen beworben?", "answers": ["Astronomie-AG", "Chemie-Laborversuche", "Mathematik-Zirkel", "Kunst & Freihandzeichnen"], "correct_idx": 0}
+        ]
+    }
 }
 
 
@@ -7430,6 +7483,10 @@ def build_questions_path_questions(age: str, map_key: str, state: dict | None = 
 
     bank = build_level_question_bank(age)
     map_cfg = QUESTIONS_PATH_MAPS.get(map_key) or QUESTIONS_PATH_MAPS["waldpfad"]
+    
+    if map_cfg.get("questions"):
+        return [_path_question_to_dict(q) for q in map_cfg["questions"]]
+        
     total_nodes = len(map_cfg["points"])
     target_topic = _questions_path_map_topic(map_key)
     recent_prompts = []
@@ -20034,3 +20091,4 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.run(main, assets_dir="assets", upload_dir="assets")
+
