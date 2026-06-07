@@ -1,4 +1,4 @@
-﻿import flet as ft
+import flet as ft
 import asyncio
 import copy
 import inspect
@@ -17442,7 +17442,7 @@ def _questions_path_world_background_preview(world: dict) -> ft.Control:
 
 
 def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: str | None):
-    page.bgcolor = "#F3F5F7"
+    page.bgcolor = "#07121E"
     theme = get_theme(state)
     profile = _questions_path_active_profile(state)
     worlds = list(profile.get("worlds", []) or [])
@@ -17510,15 +17510,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 border_color=theme_local["border"],
                 autofocus=True,
             )
-            design_dropdown = ft.Dropdown(
-                label="Design",
-                width=360,
-                value=QUESTIONS_PATH_WORLD_PRESETS[len(islands) % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"],
-                options=[ft.dropdown.Option(p["key"], p["label"]) for p in QUESTIONS_PATH_WORLD_PRESETS],
-                bgcolor=theme_local["question_bg"],
-                color=theme_local["question_text"],
-                border_color=theme_local["border"],
-            )
             overlay_ref = [None]
 
             def close_dialog():
@@ -17532,11 +17523,12 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 e.page.update()
 
             def save_island(ev):
+                default_design = QUESTIONS_PATH_WORLD_PRESETS[len(islands) % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"]
                 islands.append(
                     {
                         "id": str(uuid.uuid4()),
                         "name": (name_field.value or "").strip() or f"Insel {len(islands) + 1}",
-                        "design": design_dropdown.value or QUESTIONS_PATH_WORLD_PRESETS[0]["key"],
+                        "design": default_design,
                         "x": 18.0 + len(islands) * 14.0,
                         "y": 42.0 + (len(islands) % 2) * 12.0,
                         "points": [],
@@ -17559,9 +17551,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                     content=ft.Column(
                         [
                             ft.Text("Neue Insel", size=28, weight="bold", color="white", text_align="center"),
-                            ft.Text("Name und Design auswählen.", size=13, color=theme_txt(theme_local, "secondary"), text_align="center"),
+                            ft.Text("Gib deiner Insel einen Namen.", size=13, color=theme_txt(theme_local, "secondary"), text_align="center"),
                             name_field,
-                            design_dropdown,
                             ft.Row(
                                 [
                                     _game_menu_button("Abbrechen", lambda ev: close_dialog(), "#475569", width=180, height=42),
@@ -17631,10 +17622,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         page.add(
             ft.Container(
                 expand=True,
-                bgcolor="#F3F5F7",
+                bgcolor="#07121E",
                 content=ft.Stack(
                     [
-                        ft.Container(expand=True, bgcolor="#F3F5F7"),
+                        ft.Container(expand=True, bgcolor="#07121E"),
                         ft.Container(
                             expand=True,
                             alignment=ft.Alignment(0, 0),
@@ -17651,7 +17642,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                         ft.Row(
                                             [
                                                 _game_menu_button("← Eigenes Spiel", back_to_owned, "#64748B", width=170, height=40),
-                                                ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
+                                                ft.Text("Inselmenü", size=28, weight="bold", color="white"),
                                                 _game_menu_button("+ Insel hinzufügen", create_island_dialog, theme["accent"], width=170, height=40),
                                             ],
                                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -17842,10 +17833,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     page.add(
         ft.Container(
             expand=True,
-            bgcolor="#F3F5F7",
+            bgcolor="#07121E",
             content=ft.Stack(
                 [
-                    ft.Container(expand=True, bgcolor="#F3F5F7"),
+                    ft.Container(expand=True, bgcolor="#07121E"),
                     ft.Container(
                         expand=True,
                         padding=16,
@@ -17854,7 +17845,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 ft.Row(
                                     [
                                         _game_menu_button("← Inseln", back_to_owned, "#64748B", width=150, height=40),
-                                        ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
+                                        ft.Text("Inselmenü", size=28, weight="bold", color="white"),
                                         ft.Row(
                                             [
                                                 _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
