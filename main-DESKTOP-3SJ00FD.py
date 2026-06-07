@@ -17423,8 +17423,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         bgcolor=theme["question_bg"],
         color=theme["question_text"],
         border_color=theme["border"],
-        on_change=lambda e: set_preset(e.control.value),
     )
+    background_dropdown.on_change = lambda e: set_preset(e.control.value)
 
     bg_layer, bg_label = _questions_path_world_background_controls(world)
     map_layers = [
