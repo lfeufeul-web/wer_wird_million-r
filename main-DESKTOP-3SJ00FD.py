@@ -6824,7 +6824,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Naturinsel",
         "subtitle": "Wald, Tiere und ruhige Pfade.",
         "topic": "natur",
-        "icon": "🌿",
+        "icon": "Natur",
         "accent": "#34D399",
         "panel": "#0A1712E8",
         "border": "#38BDF8",
@@ -6839,7 +6839,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Genussinsel",
         "subtitle": "Ernährung, Alltag und Energie.",
         "topic": "ernährung",
-        "icon": "🥗",
+        "icon": "Ern",
         "accent": "#F59E0B",
         "panel": "#171006E8",
         "border": "#FDE68A",
@@ -6854,7 +6854,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Meeresinsel",
         "subtitle": "Fische, Wellen und Riffe.",
         "topic": "meer",
-        "icon": "🐟",
+        "icon": "Meer",
         "accent": "#A78BFA",
         "panel": "#120A1EE8",
         "border": "#C4B5FD",
@@ -16666,9 +16666,9 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
                                 [
                                     ft.Row(
                                         [
-                                            _game_menu_button("← Spielauswahl", lambda e: open_main_menu(e.page, state), "#475569", width=170, height=40),
+                                            _game_menu_button("Profile", lambda e: open_main_menu(e.page, state), "#475569", width=170, height=40),
                                             ft.Text("Fragen-Pfad", size=30, weight="bold", color="white"),
-                                            _game_menu_button("+ Profil", lambda e: _questions_path_create_profile_dialog(e.page, state), theme["accent"], width=140, height=40),
+                                            _game_menu_button("Profil neu", lambda e: _questions_path_create_profile_dialog(e.page, state), theme["accent"], width=140, height=40),
                                         ],
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
@@ -16736,7 +16736,7 @@ def _questions_path_render_home(page: ft.Page, state: dict):
                                     ft.Row(
                                         [
                                             ft.Container(
-                                                expand=True,
+                                                width=470,
                                                 border_radius=24,
                                                 padding=24,
                                                 bgcolor="#0D1E2BED",
@@ -16754,7 +16754,7 @@ def _questions_path_render_home(page: ft.Page, state: dict):
                                                 ),
                                             ),
                                             ft.Container(
-                                                expand=True,
+                                                width=470,
                                                 border_radius=24,
                                                 padding=24,
                                                 bgcolor="#101A15ED",
@@ -16774,6 +16774,7 @@ def _questions_path_render_home(page: ft.Page, state: dict):
                                         ],
                                         spacing=14,
                                         wrap=True,
+                                        alignment=ft.MainAxisAlignment.CENTER,
                                     ),
                                 ],
                                 spacing=10,
@@ -16945,7 +16946,14 @@ def _questions_path_render_quick(page: ft.Page, state: dict):
                 border=ft.border.Border.all(2, cfg.get("border", "#38BDF8")),
                 content=ft.Column(
                     [
-                        ft.Text(cfg.get("icon", "🗺️"), size=28, text_align="center"),
+                        ft.Container(
+                            width=54,
+                            height=54,
+                            border_radius=27,
+                            bgcolor=cfg.get("accent", "#38BDF8"),
+                            alignment=ft.Alignment(0, 0),
+                            content=ft.Text(str(cfg.get("icon", "Map"))[:3], size=16, weight="bold", color="white", text_align="center"),
+                        ),
                         ft.Text(cfg.get("title", "Karte"), size=22, weight="bold", color="white", text_align="center"),
                         ft.Text(cfg.get("subtitle", ""), size=12, color=theme_txt(theme, "secondary"), text_align="center"),
                         ft.Container(height=8),
@@ -17350,14 +17358,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             state["_questions_path_editor_zoom"] = max(0.55, min(2.6, float(state.get("_questions_path_editor_zoom", 1.0) or 1.0) * float(scale)))
             _questions_path_render_world_editor(page, state, world["id"])
 
-    def map_scroll(e):
-        if not (getattr(e, "shift", False) or getattr(e, "shift_key", False) or getattr(e, "shiftKey", False)):
-            return
-        delta = getattr(e, "delta_y", None)
-        if delta is None:
-            delta = getattr(e, "scroll_delta_y", 0)
-        zoom_handler(-0.08 if float(delta or 0) > 0 else 0.08)
-
     def back_to_owned(e):
         persist_world()
         state["questions_path_scene"] = "own"
@@ -17511,7 +17511,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                         border=ft.border.Border.all(2, "#7DD3FC"),
                                                         content=ft.GestureDetector(
                                                             on_scale_update=map_scale_update,
-                                                            on_scroll=map_scroll,
                                                             content=ft.Container(
                                                                 expand=True,
                                                                 scale=state.get("_questions_path_editor_zoom", 1.0),
@@ -17519,7 +17518,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                             ),
                                                         ),
                                                     ),
-                                                    ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus. Mit 2 Fingern oder Shift+Mausrad zoomst du die Karte.", size=11, color=theme_txt(theme, "secondary"), text_align="center"),
+                                                    ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus. Mit zwei Fingern zoomst du die Karte.", size=11, color=theme_txt(theme, "secondary"), text_align="center"),
                                                 ],
                                                 spacing=10,
                                             ),
