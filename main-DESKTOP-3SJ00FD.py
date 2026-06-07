@@ -16674,14 +16674,14 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
                                     ),
                                     ft.Text("Wähle ein Profil oder lege ein neues an.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
                                     ft.Container(height=8),
-                                    ft.Wrap(
+                                    ft.Column(
                                         [
                                             _questions_path_profile_card(page, state, profile, idx, active_index)
                                             for idx, profile in enumerate(profiles)
                                         ],
                                         spacing=12,
-                                        run_spacing=12,
-                                        alignment=ft.WrapAlignment.CENTER,
+                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                        scroll=ft.ScrollMode.AUTO,
                                     ),
                                 ],
                                 spacing=10,
@@ -16992,7 +16992,7 @@ def _questions_path_render_quick(page: ft.Page, state: dict):
                                     ),
                                     ft.Text(f"Aktives Profil: {profile.get('name', 'Profil')}", size=12, color=theme_txt(theme, "secondary"), text_align="center"),
                                     ft.Container(height=8),
-                                    ft.Wrap(cards, spacing=14, run_spacing=14, alignment=ft.WrapAlignment.CENTER),
+                                    ft.Column(cards, spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO),
                                 ],
                                 spacing=10,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -17201,20 +17201,24 @@ def _questions_path_editor_point_stack(world: dict, map_w: float, map_h: float, 
         size = 30 if is_selected else 24
         color = "#38BDF8" if is_selected else "#22C55E"
         layers.append(
-            ft.Container(
+            ft.GestureDetector(
                 left=(map_w * point["x"] / 100.0) - size,
                 top=(map_h * point["y"] / 100.0) - size,
                 width=size * 2,
                 height=size * 2,
-                shape=ft.BoxShape.CIRCLE,
-                bgcolor=color,
-                border=ft.border.Border.all(2, "white" if is_selected else "#D1FAE5"),
-                shadow=ft.BoxShadow(blur_radius=20 if is_selected else 10, color="#77000000"),
-                tooltip=point.get("name", f"Punkt {idx + 1}"),
-                on_click=lambda e, p=idx: on_select(p),
+                on_tap=lambda e, p=idx: on_select(p),
                 on_pan_update=lambda e, p=idx: on_drag(p, e.delta_x, e.delta_y),
-                animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
-                content=ft.Text(str(idx + 1), size=13, weight="bold", color="white"),
+                content=ft.Container(
+                    expand=True,
+                    shape=ft.BoxShape.CIRCLE,
+                    bgcolor=color,
+                    border=ft.border.Border.all(2, "white" if is_selected else "#D1FAE5"),
+                    shadow=ft.BoxShadow(blur_radius=20 if is_selected else 10, color="#77000000"),
+                    tooltip=point.get("name", f"Punkt {idx + 1}"),
+                    animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Text(str(idx + 1), size=13, weight="bold", color="white"),
+                ),
             )
         )
     return layers
@@ -17485,7 +17489,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                         ],
                                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                                     ),
-                                                    ft.Wrap(
+                                                    ft.Column(
                                                         [
                                                             ft.Container(
                                                                 width=110,
@@ -17500,7 +17504,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                             for preset in QUESTIONS_PATH_WORLD_PRESETS
                                                         ],
                                                         spacing=10,
-                                                        run_spacing=10,
+                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                                     ),
                                                     ft.Container(height=8),
                                                     ft.Container(
