@@ -17611,9 +17611,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         page.add(
             ft.Container(
                 expand=True,
+                bgcolor="#F3F5F7",
                 content=ft.Stack(
                     [
-                        ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#03110C", "#0D1720", "#08131F"])),
+                        ft.Container(expand=True, bgcolor="#F3F5F7"),
                         ft.Container(
                             expand=True,
                             alignment=ft.Alignment(0, 0),
@@ -17622,14 +17623,15 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 width=min(1280, max(320, int(_page_size(page)[0] - 24))),
                                 padding=ft.Padding(22, 20, 22, 20),
                                 border_radius=30,
-                                bgcolor="#0A1320EE",
-                                border=ft.border.Border.all(2, "#49D6C8"),
+                                bgcolor="#FFFFFF",
+                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                shadow=ft.BoxShadow(blur_radius=28, color="#14000000", offset=ft.Offset(0, 10)),
                                 content=ft.Column(
                                     [
                                         ft.Row(
                                             [
-                                                _game_menu_button("← Eigenes Spiel", back_to_owned, "#475569", width=170, height=40),
-                                                ft.Text("Inselmenü", size=28, weight="bold", color="white"),
+                                                _game_menu_button("← Eigenes Spiel", back_to_owned, "#64748B", width=170, height=40),
+                                                ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
                                                 _game_menu_button("+ Insel hinzufügen", create_island_dialog, theme["accent"], width=170, height=40),
                                             ],
                                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -17637,45 +17639,45 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                         ft.Container(height=8),
                                         ft.Row(
                                             [
-                                                ft.Container(
-                                                    expand=True,
-                                                    border_radius=24,
-                                                    padding=16,
-                                                    bgcolor="#0A1320EE",
-                                                    border=ft.border.Border.all(2, "#49D6C8"),
-                                                    content=ft.Column(
-                                                        [
-                                                            ft.Text("Leere Map", size=16, weight="bold", color=theme["gold"], text_align="center"),
-                                                            ft.Text("Klicke eine Insel an oder füge oben rechts eine neue Insel hinzu.", size=12, color=theme_txt(theme, "secondary"), text_align="center"),
-                                                            ft.Container(height=8),
-                                                            ft.Container(
-                                                                width=min(980, map_w),
-                                                                height=map_h,
-                                                                border_radius=28,
-                                                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                                                content=ft.Stack(island_layers),
-                                                            ),
-                                                        ],
-                                                        spacing=10,
-                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                                    ),
+                                            ft.Container(
+                                                expand=True,
+                                                border_radius=24,
+                                                padding=16,
+                                                bgcolor="#FFFFFF",
+                                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Leere Map", size=16, weight="bold", color=theme["gold"], text_align="center"),
+                                                        ft.Text("Klicke eine Insel an oder füge oben rechts eine neue Insel hinzu.", size=12, color="#6B7280", text_align="center"),
+                                                        ft.Container(height=8),
+                                                        ft.Container(
+                                                            width=min(980, map_w),
+                                                            height=map_h,
+                                                            border_radius=28,
+                                                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                            content=ft.Stack(controls=island_layers),
+                                                        ),
+                                                    ],
+                                                    spacing=10,
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                                 ),
-                                                ft.Container(
-                                                    width=min(360, max(280, int(page_w * 0.28))),
-                                                    border_radius=24,
-                                                    padding=16,
-                                                    bgcolor="#0A1320EE",
-                                                    border=ft.border.Border.all(2, "#49D6C8"),
-                                                    content=ft.Column(
-                                                        [
-                                                            ft.Text("Inseln", size=18, weight="bold", color=theme["gold"], text_align="center"),
-                                                            ft.Text(f"Vorhanden: {len(islands)}", size=12, color=theme_txt(theme, "secondary"), text_align="center"),
-                                                            ft.Text("Ziehe Inseln, um sie zu verschieben. Tippe eine Insel an, um in den Punkt-Editor zu wechseln.", size=12, color=theme_txt(theme, "secondary"), text_align="center"),
-                                                        ],
-                                                        spacing=8,
-                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                                    ),
+                                            ),
+                                            ft.Container(
+                                                width=min(360, max(280, int(page_w * 0.28))),
+                                                border_radius=24,
+                                                padding=16,
+                                                bgcolor="#FFFFFF",
+                                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Inseln", size=18, weight="bold", color="#111827", text_align="center"),
+                                                        ft.Text(f"Vorhanden: {len(islands)}", size=12, color="#6B7280", text_align="center"),
+                                                        ft.Text("Ziehe Inseln, um sie zu verschieben. Tippe eine Insel an, um in den Punkt-Editor zu wechseln.", size=12, color="#6B7280", text_align="center"),
+                                                    ],
+                                                    spacing=8,
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                                 ),
+                                            ),
                                             ],
                                             spacing=14,
                                             wrap=True,
@@ -17759,9 +17761,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         label="Punktname",
         value=point.get("name", ""),
         width=320,
-        bgcolor=theme["question_bg"],
-        color=theme["question_text"],
-        border_color=theme["border"],
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
     )
     question_field = ft.TextField(
         label="Frage",
@@ -17770,9 +17772,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         min_lines=3,
         max_lines=6,
         multiline=True,
-        bgcolor=theme["question_bg"],
-        color=theme["question_text"],
-        border_color=theme["border"],
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
     )
     answer_fields = []
     answers = list(point.get("answers", []))
@@ -17784,9 +17786,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 label=f"Antwort {ANSWER_LETTERS[i]}",
                 value=answers[i],
                 width=320,
-                bgcolor=theme["question_bg"],
-                color=theme["question_text"],
-                border_color=theme["border"],
+                bgcolor="#FFFFFF",
+                color="#111827",
+                border_color="#D1D5DB",
             )
         )
     correct_dropdown = ft.Dropdown(
@@ -17794,23 +17796,23 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         value=str(point.get("correct", 0)),
         width=200,
         options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)],
-        bgcolor=theme["question_bg"],
-        color=theme["question_text"],
-        border_color=theme["border"],
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
     )
     world_name_field = ft.TextField(
         label="Inselname",
         value=world.get("name", ""),
         width=320,
-        bgcolor=theme["question_bg"],
-        color=theme["question_text"],
-        border_color=theme["border"],
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
     )
     bg_label = "Leere Karte"
-    background_layer, _ = _questions_path_world_background_controls(world)
+    background_layer = ft.Container(expand=True, bgcolor="#F8FAFC")
     map_layers = [
         ft.Container(width=map_w, height=map_h, content=background_layer),
-        ft.Container(width=map_w, height=map_h, bgcolor="#07131B66"),
+        ft.Container(width=map_w, height=map_h, bgcolor="#FFFFFF00"),
         *_questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
     ]
 
@@ -17818,9 +17820,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     page.add(
         ft.Container(
             expand=True,
+            bgcolor="#F3F5F7",
             content=ft.Stack(
                 [
-                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#02110C", "#0C1A24", "#091923"])),
+                    ft.Container(expand=True, bgcolor="#F3F5F7"),
                     ft.Container(
                         expand=True,
                         padding=16,
@@ -17828,8 +17831,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                             [
                                 ft.Row(
                                     [
-                                        _game_menu_button("← Inseln", back_to_owned, "#475569", width=150, height=40),
-                                        ft.Text("Insel", size=28, weight="bold", color="white"),
+                                        _game_menu_button("← Inseln", back_to_owned, "#64748B", width=150, height=40),
+                                        ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
                                         ft.Row(
                                             [
                                                 _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
@@ -17846,14 +17849,15 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                             expand=True,
                                             border_radius=24,
                                             padding=16,
-                                            bgcolor="#0A1320EE",
-                                            border=ft.border.Border.all(2, "#49D6C8"),
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            shadow=ft.BoxShadow(blur_radius=24, color="#12000000", offset=ft.Offset(0, 8)),
                                             content=ft.Column(
                                                 [
                                                     ft.Row(
                                                         [
-                                                            ft.Text("Leere Karte", size=16, weight="bold", color=theme["gold"]),
-                                                            ft.Text(bg_label, size=11, color=theme_txt(theme, "secondary")),
+                                                            ft.Text("Leere Karte", size=16, weight="bold", color="#111827"),
+                                                            ft.Text(bg_label, size=11, color="#6B7280"),
                                                         ],
                                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                                     ),
@@ -17863,10 +17867,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                         height=map_h,
                                                         border_radius=28,
                                                         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                                        border=ft.border.Border.all(2, "#7DD3FC"),
-                                                        content=ft.Stack(map_layers),
+                                                        border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                        content=ft.Stack(controls=map_layers),
                                                     ),
-                                                    ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus.", size=11, color=theme_txt(theme, "secondary"), text_align="center"),
+                                                    ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus.", size=11, color="#6B7280", text_align="center"),
                                                 ],
                                                 spacing=10,
                                             ),
@@ -17875,12 +17879,12 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                             width=min(420, max(320, int(page_w * 0.34))),
                                             border_radius=24,
                                             padding=16,
-                                            bgcolor="#0A1320EE",
-                                            border=ft.border.Border.all(2, "#49D6C8"),
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
                                             content=ft.Column(
                                                 [
-                                                    ft.Text("Punkt bearbeiten", size=18, weight="bold", color=theme["gold"], text_align="center"),
-                                                    ft.Text(f"Ausgewählt: {point.get('name', 'Punkt')}", size=12, color=theme_txt(theme, "secondary"), text_align="center"),
+                                                    ft.Text("Quiz Editor", size=18, weight="bold", color="#111827", text_align="center"),
+                                                    ft.Text(f"Ausgewählt: {point.get('name', 'Punkt')}", size=12, color="#6B7280", text_align="center"),
                                                     world_name_field,
                                                     name_field,
                                                     question_field,
@@ -17894,7 +17898,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                         spacing=10,
                                                         wrap=True,
                                                     ),
-                                                    ft.Text("Wenn du einen Punkt anklickst, kannst du hier Frage und Antworten bearbeiten.", size=11, color=theme_txt(theme, "secondary"), text_align="center"),
+                                                    ft.Text("Wenn du einen Punkt anklickst, kannst du hier Frage und Antworten bearbeiten.", size=11, color="#6B7280", text_align="center"),
                                                 ],
                                                 spacing=8,
                                                 scroll=ft.ScrollMode.AUTO,
