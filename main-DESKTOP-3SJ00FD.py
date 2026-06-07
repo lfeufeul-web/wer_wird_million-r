@@ -17376,16 +17376,12 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             persist_questions_path_profiles(state, profiles)
     state["questions_path_selected_world_id"] = world["id"]
     state["questions_path_scene"] = "editor"
-    state["_questions_path_editor_zoom"] = float(state.get("_questions_path_editor_zoom", 1.0) or 1.0)
     state.setdefault("_questions_path_editor_selected_point", 0)
 
     page_w, page_h = _page_size(page)
     map_w = max(520, min(980, int(page_w * 0.62)))
     map_h = max(420, min(760, int(page_h * 0.72)))
     selected_point = int(state.get("_questions_path_editor_selected_point", 0) or 0)
-    zoom = max(0.55, min(2.6, float(state.get("_questions_path_editor_zoom", 1.0) or 1.0)))
-    draw_w = max(1, int(map_w * zoom))
-    draw_h = max(1, int(map_h * zoom))
 
     def persist_world():
         _questions_path_save_world(state, world)
@@ -17470,8 +17466,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         page.update()
 
     def zoom_handler(delta: float):
-        state["_questions_path_editor_zoom"] = max(0.55, min(2.6, float(state.get("_questions_path_editor_zoom", 1.0) or 1.0) + delta))
-        _questions_path_render_world_editor(page, state, world["id"])
+        return
 
     def map_scale_update(e):
         scale = getattr(e, "scale", None)
@@ -17549,9 +17544,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     bg_layer, bg_label = _questions_path_world_background_controls(world)
     map_layers = [
-        ft.Container(width=draw_w, height=draw_h, content=bg_layer),
-        ft.Container(width=draw_w, height=draw_h, bgcolor="#04110B76"),
-        *_questions_path_editor_point_stack(world, draw_w, draw_h, selected_point, select_point, move_point),
+        bg_layer,
+        ft.Container(expand=True, bgcolor="#04110B76"),
+        *_questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
     ]
 
     page.controls.clear()
@@ -17623,14 +17618,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                         border_radius=28,
                                                         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                                         border=ft.border.Border.all(2, "#7DD3FC"),
-                                                        content=ft.GestureDetector(
-                                                            on_scale_update=map_scale_update,
-                                                            content=ft.Container(
-                                                                width=draw_w,
-                                                                height=draw_h,
-                                                                content=ft.Stack(map_layers),
-                                                            ),
-                                                        ),
+                                                        content=ft.Stack(map_layers, expand=True),
                                                     ),
                                                     ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus. Mit zwei Fingern zoomst du die Karte.", size=11, color=theme_txt(theme, "secondary"), text_align="center"),
                                                 ],
