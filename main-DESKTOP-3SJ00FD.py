@@ -16605,23 +16605,20 @@ def _questions_path_world_background_controls(world: dict) -> tuple[ft.Control, 
     if custom_image and os.path.exists(custom_image):
         overlay_image = custom_image
     if overlay_image:
-        try:
-            return (
-                ft.Container(
+        return (
+            ft.Container(
+                expand=True,
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                content=ft.Stack(
+                    [
+                        ft.Container(expand=True, bgcolor=preset["colors"][0]),
+                        ft.Image(src=overlay_image, fit=ft.BoxFit.COVER, expand=True),
+                    ],
                     expand=True,
-                    image_src=overlay_image,
-                    image_fit=ft.BoxFit.COVER,
                 ),
-                preset["label"],
-            )
-        except TypeError:
-            return (
-                ft.Container(
-                    expand=True,
-                    content=ft.Image(src=overlay_image, fit=ft.BoxFit.COVER, expand=True),
-                ),
-                preset["label"],
-            )
+            ),
+            preset["label"],
+        )
     return (
         ft.Container(
             expand=True,
@@ -16880,7 +16877,7 @@ def _questions_path_make_world_editor_map(world: dict) -> dict:
         "panel": "#0A1320E8",
         "border": _questions_path_preset_cfg(world.get("background_preset", "forest"))["colors"][2],
         "line": "#D1FAE5",
-        "image": None,
+        "image": _questions_path_map_art_asset(),
         "points": world.get("points", []),
         "_world": world,
     }
@@ -17569,7 +17566,13 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 width=map_w,
                 height=map_h,
                 border_radius=28,
-                bgcolor="#0B1624",
+                content=ft.Stack(
+                    [
+                        ft.Container(expand=True, bgcolor="#0B1624"),
+                        ft.Image(src=_questions_path_island_hub_asset(), fit=ft.BoxFit.COVER, expand=True),
+                    ],
+                    expand=True,
+                ),
                 border=ft.border.Border.all(2, "#49D6C8"),
             )
         ]
@@ -17804,8 +17807,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         border_color=theme["border"],
     )
     bg_label = "Leere Karte"
+    background_layer, _ = _questions_path_world_background_controls(world)
     map_layers = [
-        ft.Container(width=map_w, height=map_h, bgcolor="#0B1624"),
+        ft.Container(width=map_w, height=map_h, content=background_layer),
         ft.Container(width=map_w, height=map_h, bgcolor="#07131B66"),
         *_questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
     ]
