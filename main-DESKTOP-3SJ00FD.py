@@ -15919,17 +15919,17 @@ def _questions_path_island_hub_asset() -> str:
     return os.path.join("Fragenpfad", "Inseln.png")
 
 
-_QUESTIONS_PATH_ASSET_BYTES_CACHE: dict[str, bytes | None] = {}
+_QUESTIONS_PATH_ASSET_BYTES_CACHE: dict[str, str | None] = {}
 
 
-def _questions_path_asset_bytes(rel_path: str) -> bytes | None:
+def _questions_path_asset_bytes(rel_path: str) -> str | None:
     cached = _QUESTIONS_PATH_ASSET_BYTES_CACHE.get(rel_path)
     if rel_path in _QUESTIONS_PATH_ASSET_BYTES_CACHE:
         return cached
     abs_path = os.path.join("assets", rel_path)
     try:
         with open(abs_path, "rb") as f:
-            data = f.read()
+            data = base64.b64encode(f.read()).decode("ascii")
     except OSError:
         data = None
     _QUESTIONS_PATH_ASSET_BYTES_CACHE[rel_path] = data
@@ -16945,15 +16945,6 @@ def _questions_path_create_world_dialog(page: ft.Page, state: dict):
         border_color=theme["border"],
         autofocus=True,
     )
-    preset_dropdown = ft.Dropdown(
-        label="Design",
-        width=360,
-        value=QUESTIONS_PATH_WORLD_PRESETS[0]["key"],
-        options=[ft.dropdown.Option(p["key"], p["label"]) for p in QUESTIONS_PATH_WORLD_PRESETS],
-        bgcolor=theme["question_bg"],
-        color=theme["question_text"],
-        border_color=theme["border"],
-    )
     overlay_ref = [None]
 
     def close_dialog():
@@ -16969,7 +16960,7 @@ def _questions_path_create_world_dialog(page: ft.Page, state: dict):
     def create_world(e):
         world = _questions_path_default_world(len(_questions_path_worlds_for_profile(state)), name_field.value.strip() if name_field.value else None)
         world["name"] = (name_field.value or "").strip() or world["name"]
-        world["background_preset"] = preset_dropdown.value or QUESTIONS_PATH_WORLD_PRESETS[0]["key"]
+        world["background_preset"] = QUESTIONS_PATH_WORLD_PRESETS[0]["key"]
         profiles = list(get_questions_path_profiles(state))
         idx = get_questions_path_profile_index(state)
         if idx < len(profiles):
@@ -16998,9 +16989,8 @@ def _questions_path_create_world_dialog(page: ft.Page, state: dict):
             content=ft.Column(
                 [
                     ft.Text("Neue Welt", size=28, weight="bold", color="white", text_align="center"),
-                    ft.Text("Name und Design auswählen.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
+                    ft.Text("Gib deiner Welt einen Namen.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
                     name_field,
-                    preset_dropdown,
                     ft.Row(
                         [
                             _game_menu_button("Abbrechen", lambda e: close_dialog(), "#475569", width=170, height=42),
@@ -17442,7 +17432,7 @@ def _questions_path_world_background_preview(world: dict) -> ft.Control:
 
 
 def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: str | None):
-    page.bgcolor = "#07121E"
+    page.bgcolor = "#F3F5F7"
     theme = get_theme(state)
     profile = _questions_path_active_profile(state)
     worlds = list(profile.get("worlds", []) or [])
@@ -17580,7 +17570,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 content=ft.Stack(
                     [
                         ft.Container(expand=True, bgcolor="#0B1624"),
-                        ft.Image(src=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
+                        ft.Image(src_base64=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
                     ],
                     expand=True,
                 ),
@@ -17622,10 +17612,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         page.add(
             ft.Container(
                 expand=True,
-                bgcolor="#07121E",
+                bgcolor="#F3F5F7",
                 content=ft.Stack(
                     [
-                        ft.Container(expand=True, bgcolor="#07121E"),
+                        ft.Container(expand=True, bgcolor="#F3F5F7"),
                         ft.Container(
                             expand=True,
                             alignment=ft.Alignment(0, 0),
@@ -17642,7 +17632,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                         ft.Row(
                                             [
                                                 _game_menu_button("← Eigenes Spiel", back_to_owned, "#64748B", width=170, height=40),
-                                                ft.Text("Inselmenü", size=28, weight="bold", color="white"),
+                                                ft.Text("Inselmenü", size=28, weight="bold", color="#2B2F36"),
                                                 _game_menu_button("+ Insel hinzufügen", create_island_dialog, theme["accent"], width=170, height=40),
                                             ],
                                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -17823,7 +17813,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     map_layers = [
         ft.Container(width=map_w, height=map_h, content=ft.Stack([
             ft.Container(expand=True, bgcolor="#F8FAFC"),
-            ft.Image(src=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
+            ft.Image(src_base64=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
         ], expand=True)),
         ft.Container(width=map_w, height=map_h, bgcolor="#FFFFFF00"),
         *_questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
@@ -17833,10 +17823,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     page.add(
         ft.Container(
             expand=True,
-            bgcolor="#07121E",
+            bgcolor="#F3F5F7",
             content=ft.Stack(
                 [
-                    ft.Container(expand=True, bgcolor="#07121E"),
+                    ft.Container(expand=True, bgcolor="#F3F5F7"),
                     ft.Container(
                         expand=True,
                         padding=16,
@@ -17845,7 +17835,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 ft.Row(
                                     [
                                         _game_menu_button("← Inseln", back_to_owned, "#64748B", width=150, height=40),
-                                        ft.Text("Inselmenü", size=28, weight="bold", color="white"),
+                                        ft.Text("Inselmenü", size=28, weight="bold", color="#2B2F36"),
                                         ft.Row(
                                             [
                                                 _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
