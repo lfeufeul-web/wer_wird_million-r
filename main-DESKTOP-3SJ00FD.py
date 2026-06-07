@@ -19070,5 +19070,256 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     page.run_task(_sync_bg_music_async, page, state)
 
 
+def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: str | None):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    worlds = list(profile.get("worlds", []) or [])
+    world = None
+    for entry in worlds:
+        if str(entry.get("id")) == str(world_id):
+            world = entry
+            break
+    if world is None:
+        world = _questions_path_default_world(0)
+        worlds.append(world)
+        profile["worlds"] = worlds
+        profiles = list(get_questions_path_profiles(state))
+        idx = get_questions_path_profile_index(state)
+        if idx < len(profiles):
+            profiles[idx] = profile
+            state["questions_path_profiles"] = profiles
+            persist_questions_path_profiles(state, profiles)
+
+    islands = _questions_path_world_islands(world)
+    if not islands:
+        islands = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": world.get("name", "Welt 1"),
+                "design": world.get("background_preset", QUESTIONS_PATH_WORLD_PRESETS[0]["key"]),
+                "x": 50.0,
+                "y": 50.0,
+                "points": [_questions_path_default_point(0)],
+            }
+        ]
+        world["islands"] = islands
+        _questions_path_save_world(state, world)
+
+    selected_island = islands[0]
+    state["questions_path_selected_world_id"] = world["id"]
+    state["questions_path_scene"] = "editor"
+    state["_questions_path_selected_island_id"] = selected_island["id"]
+    state["_questions_path_editor_selected_point"] = max(
+        0,
+        min(int(state.get("_questions_path_editor_selected_point", 0) or 0), max(len(_questions_path_world_points(world)) - 1, 0)),
+    )
+
+    world["points"] = list(selected_island.get("points", []) or [])
+    if not world["points"]:
+        world["points"] = [_questions_path_default_point(0)]
+        selected_island["points"] = list(world["points"])
+    world["background_preset"] = str(selected_island.get("design", world.get("background_preset", "forest")))
+
+    def persist_world():
+        selected_island["points"] = list(_questions_path_world_points(world))
+        selected_island["design"] = str(world.get("background_preset", selected_island.get("design", "forest")))
+        selected_island["name"] = str(world.get("name", selected_island.get("name", "Welt 1")))
+        _questions_path_save_world(state, world)
+
+    def back_to_owned(e):
+        state["questions_path_scene"] = "own"
+        _questions_path_render_owned(e.page, state)
+
+    def select_point(index: int):
+        state["_questions_path_editor_selected_point"] = max(0, min(index, len(_questions_path_world_points(world)) - 1))
+        _questions_path_render_world_editor(page, state, world["id"])
+
+    def move_point(index: int, dx: float, dy: float):
+        points = _questions_path_world_points(world)
+        if 0 <= index < len(points):
+            points[index]["x"] = _questions_path_clamp_pct(points[index]["x"] + dx * 0.08)
+            points[index]["y"] = _questions_path_clamp_pct(points[index]["y"] + dy * 0.08)
+            persist_world()
+            _questions_path_render_world_editor(page, state, world["id"])
+
+    def add_point(e):
+        points = _questions_path_world_points(world)
+        points.append(_questions_path_default_point(len(points)))
+        state["_questions_path_editor_selected_point"] = len(points) - 1
+        persist_world()
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def delete_point(e):
+        points = _questions_path_world_points(world)
+        if len(points) <= 1:
+            return
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if 0 <= idx < len(points):
+            points.pop(idx)
+            state["_questions_path_editor_selected_point"] = max(0, idx - 1)
+            persist_world()
+            _questions_path_render_world_editor(e.page, state, world["id"])
+
+    point = _questions_path_world_points(world)[state["_questions_path_editor_selected_point"]]
+    world_name_field = ft.TextField(label="Weltname", value=world.get("name", ""), width=320, bgcolor="#FFFFFF", color="#111827", border_color="#D1D5DB")
+    name_field = ft.TextField(label="Punktname", value=point.get("name", ""), width=320, bgcolor="#FFFFFF", color="#111827", border_color="#D1D5DB")
+    question_field = ft.TextField(label="Frage", value=point.get("question", ""), width=320, min_lines=3, max_lines=6, multiline=True, bgcolor="#FFFFFF", color="#111827", border_color="#D1D5DB")
+    answer_fields = []
+    answers = list(point.get("answers", []))
+    while len(answers) < 4:
+        answers.append("")
+    for i in range(4):
+        answer_fields.append(ft.TextField(label=f"Antwort {ANSWER_LETTERS[i]}", value=answers[i], width=320, bgcolor="#FFFFFF", color="#111827", border_color="#D1D5DB"))
+    correct_dropdown = ft.Dropdown(label="Richtige Antwort", value=str(point.get("correct", 0)), width=200, options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)], bgcolor="#FFFFFF", color="#111827", border_color="#D1D5DB")
+
+    def save_fields(e):
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        points = _questions_path_world_points(world)
+        if not (0 <= idx < len(points)):
+            return
+        point_local = points[idx]
+        point_local["name"] = str(name_field.value or "").strip() or point_local["name"]
+        point_local["question"] = str(question_field.value or "").strip()
+        point_local["answers"] = [str(f.value or "").strip() for f in answer_fields]
+        while len(point_local["answers"]) < 4:
+            point_local["answers"].append("")
+        point_local["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+        world["name"] = str(world_name_field.value or "").strip() or world.get("name", "Welt 1")
+        persist_world()
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    page_w, page_h = _page_size(page)
+    map_w = max(520, min(980, int(page_w * 0.62)))
+    map_h = max(420, min(760, int(page_h * 0.72)))
+    map_stack = ft.Container(
+        width=map_w,
+        height=map_h,
+        border_radius=28,
+        bgcolor="#FFFFFF",
+        border=ft.border.Border.all(1.5, "#E5E7EB"),
+        content=ft.Stack(
+            [
+                ft.Container(expand=True, bgcolor="#FFFFFF"),
+                ft.Container(expand=True, bgcolor="#F8FAFC"),
+                *_questions_path_editor_point_stack(
+                    world,
+                    map_w,
+                    map_h,
+                    int(state.get("_questions_path_editor_selected_point", 0) or 0),
+                    select_point,
+                    move_point,
+                ),
+            ],
+            expand=True,
+        ),
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            bgcolor="#F3F5F7",
+            content=ft.Stack(
+                [
+                    ft.Container(expand=True, bgcolor="#F3F5F7"),
+                    ft.Container(
+                        expand=True,
+                        padding=16,
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        _game_menu_button("Zurueck", back_to_owned, "#64748B", width=170, height=40),
+                                        ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
+                                                _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=120, height=38),
+                                            ],
+                                            spacing=10,
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
+                                ft.Row(
+                                    [
+                                        ft.Container(
+                                            expand=True,
+                                            border_radius=24,
+                                            padding=16,
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            shadow=ft.BoxShadow(blur_radius=24, color="#12000000", offset=ft.Offset(0, 8)),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Row(
+                                                        [
+                                                            ft.Text("Leere Karte", size=16, weight="bold", color="#111827"),
+                                                            ft.Text("Clean", size=11, color="#6B7280"),
+                                                        ],
+                                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                    ),
+                                                    ft.Container(height=8),
+                                                    ft.Container(
+                                                        width=min(980, map_w),
+                                                        height=map_h,
+                                                        border_radius=28,
+                                                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                        content=ft.Stack(controls=[map_stack]),
+                                                    ),
+                                                    ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus.", size=11, color="#6B7280", text_align="center"),
+                                                ],
+                                                spacing=10,
+                                            ),
+                                        ),
+                                        ft.Container(
+                                            width=min(420, max(320, int(page_w * 0.34))),
+                                            border_radius=24,
+                                            padding=16,
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Text("Quiz Editor", size=18, weight="bold", color="#111827", text_align="center"),
+                                                    ft.Text(f"Ausgewahlt: {point.get('name', 'Punkt')}", size=12, color="#6B7280", text_align="center"),
+                                                    world_name_field,
+                                                    name_field,
+                                                    question_field,
+                                                    *answer_fields,
+                                                    correct_dropdown,
+                                                    ft.Row(
+                                                        [
+                                                            _game_menu_button("Speichern", save_fields, theme["success"], width=120, height=38),
+                                                            _game_menu_button("Loeschen", delete_point, theme["danger"], width=120, height=38),
+                                                        ],
+                                                        spacing=10,
+                                                        wrap=True,
+                                                    ),
+                                                    ft.Text("Klicke einen Punkt an, um Frage und Antworten zu bearbeiten.", size=11, color="#6B7280", text_align="center"),
+                                                ],
+                                                spacing=8,
+                                                scroll=ft.ScrollMode.AUTO,
+                                            ),
+                                        ),
+                                    ],
+                                    spacing=14,
+                                    wrap=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                ),
+                            ],
+                            spacing=12,
+                            scroll=ft.ScrollMode.AUTO,
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
 if __name__ == "__main__":
     ft.run(main, assets_dir="assets", upload_dir="assets")
