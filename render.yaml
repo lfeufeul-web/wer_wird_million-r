@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: sh -c 'flet run main.py --web --host 0.0.0.0 --port "$PORT"'
+    startCommand: sh -c 'flet run main-DESKTOP-3SJ00FD.py --web --host 0.0.0.0 --port "$PORT"'
     envVars:
       - key: APP_NAME
         value: Wer wird Millionär
