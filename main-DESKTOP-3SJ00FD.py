@@ -17236,7 +17236,7 @@ def _questions_path_map_stack(page: ft.Page, state: dict, game: dict, map_cfg: d
     points = map_cfg["points"]
     layers: list[ft.Control] = []
     for idx in range(len(points) - 1):
-        layers.append(_questions_path_map_line(points[idx], points[idx + 1], map_w, map_h, map_cfg.get("line", "#FFFFFF")))
+        layers.extend(_questions_path_map_line(points[idx], points[idx + 1], map_w, map_h, map_cfg.get("line", "#FFFFFF")))
     for idx in range(len(points)):
         layers.append(_questions_path_map_node_control(page, state, game, map_cfg, map_w, map_h, idx))
     return layers
@@ -17383,6 +17383,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     map_w = max(520, min(980, int(page_w * 0.62)))
     map_h = max(420, min(760, int(page_h * 0.72)))
     selected_point = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+    zoom = max(0.55, min(2.6, float(state.get("_questions_path_editor_zoom", 1.0) or 1.0)))
+    draw_w = max(1, int(map_w * zoom))
+    draw_h = max(1, int(map_h * zoom))
 
     def persist_world():
         _questions_path_save_world(state, world)
@@ -17546,9 +17549,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     bg_layer, bg_label = _questions_path_world_background_controls(world)
     map_layers = [
-        bg_layer,
-        ft.Container(expand=True, bgcolor="#04110B76"),
-        * _questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
+        ft.Container(width=draw_w, height=draw_h, content=bg_layer),
+        ft.Container(width=draw_w, height=draw_h, bgcolor="#04110B76"),
+        *_questions_path_editor_point_stack(world, draw_w, draw_h, selected_point, select_point, move_point),
     ]
 
     page.controls.clear()
@@ -17623,9 +17626,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                         content=ft.GestureDetector(
                                                             on_scale_update=map_scale_update,
                                                             content=ft.Container(
-                                                                expand=True,
-                                                                scale=state.get("_questions_path_editor_zoom", 1.0),
-                                                                content=ft.Stack(map_layers, expand=True),
+                                                                width=draw_w,
+                                                                height=draw_h,
+                                                                content=ft.Stack(map_layers),
                                                             ),
                                                         ),
                                                     ),
@@ -17762,9 +17765,9 @@ def render_questions_path_game(page: ft.Page, state: dict):
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         content=ft.Stack(
             [
-                map_bg,
-                ft.Container(expand=True, bgcolor="#06140B8C"),
-                ft.Container(expand=True, padding=6, content=ft.Stack(map_items, expand=True)),
+                ft.Container(width=map_w, height=map_h, content=map_bg),
+                ft.Container(width=map_w, height=map_h, bgcolor="#06140B8C"),
+                ft.Container(width=map_w, height=map_h, padding=6, content=ft.Stack(map_items)),
             ],
             expand=True,
         ),
