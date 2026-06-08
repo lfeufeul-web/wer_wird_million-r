@@ -17429,6 +17429,20 @@ def _questions_path_save_world(state: dict, world: dict):
     persist_questions_path_profiles(state, profiles)
 
 
+def _questions_path_world_preview_asset(world: dict) -> str:
+    custom_image = str(world.get("background_image") or "").strip()
+    if custom_image and os.path.exists(custom_image):
+        return custom_image
+    preset = str(world.get("background_preset", "forest")).strip().lower()
+    if preset == "forest":
+        return _questions_path_map_art_asset()
+    if preset == "ocean":
+        return _questions_path_island_hub_asset()
+    if preset == "sunset":
+        return _questions_path_level_background_asset()
+    return _questions_path_map_art_asset()
+
+
 def _questions_path_create_world_dialog(page: ft.Page, state: dict):
     theme = get_theme(state)
     name_field = ft.TextField(
@@ -17452,14 +17466,18 @@ def _questions_path_create_world_dialog(page: ft.Page, state: dict):
         page.update()
 
     def create_world(e):
-        world = _questions_path_default_world(len(_questions_path_worlds_for_profile(state)), name_field.value.strip() if name_field.value else None)
-        world["name"] = (name_field.value or "").strip() or world["name"]
-        world["background_preset"] = QUESTIONS_PATH_WORLD_PRESETS[0]["key"]
-        profiles = list(get_questions_path_profiles(state))
-        idx = get_questions_path_profile_index(state)
-        if idx < len(profiles):
-            current = profiles[idx]
+        try:
+            world_name = str(name_field.value or "").strip()
+            profiles = list(get_questions_path_profiles(state))
+            if not profiles:
+                profiles = [_questions_path_default_profile(0)]
+            idx = get_questions_path_profile_index(state)
+            idx = max(0, min(idx, len(profiles) - 1))
+            current = dict(profiles[idx] or {})
             worlds = list(current.get("worlds", []) or [])
+            world = _questions_path_default_world(len(worlds), world_name or None)
+            world["name"] = world_name or world["name"]
+            world["background_preset"] = QUESTIONS_PATH_WORLD_PRESETS[0]["key"]
             worlds.append(world)
             current["worlds"] = worlds
             profiles[idx] = current
@@ -17468,7 +17486,13 @@ def _questions_path_create_world_dialog(page: ft.Page, state: dict):
             state["questions_path_scene"] = "own"
             state["questions_path_selected_world_id"] = world["id"]
             close_dialog()
+            e.page.snack_bar = ft.SnackBar(content=ft.Text(f"Welt '{world['name']}' wurde erstellt."), open=True)
+            e.page.update()
             _questions_path_render_world_editor(e.page, state, world["id"])
+        except Exception as exc:
+            print(f"Create world error: {exc}")
+            e.page.snack_bar = ft.SnackBar(content=ft.Text("Welt konnte nicht erstellt werden."), open=True)
+            e.page.update()
 
     overlay = ft.Container(
         expand=True,
@@ -17594,6 +17618,8 @@ def _questions_path_render_owned(page: ft.Page, state: dict):
     page.controls.clear()
     rows = []
     for world in worlds:
+        preview_src = _questions_path_world_preview_asset(world)
+
         def _play(world_id=world["id"]):
             return lambda e: start_questions_path_game(e.page, state, world_id)
 
@@ -17677,12 +17703,19 @@ def _questions_path_render_owned(page: ft.Page, state: dict):
                 content=ft.Row(
                     [
                         ft.Container(
-                            width=42,
-                            height=42,
+                            width=72,
+                            height=48,
                             border_radius=14,
-                            bgcolor="#1B4B59",
-                            alignment=ft.Alignment(0, 0),
-                            content=ft.Icon(getattr(ft.Icons, "LANDSCAPE", ft.Icons.FILTER_HDR), size=22, color="white"),
+                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            bgcolor="#0F172A",
+                            border=ft.border.Border.all(1, "#1F2937"),
+                            content=ft.Stack(
+                                [
+                                    ft.Image(src=preview_src, fit=ft.BoxFit.COVER, expand=True),
+                                    ft.Container(expand=True, bgcolor="#00000022"),
+                                ],
+                                expand=True,
+                            ),
                         ),
                         ft.Text(world.get("name", "Welt"), size=18, weight="bold", color="white", expand=True),
                         ft.Row(
@@ -19230,7 +19263,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                             [
                                 ft.Row(
                                     [
-                                        _game_menu_button("Zurueck", back_to_owned, "#64748B", width=170, height=40),
+                                        _game_menu_button("Zurück", back_to_owned, "#64748B", width=170, height=40),
                                         ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
                                         ft.Row(
                                             [
@@ -19396,15 +19429,24 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     point = points[selected_idx]
 
     world_name_field = ft.TextField(
-        label="World name",
+        label="Weltname",
         value=world.get("name", ""),
         width=320,
         bgcolor="#FFFFFF",
         color="#111827",
         border_color="#D1D5DB",
     )
+    design_dropdown = ft.Dropdown(
+        label="Welt-Design",
+        value=str(world.get("background_preset", "forest")),
+        width=320,
+        options=[ft.dropdown.Option(p["key"], p["label"]) for p in QUESTIONS_PATH_WORLD_PRESETS],
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
     name_field = ft.TextField(
-        label="Point name",
+        label="Punktname",
         value=point.get("name", ""),
         width=320,
         bgcolor="#FFFFFF",
@@ -19412,7 +19454,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         border_color="#D1D5DB",
     )
     question_field = ft.TextField(
-        label="Question",
+        label="Frage",
         value=point.get("question", ""),
         width=320,
         min_lines=3,
@@ -19429,7 +19471,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     for i in range(4):
         answer_fields.append(
             ft.TextField(
-                label=f"Answer {ANSWER_LETTERS[i]}",
+                label=f"Antwort {ANSWER_LETTERS[i]}",
                 value=answers[i],
                 width=320,
                 bgcolor="#FFFFFF",
@@ -19438,7 +19480,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             )
         )
     correct_dropdown = ft.Dropdown(
-        label="Correct answer",
+        label="Richtige Antwort",
         value=str(point.get("correct", 0)),
         width=200,
         options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)],
@@ -19460,41 +19502,34 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             current_point["answers"].append("")
         current_point["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
         world["name"] = str(world_name_field.value or "").strip() or world.get("name", "Welt 1")
+        world["background_preset"] = str(design_dropdown.value or world.get("background_preset", "forest"))
         persist_world()
         _questions_path_render_world_editor(e.page, state, world["id"])
 
     page_w, page_h = _page_size(page)
     map_w = max(520, min(980, int(page_w * 0.62)))
     map_h = max(420, min(760, int(page_h * 0.72)))
-    bg_img = _questions_path_asset_bytes(_questions_path_island_hub_asset()) or _questions_path_asset_bytes(_questions_path_level_background_asset())
-    map_background: list[ft.Control] = [ft.Container(expand=True, bgcolor="#FFFFFF")]
-    if bg_img:
-        map_background.append(ft.Image(src=bg_img, fit=ft.BoxFit.COVER, expand=True))
-    else:
-        map_background.append(
-            ft.Container(
-                expand=True,
-                gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#FFFFFF", "#EEF7FF"]),
-            )
-        )
+    preview_src = _questions_path_world_preview_asset(world)
 
     map_stack = ft.Container(
         width=map_w,
         height=map_h,
         border_radius=28,
-        bgcolor="#FFFFFF",
         border=ft.border.Border.all(1.5, "#E5E7EB"),
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         content=ft.Stack(
-            map_background
-            + _questions_path_editor_point_stack(
-                world,
-                map_w,
-                map_h,
-                selected_idx,
-                select_point,
-                move_point,
-            ),
+            [
+                ft.Image(src=preview_src, fit=ft.BoxFit.COVER, expand=True),
+                ft.Container(expand=True, bgcolor="#00000012"),
+                *_questions_path_editor_point_stack(
+                    world,
+                    map_w,
+                    map_h,
+                    selected_idx,
+                    select_point,
+                    move_point,
+                ),
+            ],
             expand=True,
         ),
     )
@@ -19514,7 +19549,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                             [
                                 ft.Row(
                                     [
-                                        _game_menu_button("Zurueck", back_to_owned, "#64748B", width=170, height=40),
+                                        _game_menu_button("Zurück", back_to_owned, "#64748B", width=170, height=40),
                                         ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
                                         ft.Row(
                                             [
@@ -19535,24 +19570,24 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                             bgcolor="#FFFFFF",
                                             border=ft.border.Border.all(1.5, "#E5E7EB"),
                                             shadow=ft.BoxShadow(blur_radius=24, color="#12000000", offset=ft.Offset(0, 8)),
-                                            content=ft.Column(
-                                                [
-                                                    ft.Row(
-                                                        [
-                                                            ft.Text("Map", size=16, weight="bold", color="#111827"),
-                                                            ft.Text("Whiteboard", size=11, color="#6B7280"),
-                                                        ],
-                                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                                    ),
-                                                    ft.Container(height=8),
-                                                    ft.Container(
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Row(
+                                                            [
+                                                                ft.Text("Map", size=16, weight="bold", color="#111827"),
+                                                                ft.Text("QuestMapper-Preview", size=11, color="#6B7280"),
+                                                            ],
+                                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                        ),
+                                                        ft.Container(height=8),
+                                                        ft.Container(
                                                         width=min(980, map_w),
                                                         height=map_h,
                                                         border_radius=28,
                                                         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                                        content=map_stack,
-                                                    ),
-                                                    ft.Text("Tippe einen Punkt an und bearbeite ihn rechts.", size=11, color="#6B7280", text_align="center"),
+                                                            content=map_stack,
+                                                        ),
+                                                    ft.Text("Tippe einen Punkt an, ziehe ihn auf der Karte oder lege mit + Punkt neue Stationen an.", size=11, color="#6B7280", text_align="center"),
                                                 ],
                                                 spacing=10,
                                             ),
@@ -19563,24 +19598,25 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                             padding=16,
                                             bgcolor="#FFFFFF",
                                             border=ft.border.Border.all(1.5, "#E5E7EB"),
-                                            content=ft.Column(
-                                                [
-                                                    ft.Text("Quiz Editor", size=18, weight="bold", color="#111827", text_align="center"),
-                                                    ft.Text(f"Selected: {point.get('name', 'Point')}", size=12, color="#6B7280", text_align="center"),
-                                                    world_name_field,
-                                                    name_field,
-                                                    question_field,
-                                                    *answer_fields,
-                                                    correct_dropdown,
-                                                    ft.Row(
-                                                        [
-                                                            _game_menu_button("Save", save_fields, theme["success"], width=120, height=38),
-                                                            _game_menu_button("Delete", delete_point, theme["danger"], width=120, height=38),
-                                                        ],
-                                                        spacing=10,
-                                                        wrap=True,
-                                                    ),
-                                                    ft.Text("This screen is now a direct QuestMapper editor without the island menu.", size=11, color="#6B7280", text_align="center"),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Quiz Editor", size=18, weight="bold", color="#111827", text_align="center"),
+                                                        ft.Text(f"Ausgewählt: {point.get('name', 'Punkt')}", size=12, color="#6B7280", text_align="center"),
+                                                        world_name_field,
+                                                        design_dropdown,
+                                                        name_field,
+                                                        question_field,
+                                                        *answer_fields,
+                                                        correct_dropdown,
+                                                        ft.Row(
+                                                            [
+                                                                _game_menu_button("Speichern", save_fields, theme["success"], width=120, height=38),
+                                                                _game_menu_button("Löschen", delete_point, theme["danger"], width=120, height=38),
+                                                            ],
+                                                            spacing=10,
+                                                            wrap=True,
+                                                        ),
+                                                    ft.Text("Hier bearbeitest du Weltname, Design und alle Fragen direkt im selben Menü.", size=11, color="#6B7280", text_align="center"),
                                                 ],
                                                 spacing=8,
                                                 scroll=ft.ScrollMode.AUTO,
