@@ -162,6 +162,25 @@ def _gesture_focal_xy(event) -> tuple[float, float] | None:
     return None
 
 
+def _gesture_position_xy(event) -> tuple[float, float] | None:
+    for attr in ("global_position", "local_position"):
+        point = _pointer_xy(getattr(event, attr, None))
+        if point is not None:
+            return point
+    return None
+
+
+def _scroll_delta_y(event) -> float:
+    for attr in ("scroll_delta_y", "scroll_delta"):
+        value = getattr(event, attr, None)
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
 def load_env_file():
     if not os.path.exists(ENV_FILE):
         return
@@ -19563,6 +19582,21 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     pan_x_key = f"_qpe_pan_x_{world['id']}"
     pan_y_key = f"_qpe_pan_y_{world['id']}"
     init_key = f"_qpe_ready_{world['id']}"
+    ctrl_key = "_qpe_ctrl_down_until"
+    previous_keyboard_handler = getattr(page, "on_keyboard_event", None)
+    if getattr(previous_keyboard_handler, "_qpe_keyboard_handler", False):
+        previous_keyboard_handler = None
+
+    def on_editor_keyboard(e):
+        if callable(previous_keyboard_handler):
+            previous_keyboard_handler(e)
+        if bool(getattr(e, "ctrl", False)):
+            # Page keyboard events expose modifier state, while wheel events do not.
+            state[ctrl_key] = time.time() + 3.0
+            print(f"[QuestMapper] ctrl key active key={getattr(e, 'key', '')}")
+
+    on_editor_keyboard._qpe_keyboard_handler = True
+    page.on_keyboard_event = on_editor_keyboard
 
     def clamp_zoom(value: float) -> float:
         return max(min_zoom, min(max_zoom, float(value)))
@@ -19610,7 +19644,23 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         new_pan_x = viewport_w / 2.0 - center_world_x * state[zoom_key]
         new_pan_y = viewport_h / 2.0 - center_world_y * state[zoom_key]
         state[pan_x_key], state[pan_y_key] = clamp_pan(new_pan_x, new_pan_y)
+        print(f"[QuestMapper] zoom scale={state[zoom_key]:.3f}")
         render_again()
+
+    def ctrl_wheel_zoom(e):
+        event_ctrl = bool(getattr(e, "ctrl", False) or getattr(e, "ctrl_key", False))
+        recent_ctrl = float(state.get(ctrl_key, 0.0) or 0.0) > time.time()
+        if not event_ctrl and not recent_ctrl:
+            return
+        if not state.get("_qpe_logged_wheel_attrs"):
+            state["_qpe_logged_wheel_attrs"] = "1"
+            print(f"[QuestMapper] wheel attrs={sorted([name for name in dir(e) if not name.startswith('_')])}")
+        delta_y = _scroll_delta_y(e)
+        if abs(delta_y) < 0.01:
+            return
+        factor = 1.16 if delta_y < 0 else 1 / 1.16
+        print(f"[QuestMapper] ctrl wheel detected delta_y={delta_y:.2f}")
+        set_zoom(zoom() * factor)
 
     def reset_view(e):
         state[zoom_key] = 1.0
@@ -19646,19 +19696,49 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         persist_world()
         render_again()
 
-    def move_island(island_id: str, e):
-        dx, dy = _gesture_delta_xy(e)
+    def island_pixel_bounds(island: dict) -> tuple[float, float, float, float]:
+        cfg = _questions_path_editor_template_cfg(str(island.get("template", "circle")))
+        width = max(52.0, canvas_w * float(island.get("w", cfg["w"])) / 100.0 * current_zoom)
+        height = max(42.0, canvas_h * float(island.get("h", cfg["h"])) / 100.0 * current_zoom)
+        left = canvas_w * float(island.get("x", 50.0)) / 100.0 * current_zoom - width / 2.0
+        top = canvas_h * float(island.get("y", 50.0)) / 100.0 * current_zoom - height / 2.0
+        return left, top, width, height
+
+    def island_drag_state_key(island_id: str) -> str:
+        return f"_qpe_island_drag_{island_id}"
+
+    def island_drag_start(island_id: str, e):
+        print(f"[QuestMapper] island drag start id={island_id} attrs={sorted([name for name in dir(e) if not name.startswith('_')])}")
+        state[island_drag_state_key(island_id)] = _gesture_position_xy(e)
+        state["_questions_path_editor_selected_island_id"] = island_id
+
+    def move_island(island_id: str, e, host: ft.Container):
+        delta = _gesture_delta_xy(e)
+        position = _gesture_position_xy(e)
+        previous = state.get(island_drag_state_key(island_id))
+        if position is not None and previous is not None:
+            dx = float(position[0]) - float(previous[0])
+            dy = float(position[1]) - float(previous[1])
+            state[island_drag_state_key(island_id)] = position
+        else:
+            dx, dy = delta
+        print(f"[QuestMapper] island drag update id={island_id} dx={dx:.2f} dy={dy:.2f}")
         if abs(dx) < 0.01 and abs(dy) < 0.01:
             return
-        # Drag deltas arrive in screen pixels; divide by zoom to write back canvas coordinates.
         for island in islands:
             if str(island.get("id")) == island_id:
                 island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + ((dx / zoom()) / canvas_w) * 100.0)
                 island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + ((dy / zoom()) / canvas_h) * 100.0)
                 state["_questions_path_editor_selected_island_id"] = island_id
                 persist_world()
-                render_again()
+                host.left, host.top, host.width, host.height = island_pixel_bounds(island)
+                host.update()
+                print(f"[QuestMapper] island moved id={island_id} x={island['x']:.3f} y={island['y']:.3f}")
                 return
+
+    def island_drag_end(island_id: str, e):
+        state.pop(island_drag_state_key(island_id), None)
+        print(f"[QuestMapper] island drag end id={island_id}")
 
     def delete_selected(e):
         island_id = str(state.get("_questions_path_editor_selected_island_id") or "")
@@ -19686,29 +19766,25 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         )
 
     def island_control(island: dict) -> ft.Control:
-        cfg = _questions_path_editor_template_cfg(str(island.get("template", "circle")))
-        width = max(52.0, canvas_w * float(island.get("w", cfg["w"])) / 100.0 * current_zoom)
-        height = max(42.0, canvas_h * float(island.get("h", cfg["h"])) / 100.0 * current_zoom)
-        left = canvas_w * float(island.get("x", 50.0)) / 100.0 * current_zoom - width / 2.0
-        top = canvas_h * float(island.get("y", 50.0)) / 100.0 * current_zoom - height / 2.0
+        left, top, width, height = island_pixel_bounds(island)
         island_id = str(island.get("id"))
         selected = island_id == str(state.get("_questions_path_editor_selected_island_id") or "")
-        return ft.Container(
-            left=left,
-            top=top,
-            width=width,
-            height=height,
-            content=ft.GestureDetector(
-                drag_interval=0,
-                on_tap=lambda e, item_id=island_id: (state.__setitem__("_questions_path_editor_selected_island_id", item_id), render_again()),
-                on_pan_update=lambda e, item_id=island_id: move_island(item_id, e),
-                content=island_shape(island, width, height, selected),
-            ),
+        host = ft.Container(left=left, top=top, width=width, height=height)
+        host.content = ft.GestureDetector(
+            drag_interval=0,
+            on_tap=lambda e, item_id=island_id: (state.__setitem__("_questions_path_editor_selected_island_id", item_id), render_again()),
+            on_pan_start=lambda e, item_id=island_id: island_drag_start(item_id, e),
+            on_pan_update=lambda e, item_id=island_id, item_host=host: move_island(item_id, e, item_host),
+            on_pan_end=lambda e, item_id=island_id: island_drag_end(item_id, e),
+            on_scroll=ctrl_wheel_zoom,
+            content=island_shape(island, width, height, selected),
         )
+        return host
 
     map_background = ft.GestureDetector(
         drag_interval=0,
         on_pan_update=pan_map,
+        on_scroll=ctrl_wheel_zoom,
         content=ft.Container(
             width=display_w,
             height=display_h,
@@ -19725,12 +19801,18 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         ),
     )
 
+    island_layer = ft.Stack(
+        [island_control(island) for island in islands],
+        width=display_w,
+        height=display_h,
+    )
+
     canvas = ft.Container(
         left=pan_x,
         top=pan_y,
         width=display_w,
         height=display_h,
-        content=ft.Stack([map_background, *[island_control(island) for island in islands]], expand=True),
+        content=ft.Stack([map_background, island_layer], expand=True),
     )
 
     preset_buttons = [
@@ -19779,7 +19861,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
                                 bgcolor="#EAF4EA",
                                 border=ft.border.Border.all(1.5, "#C8D8C5"),
-                                content=ft.Stack([canvas], expand=True),
+                                content=ft.GestureDetector(
+                                    on_scroll=ctrl_wheel_zoom,
+                                    content=ft.Stack([canvas], expand=True),
+                                ),
                             ),
                             ft.Container(
                                 width=sidebar_w,
