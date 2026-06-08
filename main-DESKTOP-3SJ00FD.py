@@ -134,6 +134,34 @@ QUESTION_HISTORY_LIMIT = 360
 QUESTION_PERFORMANCE_LIMIT = 1500
 
 
+def _pointer_xy(value) -> tuple[float, float] | None:
+    if value is None:
+        return None
+    x = getattr(value, "x", None)
+    y = getattr(value, "y", None)
+    if x is None and y is None:
+        return None
+    return float(x or 0.0), float(y or 0.0)
+
+
+def _gesture_delta_xy(event) -> tuple[float, float]:
+    # Flet drag update events expose offset objects on local/global delta.
+    for attr in ("local_delta", "global_delta"):
+        delta = _pointer_xy(getattr(event, attr, None))
+        if delta is not None:
+            return delta
+    return 0.0, 0.0
+
+
+def _gesture_focal_xy(event) -> tuple[float, float] | None:
+    # Scale updates expose focal points in local/global coordinates.
+    for attr in ("local_focal_point", "global_focal_point"):
+        point = _pointer_xy(getattr(event, attr, None))
+        if point is not None:
+            return point
+    return None
+
+
 def load_env_file():
     if not os.path.exists(ENV_FILE):
         return
@@ -2698,7 +2726,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                     height=size,
                     content=ft.GestureDetector(
                         on_tap=open_island(island["id"]),
-                        on_pan_update=lambda ev, p=idx: move_island(p, ev.delta_x, ev.delta_y),
+                        on_pan_update=lambda ev, p=idx: move_island(p, *_gesture_delta_xy(ev)),
                         content=ft.Container(
                             expand=True,
                             shape=ft.BoxShape.CIRCLE,
@@ -5708,8 +5736,7 @@ def _DraggableModal(panel: ft.Control, page: ft.Page | None = None) -> ft.Stack:
                 else:
                     dx = dy = 0.0
             else:
-                dx = float(getattr(getattr(e, "local_delta", None), "x", getattr(e, "delta_x", 0.0)) or 0.0)
-                dy = float(getattr(getattr(e, "local_delta", None), "y", getattr(e, "delta_y", 0.0)) or 0.0)
+                dx, dy = _gesture_delta_xy(e)
             pos["left"] = max(10, min((pos["left"] or 10) + dx, max(10, pw - max_w - 10)))
             pos["top"] = max(10, min((pos["top"] or 10) + dy, max(10, ph - 140)))
             floating.left = pos["left"]
@@ -17952,8 +17979,7 @@ def _questions_path_editor_point_stack(world: dict, map_w: float, map_h: float, 
             if last is not None:
                 on_drag(index, current[0] - last[0], current[1] - last[1])
                 return
-        dx = float(getattr(getattr(e, "local_delta", None), "x", getattr(e, "delta_x", 0.0)) or 0.0)
-        dy = float(getattr(getattr(e, "local_delta", None), "y", getattr(e, "delta_y", 0.0)) or 0.0)
+        dx, dy = _gesture_delta_xy(e)
         on_drag(index, dx, dy)
 
     def point_drag_end(index: int, e):
@@ -18168,7 +18194,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                     height=72,
                     content=ft.GestureDetector(
                         on_tap=open_island(island["id"]),
-                        on_pan_update=lambda ev, p=idx: move_island(p, ev.delta_x, ev.delta_y),
+                        on_pan_update=lambda ev, p=idx: move_island(p, *_gesture_delta_xy(ev)),
                         content=ft.Container(
                             expand=True,
                             shape=ft.BoxShape.CIRCLE,
@@ -19605,10 +19631,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             y = getattr(value, "y", None)
             if x is not None or y is not None:
                 return float(x or 0.0), float(y or 0.0)
-        x = getattr(event, "delta_x", None)
-        y = getattr(event, "delta_y", None)
-        if x is not None or y is not None:
-            return float(x or 0.0), float(y or 0.0)
         return 0.0, 0.0
 
     def _drag_position(event) -> tuple[float, float] | None:
