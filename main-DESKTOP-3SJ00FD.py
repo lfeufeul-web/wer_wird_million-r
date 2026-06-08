@@ -5696,13 +5696,37 @@ def _DraggableModal(panel: ft.Control, page: ft.Page | None = None) -> ft.Stack:
             ensure_position(page)
             pw, ph = _page_size(page)
             max_w = float(panel_host.width or panel_w)
-            pos["left"] = max(10, min((pos["left"] or 10) + e.delta_x, max(10, pw - max_w - 10)))
-            pos["top"] = max(10, min((pos["top"] or 10) + e.delta_y, max(10, ph - 140)))
+            current = getattr(e, "global_position", None)
+            if current is not None and hasattr(current, "x") and hasattr(current, "y"):
+                last_x = pos.get("_drag_last_x")
+                last_y = pos.get("_drag_last_y")
+                pos["_drag_last_x"] = float(current.x or 0.0)
+                pos["_drag_last_y"] = float(current.y or 0.0)
+                if last_x is not None and last_y is not None:
+                    dx = float(current.x or 0.0) - float(last_x)
+                    dy = float(current.y or 0.0) - float(last_y)
+                else:
+                    dx = dy = 0.0
+            else:
+                dx = float(getattr(getattr(e, "local_delta", None), "x", getattr(e, "delta_x", 0.0)) or 0.0)
+                dy = float(getattr(getattr(e, "local_delta", None), "y", getattr(e, "delta_y", 0.0)) or 0.0)
+            pos["left"] = max(10, min((pos["left"] or 10) + dx, max(10, pw - max_w - 10)))
+            pos["top"] = max(10, min((pos["top"] or 10) + dy, max(10, ph - 140)))
             floating.left = pos["left"]
             floating.top = pos["top"]
             floating.update()
         except Exception:
             pass
+
+    def on_pan_start(e):
+        current = getattr(e, "global_position", None)
+        if current is not None and hasattr(current, "x") and hasattr(current, "y"):
+            pos["_drag_last_x"] = float(current.x or 0.0)
+            pos["_drag_last_y"] = float(current.y or 0.0)
+
+    def on_pan_end(e):
+        pos.pop("_drag_last_x", None)
+        pos.pop("_drag_last_y", None)
 
     drag_handle = ft.GestureDetector(
         content=ft.Container(
@@ -5713,7 +5737,9 @@ def _DraggableModal(panel: ft.Control, page: ft.Page | None = None) -> ft.Stack:
             alignment=ft.Alignment(0, 0),
             width=panel_w,
         ),
+        on_pan_start=on_pan_start,
         on_pan_update=on_pan_update,
+        on_pan_end=on_pan_end,
         mouse_cursor=ft.MouseCursor.MOVE,
         drag_interval=12,
     )
@@ -17910,6 +17936,29 @@ def _questions_path_answer_buttons(page: ft.Page, state: dict, node_idx: int, qu
 def _questions_path_editor_point_stack(world: dict, map_w: float, map_h: float, selected_index: int, on_select, on_drag) -> list[ft.Control]:
     layers: list[ft.Control] = []
     points = _questions_path_world_points(world)
+    drag_last: dict[int, tuple[float, float]] = {}
+
+    def point_drag_start(index: int, e):
+        position = getattr(e, "global_position", None)
+        if position is not None and hasattr(position, "x") and hasattr(position, "y"):
+            drag_last[index] = (float(position.x or 0.0), float(position.y or 0.0))
+
+    def point_drag_update(index: int, e):
+        position = getattr(e, "global_position", None)
+        if position is not None and hasattr(position, "x") and hasattr(position, "y"):
+            current = (float(position.x or 0.0), float(position.y or 0.0))
+            last = drag_last.get(index)
+            drag_last[index] = current
+            if last is not None:
+                on_drag(index, current[0] - last[0], current[1] - last[1])
+                return
+        dx = float(getattr(getattr(e, "local_delta", None), "x", getattr(e, "delta_x", 0.0)) or 0.0)
+        dy = float(getattr(getattr(e, "local_delta", None), "y", getattr(e, "delta_y", 0.0)) or 0.0)
+        on_drag(index, dx, dy)
+
+    def point_drag_end(index: int, e):
+        drag_last.pop(index, None)
+
     for idx, point in enumerate(points):
         is_selected = idx == selected_index
         size = 30 if is_selected else 24
@@ -17931,7 +17980,9 @@ def _questions_path_editor_point_stack(world: dict, map_w: float, map_h: float, 
                     alignment=ft.Alignment(0, 0),
                     content=ft.GestureDetector(
                         on_tap=lambda e, p=idx: on_select(p),
-                        on_pan_update=lambda e, p=idx: on_drag(p, e.delta_x, e.delta_y),
+                        on_pan_start=lambda e, p=idx: point_drag_start(p, e),
+                        on_pan_update=lambda e, p=idx: point_drag_update(p, e),
+                        on_pan_end=lambda e, p=idx: point_drag_end(p, e),
                         content=ft.Container(
                             expand=True,
                             alignment=ft.Alignment(0, 0),
@@ -19499,19 +19550,103 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     pan_key_y = "_questions_path_editor_pan_y"
     init_key = "_questions_path_editor_pan_world_id"
     if state.get(init_key) != world["id"]:
-        state[pan_key_x] = int((viewport_w - canvas_w) / 2)
-        state[pan_key_y] = int((viewport_h - canvas_h) / 2)
+        init_zoom = float(state.get("_questions_path_editor_zoom", 1.0) or 1.0)
+        state[pan_key_x] = int((viewport_w - int(round(canvas_w * init_zoom))) / 2)
+        state[pan_key_y] = int((viewport_h - int(round(canvas_h * init_zoom))) / 2)
         state[init_key] = world["id"]
 
     def clamp_pan(x: int, y: int) -> tuple[int, int]:
-        min_x = viewport_w - canvas_w
+        current_canvas_w, current_canvas_h = scaled_canvas_size()
+        min_x = viewport_w - current_canvas_w
         max_x = 0
-        min_y = viewport_h - canvas_h
+        min_y = viewport_h - current_canvas_h
         max_y = 0
         return max(min_x, min(max_x, int(x))), max(min_y, min(max_y, int(y)))
 
     pan_x, pan_y = clamp_pan(int(state.get(pan_key_x, 0) or 0), int(state.get(pan_key_y, 0) or 0))
     state[pan_key_x], state[pan_key_y] = pan_x, pan_y
+    zoom_key = "_questions_path_editor_zoom"
+    if zoom_key not in state or not isinstance(state.get(zoom_key), (int, float)):
+        state[zoom_key] = 1.0
+
+    def clamp_zoom(value: float) -> float:
+        return max(0.55, min(2.75, float(value)))
+
+    def current_zoom() -> float:
+        return clamp_zoom(float(state.get(zoom_key, 1.0) or 1.0))
+
+    def scaled_canvas_size() -> tuple[int, int]:
+        zoom = float(state.get("_questions_path_editor_zoom", 1.0) or 1.0)
+        zoom = max(0.55, min(2.75, zoom))
+        return max(1, int(round(canvas_w * zoom))), max(1, int(round(canvas_h * zoom)))
+
+    def _event_point(event, prefix: str = "local_position") -> tuple[float, float] | None:
+        value = getattr(event, prefix, None)
+        if value is not None:
+            x = getattr(value, "x", None)
+            y = getattr(value, "y", None)
+            if x is not None or y is not None:
+                return float(x or 0.0), float(y or 0.0)
+        x = getattr(event, f"{prefix}_x", None)
+        y = getattr(event, f"{prefix}_y", None)
+        if x is not None or y is not None:
+            return float(x or 0.0), float(y or 0.0)
+        return None
+
+    def _drag_delta(event) -> tuple[float, float]:
+        value = getattr(event, "local_delta", None)
+        if value is not None:
+            x = getattr(value, "x", None)
+            y = getattr(value, "y", None)
+            if x is not None or y is not None:
+                return float(x or 0.0), float(y or 0.0)
+        value = getattr(event, "global_delta", None)
+        if value is not None:
+            x = getattr(value, "x", None)
+            y = getattr(value, "y", None)
+            if x is not None or y is not None:
+                return float(x or 0.0), float(y or 0.0)
+        x = getattr(event, "delta_x", None)
+        y = getattr(event, "delta_y", None)
+        if x is not None or y is not None:
+            return float(x or 0.0), float(y or 0.0)
+        return 0.0, 0.0
+
+    def _drag_position(event) -> tuple[float, float] | None:
+        position = _event_point(event, "global_position")
+        if position is not None:
+            return position
+        return _event_point(event, "local_position")
+
+    def _consume_drag_delta(event, last_x_key: str, last_y_key: str) -> tuple[float, float]:
+        current = _drag_position(event)
+        if current is None:
+            return _drag_delta(event)
+        last_x = state.get(last_x_key)
+        last_y = state.get(last_y_key)
+        state[last_x_key], state[last_y_key] = current
+        if last_x is None or last_y is None:
+            return 0.0, 0.0
+        return float(current[0]) - float(last_x), float(current[1]) - float(last_y)
+
+    pan_drag_last_x_key = "_questions_path_editor_pan_drag_last_x"
+    pan_drag_last_y_key = "_questions_path_editor_pan_drag_last_y"
+
+    def _apply_zoom(new_zoom: float, focus: tuple[float, float] | None = None):
+        old_zoom = current_zoom()
+        new_zoom = clamp_zoom(new_zoom)
+        if focus is not None:
+            focus_x, focus_y = focus
+            old_pan_x = float(state.get(pan_key_x, pan_x) or 0.0)
+            old_pan_y = float(state.get(pan_key_y, pan_y) or 0.0)
+            world_x = (focus_x - old_pan_x) / old_zoom
+            world_y = (focus_y - old_pan_y) / old_zoom
+            new_pan_x = focus_x - world_x * new_zoom
+            new_pan_y = focus_y - world_y * new_zoom
+            state[pan_key_x], state[pan_key_y] = clamp_pan(new_pan_x, new_pan_y)
+        state[zoom_key] = new_zoom
+
+    display_canvas_w, display_canvas_h = scaled_canvas_size()
 
     def persist_world():
         _questions_path_save_world(state, world)
@@ -19521,34 +19656,102 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         _questions_path_render_owned(e.page, state)
 
     def reset_view(e):
-        state[pan_key_x] = int((viewport_w - canvas_w) / 2)
-        state[pan_key_y] = int((viewport_h - canvas_h) / 2)
+        current = current_zoom()
+        state[pan_key_x] = int((viewport_w - int(round(canvas_w * current))) / 2)
+        state[pan_key_y] = int((viewport_h - int(round(canvas_h * current))) / 2)
         _questions_path_render_world_editor(e.page, state, world["id"])
 
     def pan_map(e):
+        dx, dy = _consume_drag_delta(e, pan_drag_last_x_key, pan_drag_last_y_key)
         state[pan_key_x], state[pan_key_y] = clamp_pan(
-            int(state.get(pan_key_x, pan_x) or 0) + int(e.delta_x),
-            int(state.get(pan_key_y, pan_y) or 0) + int(e.delta_y),
+            float(state.get(pan_key_x, pan_x) or 0.0) + dx,
+            float(state.get(pan_key_y, pan_y) or 0.0) + dy,
         )
+        _questions_path_render_world_editor(page, state, world["id"])
+
+    def pan_start(e):
+        position = _drag_position(e)
+        if position is not None:
+            state[pan_drag_last_x_key], state[pan_drag_last_y_key] = position
+
+    def pan_end(e):
+        state.pop(pan_drag_last_x_key, None)
+        state.pop(pan_drag_last_y_key, None)
+
+    def zoom_map(e):
+        start_zoom = float(state.get("_questions_path_editor_zoom_start", current_zoom()) or current_zoom())
+        start_pan_x = float(state.get("_questions_path_editor_pan_start_x", state.get(pan_key_x, pan_x)) or 0.0)
+        start_pan_y = float(state.get("_questions_path_editor_pan_start_y", state.get(pan_key_y, pan_y)) or 0.0)
+        scale = float(getattr(e, "scale", 1.0) or 1.0)
+        focus = _event_point(e, "local_focal_point") or _event_point(e, "local_position")
+        new_zoom = clamp_zoom(start_zoom * scale)
+        if focus is not None:
+            focus_x, focus_y = focus
+            world_x = (focus_x - start_pan_x) / start_zoom
+            world_y = (focus_y - start_pan_y) / start_zoom
+            state[pan_key_x], state[pan_key_y] = clamp_pan(
+                focus_x - world_x * new_zoom,
+                focus_y - world_y * new_zoom,
+            )
+        state[zoom_key] = new_zoom
+        _questions_path_render_world_editor(page, state, world["id"])
+
+    def zoom_start(e):
+        state["_questions_path_editor_zoom_start"] = current_zoom()
+        state["_questions_path_editor_pan_start_x"] = float(state.get(pan_key_x, pan_x) or 0.0)
+        state["_questions_path_editor_pan_start_y"] = float(state.get(pan_key_y, pan_y) or 0.0)
+
+    def zoom_end(e):
+        state.pop("_questions_path_editor_zoom_start", None)
+        state.pop("_questions_path_editor_pan_start_x", None)
+        state.pop("_questions_path_editor_pan_start_y", None)
+
+    def scroll_map(e):
+        scroll = _event_point(e, "scroll_delta")
+        if scroll is None:
+            return
+        _, scroll_y = scroll
+        if abs(scroll_y) < 0.01:
+            return
+        focus = _event_point(e, "local_position")
+        factor = max(0.65, min(1.35, 1.0 + (-scroll_y / 800.0)))
+        _apply_zoom(current_zoom() * factor, focus)
         _questions_path_render_world_editor(page, state, world["id"])
 
     def select_island(island_id: str):
         state["_questions_path_editor_selected_island_id"] = island_id
         _questions_path_render_world_editor(page, state, world["id"])
 
-    def move_island(island_id: str, dx: float, dy: float):
+    def island_drag_keys(island_id: str) -> tuple[str, str]:
+        return f"_questions_path_editor_island_drag_last_x_{island_id}", f"_questions_path_editor_island_drag_last_y_{island_id}"
+
+    def move_island(island_id: str, e):
+        dx, dy = _consume_drag_delta(e, *island_drag_keys(island_id))
+        zoom = current_zoom()
         for island in islands:
             if str(island.get("id")) == str(island_id):
-                island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + (dx / canvas_w) * 100.0)
-                island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + (dy / canvas_h) * 100.0)
+                island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + ((dx / zoom) / canvas_w) * 100.0)
+                island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + ((dy / zoom) / canvas_h) * 100.0)
                 persist_world()
                 _questions_path_render_world_editor(page, state, world["id"])
                 return
 
+    def island_drag_start(island_id: str, e):
+        position = _drag_position(e)
+        if position is not None:
+            x_key, y_key = island_drag_keys(island_id)
+            state[x_key], state[y_key] = position
+
+    def island_drag_end(island_id: str, e):
+        x_key, y_key = island_drag_keys(island_id)
+        state.pop(x_key, None)
+        state.pop(y_key, None)
+
     def add_island(template_key: str):
         cfg = _questions_path_editor_template_cfg(template_key)
-        visible_center_x = (viewport_w / 2.0) - float(state.get(pan_key_x, pan_x) or 0)
-        visible_center_y = (viewport_h / 2.0) - float(state.get(pan_key_y, pan_y) or 0)
+        zoom = current_zoom()
+        visible_center_x = ((viewport_w / 2.0) - float(state.get(pan_key_x, pan_x) or 0.0)) / zoom
+        visible_center_y = ((viewport_h / 2.0) - float(state.get(pan_key_y, pan_y) or 0.0)) / zoom
         island = {
             "id": str(uuid.uuid4()),
             "name": f"Insel {len(islands) + 1}",
@@ -19604,10 +19807,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     def island_widget(island: dict) -> ft.Control:
         cfg = _questions_path_editor_template_cfg(str(island.get("template", "circle")))
         is_selected = str(island.get("id")) == selected_island_id
-        island_w = max(110, int(canvas_w * float(island.get("w", cfg["w"])) / 100.0))
-        island_h = max(90, int(canvas_h * float(island.get("h", cfg["h"])) / 100.0))
-        island_left = int(canvas_w * float(island.get("x", 50.0)) / 100.0) - int(island_w / 2)
-        island_top = int(canvas_h * float(island.get("y", 50.0)) / 100.0) - int(island_h / 2)
+        island_w = max(110, int(round(display_canvas_w * float(island.get("w", cfg["w"])) / 100.0)))
+        island_h = max(90, int(round(display_canvas_h * float(island.get("h", cfg["h"])) / 100.0)))
+        island_left = int(round(display_canvas_w * float(island.get("x", 50.0)) / 100.0)) - int(island_w / 2)
+        island_top = int(round(display_canvas_h * float(island.get("y", 50.0)) / 100.0)) - int(island_h / 2)
         image_src = _questions_path_editor_shape_to_data_uri(str(island.get("template", "circle")))
         return ft.Container(
             left=island_left,
@@ -19616,8 +19819,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             height=island_h,
             content=ft.GestureDetector(
                 on_tap=lambda e, island_id=str(island.get("id")): select_island(island_id),
-                on_pan_update=lambda e, island_id=str(island.get("id")): move_island(island_id, e.delta_x, e.delta_y),
-                drag_interval=10,
+                on_pan_start=lambda e, island_id=str(island.get("id")): island_drag_start(island_id, e),
+                on_pan_update=lambda e, island_id=str(island.get("id")): move_island(island_id, e),
+                on_pan_end=lambda e, island_id=str(island.get("id")): island_drag_end(island_id, e),
+                drag_interval=0,
                 content=ft.Container(
                     expand=True,
                     border_radius=24,
@@ -19653,8 +19858,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     canvas_layers: list[ft.Control] = [
         ft.Container(
-            width=canvas_w,
-            height=canvas_h,
+            width=display_canvas_w,
+            height=display_canvas_h,
             border_radius=36,
             bgcolor="#DDF1E4",
             border=ft.border.Border.all(1.5, "#C6D9CC"),
@@ -19669,26 +19874,26 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                         ),
                     ),
                     ft.Container(
-                        left=int(canvas_w * 0.10),
-                        top=int(canvas_h * 0.12),
-                        width=int(canvas_w * 0.25),
-                        height=int(canvas_h * 0.16),
+                        left=int(display_canvas_w * 0.10),
+                        top=int(display_canvas_h * 0.12),
+                        width=int(display_canvas_w * 0.25),
+                        height=int(display_canvas_h * 0.16),
                         border_radius=999,
                         bgcolor="#C7E6CC",
                     ),
                     ft.Container(
-                        left=int(canvas_w * 0.58),
-                        top=int(canvas_h * 0.20),
-                        width=int(canvas_w * 0.18),
-                        height=int(canvas_h * 0.12),
+                        left=int(display_canvas_w * 0.58),
+                        top=int(display_canvas_h * 0.20),
+                        width=int(display_canvas_w * 0.18),
+                        height=int(display_canvas_h * 0.12),
                         border_radius=999,
                         bgcolor="#BFE3C4",
                     ),
                     ft.Container(
-                        left=int(canvas_w * 0.26),
-                        top=int(canvas_h * 0.58),
-                        width=int(canvas_w * 0.42),
-                        height=int(canvas_h * 0.16),
+                        left=int(display_canvas_w * 0.26),
+                        top=int(display_canvas_h * 0.58),
+                        width=int(display_canvas_w * 0.42),
+                        height=int(display_canvas_h * 0.16),
                         border_radius=999,
                         bgcolor="#CDE8D0",
                     ),
@@ -19769,8 +19974,14 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                     content=ft.Stack(
                                         [
                                             ft.GestureDetector(
+                                                on_pan_start=pan_start,
                                                 on_pan_update=pan_map,
-                                                drag_interval=8,
+                                                on_pan_end=pan_end,
+                                                on_scale_start=zoom_start,
+                                                on_scale_update=zoom_map,
+                                                on_scale_end=zoom_end,
+                                                on_scroll=scroll_map,
+                                                drag_interval=0,
                                                 content=ft.Container(
                                                     expand=True,
                                                     gradient=ft.LinearGradient(
@@ -19783,8 +19994,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                             ft.Container(
                                                 left=pan_x,
                                                 top=pan_y,
-                                                width=canvas_w,
-                                                height=canvas_h,
+                                                width=display_canvas_w,
+                                                height=display_canvas_h,
                                                 content=ft.Stack(canvas_layers, expand=True),
                                             ),
                                         ],
