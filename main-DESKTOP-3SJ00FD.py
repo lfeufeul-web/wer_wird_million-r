@@ -17435,12 +17435,15 @@ def _questions_path_world_preview_asset(world: dict) -> str:
         return custom_image
     preset = str(world.get("background_preset", "forest")).strip().lower()
     if preset == "forest":
-        return _questions_path_map_art_asset()
-    if preset == "ocean":
-        return _questions_path_island_hub_asset()
-    if preset == "sunset":
-        return _questions_path_level_background_asset()
-    return _questions_path_map_art_asset()
+        rel = _questions_path_map_art_asset()
+    elif preset == "ocean":
+        rel = _questions_path_island_hub_asset()
+    elif preset == "sunset":
+        rel = _questions_path_level_background_asset()
+    else:
+        rel = _questions_path_map_art_asset()
+    data = _questions_path_asset_bytes(rel)
+    return f"data:image/png;base64,{data}" if data else rel
 
 
 def _questions_path_create_world_dialog(page: ft.Page, state: dict):
