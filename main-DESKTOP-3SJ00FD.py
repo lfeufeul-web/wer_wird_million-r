@@ -19507,6 +19507,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         _questions_path_render_world_editor(e.page, state, world["id"])
 
     page_w, page_h = _page_size(page)
+    main_w = min(1280, max(320, int(page_w - 24)))
     map_w = max(520, min(980, int(page_w * 0.62)))
     map_h = max(420, min(760, int(page_h * 0.72)))
     preview_src = _questions_path_world_preview_asset(world)
@@ -19521,14 +19522,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             [
                 ft.Image(src=preview_src, fit=ft.BoxFit.COVER, expand=True),
                 ft.Container(expand=True, bgcolor="#00000012"),
-                *_questions_path_editor_point_stack(
-                    world,
-                    map_w,
-                    map_h,
-                    selected_idx,
-                    select_point,
-                    move_point,
-                ),
+                *_questions_path_editor_point_stack(world, map_w, map_h, selected_idx, select_point, move_point),
             ],
             expand=True,
         ),
@@ -19544,64 +19538,73 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                     ft.Container(expand=True, bgcolor="#F3F5F7"),
                     ft.Container(
                         expand=True,
+                        alignment=ft.Alignment(0, 0),
                         padding=16,
-                        content=ft.Column(
-                            [
-                                ft.Row(
-                                    [
-                                        _game_menu_button("Zurück", back_to_owned, "#64748B", width=170, height=40),
-                                        ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
-                                        ft.Row(
-                                            [
-                                                _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
-                                                _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=120, height=38),
-                                            ],
-                                            spacing=10,
-                                        ),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Row(
-                                    [
-                                        ft.Container(
-                                            expand=True,
-                                            border_radius=24,
-                                            padding=16,
-                                            bgcolor="#FFFFFF",
-                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
-                                            shadow=ft.BoxShadow(blur_radius=24, color="#12000000", offset=ft.Offset(0, 8)),
+                        content=ft.Container(
+                            width=main_w,
+                            padding=ft.Padding(22, 20, 22, 20),
+                            border_radius=30,
+                            bgcolor="#FFFFFF",
+                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                            shadow=ft.BoxShadow(blur_radius=28, color="#14000000", offset=ft.Offset(0, 10)),
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("Zuruck", back_to_owned, "#64748B", width=150, height=40),
+                                            ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
+                                            ft.Row(
+                                                [
+                                                    _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
+                                                    _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=120, height=38),
+                                                ],
+                                                spacing=10,
+                                            ),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Container(height=8),
+                                    ft.Row(
+                                        [
+                                            ft.Container(
+                                                expand=True,
+                                                border_radius=24,
+                                                padding=16,
+                                                bgcolor="#FFFFFF",
+                                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                shadow=ft.BoxShadow(blur_radius=24, color="#12000000", offset=ft.Offset(0, 8)),
                                                 content=ft.Column(
                                                     [
                                                         ft.Row(
                                                             [
                                                                 ft.Text("Map", size=16, weight="bold", color="#111827"),
-                                                                ft.Text("QuestMapper-Preview", size=11, color="#6B7280"),
+                                                                ft.Text("Preview", size=11, color="#6B7280"),
                                                             ],
                                                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                                         ),
                                                         ft.Container(height=8),
                                                         ft.Container(
-                                                        width=min(980, map_w),
-                                                        height=map_h,
-                                                        border_radius=28,
-                                                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                            width=min(980, map_w),
+                                                            height=map_h,
+                                                            border_radius=28,
+                                                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                                                             content=map_stack,
                                                         ),
-                                                    ft.Text("Tippe einen Punkt an, ziehe ihn auf der Karte oder lege mit + Punkt neue Stationen an.", size=11, color="#6B7280", text_align="center"),
-                                                ],
-                                                spacing=10,
+                                                        ft.Text("Tippe einen Punkt an oder ziehe ihn. Mit + Punkt legst du neue Punkte an.", size=11, color="#6B7280", text_align="center"),
+                                                    ],
+                                                    spacing=10,
+                                                ),
                                             ),
-                                        ),
-                                        ft.Container(
-                                            width=min(420, max(320, int(page_w * 0.34))),
-                                            border_radius=24,
-                                            padding=16,
-                                            bgcolor="#FFFFFF",
-                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            ft.Container(
+                                                width=min(420, max(320, int(page_w * 0.34))),
+                                                border_radius=24,
+                                                padding=16,
+                                                bgcolor="#FFFFFF",
+                                                border=ft.border.Border.all(1.5, "#E5E7EB"),
                                                 content=ft.Column(
                                                     [
                                                         ft.Text("Quiz Editor", size=18, weight="bold", color="#111827", text_align="center"),
-                                                        ft.Text(f"Ausgewählt: {point.get('name', 'Punkt')}", size=12, color="#6B7280", text_align="center"),
+                                                        ft.Text(f"Ausgewaehlt: {point.get('name', 'Punkt')}", size=12, color="#6B7280", text_align="center"),
                                                         world_name_field,
                                                         design_dropdown,
                                                         name_field,
@@ -19611,25 +19614,26 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                         ft.Row(
                                                             [
                                                                 _game_menu_button("Speichern", save_fields, theme["success"], width=120, height=38),
-                                                                _game_menu_button("Löschen", delete_point, theme["danger"], width=120, height=38),
+                                                                _game_menu_button("Loeschen", delete_point, theme["danger"], width=120, height=38),
                                                             ],
                                                             spacing=10,
                                                             wrap=True,
                                                         ),
-                                                    ft.Text("Hier bearbeitest du Weltname, Design und alle Fragen direkt im selben Menü.", size=11, color="#6B7280", text_align="center"),
-                                                ],
-                                                spacing=8,
-                                                scroll=ft.ScrollMode.AUTO,
+                                                        ft.Text("Hier bearbeitest du Weltname, Design und Fragen direkt.", size=11, color="#6B7280", text_align="center"),
+                                                    ],
+                                                    spacing=8,
+                                                    scroll=ft.ScrollMode.AUTO,
+                                                ),
                                             ),
-                                        ),
-                                    ],
-                                    spacing=14,
-                                    wrap=True,
-                                    vertical_alignment=ft.CrossAxisAlignment.START,
-                                ),
-                            ],
-                            spacing=12,
-                            scroll=ft.ScrollMode.AUTO,
+                                        ],
+                                        spacing=14,
+                                        wrap=True,
+                                        vertical_alignment=ft.CrossAxisAlignment.START,
+                                    ),
+                                ],
+                                spacing=12,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
                         ),
                     ),
                 ],
