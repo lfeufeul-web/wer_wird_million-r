@@ -19537,11 +19537,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     theme = get_theme(state)
     profile = _questions_path_active_profile(state)
     worlds = list(profile.get("worlds", []) or [])
-    world = None
-    for entry in worlds:
-        if str(entry.get("id")) == str(world_id):
-            world = entry
-            break
+    world = next((entry for entry in worlds if str(entry.get("id")) == str(world_id)), None)
     if world is None:
         world = _questions_path_default_world(0)
         worlds.append(world)
@@ -19554,513 +19550,272 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             persist_questions_path_profiles(state, profiles)
 
     islands = _questions_path_editor_normalize_islands(world)
-    selected_island_id = str(state.get("_questions_path_editor_selected_island_id") or "")
-    if islands and selected_island_id not in {str(item.get("id")) for item in islands}:
-        selected_island_id = str(islands[0]["id"])
-        state["_questions_path_editor_selected_island_id"] = selected_island_id
-    elif not islands:
-        state.pop("_questions_path_editor_selected_island_id", None)
-        selected_island_id = ""
-
     state["questions_path_selected_world_id"] = world["id"]
     state["questions_path_scene"] = "editor"
 
     page_w, page_h = _page_size(page)
-    editor_w = min(1360, max(320, int(page_w - 24)))
-    viewport_w = max(640, min(980, int(page_w * 0.68)))
-    viewport_h = max(520, min(820, int(page_h * 0.82)))
-    canvas_w = max(1800, int(viewport_w * 1.9))
-    canvas_h = max(1300, int(viewport_h * 1.7))
-
-    pan_key_x = "_questions_path_editor_pan_x"
-    pan_key_y = "_questions_path_editor_pan_y"
-    zoom_key = "_questions_path_editor_zoom"
-    if zoom_key not in state or not isinstance(state.get(zoom_key), (int, float)):
-        state[zoom_key] = 1.0
-    init_key = "_questions_path_editor_pan_world_id"
-    if state.get(init_key) != world["id"]:
-        init_zoom = float(state.get("_questions_path_editor_zoom", 1.0) or 1.0)
-        state[pan_key_x] = int((viewport_w - int(round(canvas_w * init_zoom))) / 2)
-        state[pan_key_y] = int((viewport_h - int(round(canvas_h * init_zoom))) / 2)
-        state[init_key] = world["id"]
+    sidebar_w = 300
+    viewport_w = max(420, min(1040, int(page_w - sidebar_w - 72)))
+    viewport_h = max(460, min(760, int(page_h - 140)))
+    canvas_w, canvas_h = 2200.0, 1600.0
+    min_zoom, max_zoom = 0.5, 2.4
+    zoom_key = f"_qpe_zoom_{world['id']}"
+    pan_x_key = f"_qpe_pan_x_{world['id']}"
+    pan_y_key = f"_qpe_pan_y_{world['id']}"
+    init_key = f"_qpe_ready_{world['id']}"
 
     def clamp_zoom(value: float) -> float:
-        return max(0.55, min(2.75, float(value)))
+        return max(min_zoom, min(max_zoom, float(value)))
 
-    def current_zoom() -> float:
+    def zoom() -> float:
         return clamp_zoom(float(state.get(zoom_key, 1.0) or 1.0))
 
-    def scaled_canvas_size() -> tuple[int, int]:
-        zoom = float(state.get(zoom_key, 1.0) or 1.0)
-        zoom = max(0.55, min(2.75, zoom))
-        return max(1, int(round(canvas_w * zoom))), max(1, int(round(canvas_h * zoom)))
+    def display_size() -> tuple[float, float]:
+        current = zoom()
+        return canvas_w * current, canvas_h * current
 
-    def clamp_pan(x: int, y: int) -> tuple[int, int]:
-        current_canvas_w, current_canvas_h = scaled_canvas_size()
-        min_x = viewport_w - current_canvas_w
-        max_x = 0
-        min_y = viewport_h - current_canvas_h
-        max_y = 0
-        return max(min_x, min(max_x, int(x))), max(min_y, min(max_y, int(y)))
-
-    pan_x, pan_y = clamp_pan(int(state.get(pan_key_x, 0) or 0), int(state.get(pan_key_y, 0) or 0))
-    state[pan_key_x], state[pan_key_y] = pan_x, pan_y
-    def _event_point(event, prefix: str = "local_position") -> tuple[float, float] | None:
-        value = getattr(event, prefix, None)
-        if value is not None:
-            x = getattr(value, "x", None)
-            y = getattr(value, "y", None)
-            if x is not None or y is not None:
-                return float(x or 0.0), float(y or 0.0)
-        x = getattr(event, f"{prefix}_x", None)
-        y = getattr(event, f"{prefix}_y", None)
-        if x is not None or y is not None:
-            return float(x or 0.0), float(y or 0.0)
-        return None
-
-    def _drag_delta(event) -> tuple[float, float]:
-        value = getattr(event, "local_delta", None)
-        if value is not None:
-            x = getattr(value, "x", None)
-            y = getattr(value, "y", None)
-            if x is not None or y is not None:
-                return float(x or 0.0), float(y or 0.0)
-        value = getattr(event, "global_delta", None)
-        if value is not None:
-            x = getattr(value, "x", None)
-            y = getattr(value, "y", None)
-            if x is not None or y is not None:
-                return float(x or 0.0), float(y or 0.0)
-        return 0.0, 0.0
-
-    def _drag_position(event) -> tuple[float, float] | None:
-        position = _event_point(event, "global_position")
-        if position is not None:
-            return position
-        return _event_point(event, "local_position")
-
-    def _consume_drag_delta(event, last_x_key: str, last_y_key: str) -> tuple[float, float]:
-        current = _drag_position(event)
-        if current is None:
-            return _drag_delta(event)
-        last_x = state.get(last_x_key)
-        last_y = state.get(last_y_key)
-        state[last_x_key], state[last_y_key] = current
-        if last_x is None or last_y is None:
-            return 0.0, 0.0
-        return float(current[0]) - float(last_x), float(current[1]) - float(last_y)
-
-    pan_drag_last_x_key = "_questions_path_editor_pan_drag_last_x"
-    pan_drag_last_y_key = "_questions_path_editor_pan_drag_last_y"
-
-    def _apply_zoom(new_zoom: float, focus: tuple[float, float] | None = None):
-        old_zoom = current_zoom()
-        new_zoom = clamp_zoom(new_zoom)
-        if focus is not None:
-            focus_x, focus_y = focus
-            old_pan_x = float(state.get(pan_key_x, pan_x) or 0.0)
-            old_pan_y = float(state.get(pan_key_y, pan_y) or 0.0)
-            world_x = (focus_x - old_pan_x) / old_zoom
-            world_y = (focus_y - old_pan_y) / old_zoom
-            new_pan_x = focus_x - world_x * new_zoom
-            new_pan_y = focus_y - world_y * new_zoom
-            state[pan_key_x], state[pan_key_y] = clamp_pan(new_pan_x, new_pan_y)
-        state[zoom_key] = new_zoom
-
-    display_canvas_w, display_canvas_h = scaled_canvas_size()
+    def clamp_pan(x: float, y: float) -> tuple[float, float]:
+        display_w, display_h = display_size()
+        min_x = min(0.0, viewport_w - display_w)
+        min_y = min(0.0, viewport_h - display_h)
+        return max(min_x, min(0.0, float(x))), max(min_y, min(0.0, float(y)))
 
     def persist_world():
         _questions_path_save_world(state, world)
+
+    def render_again():
+        _questions_path_render_world_editor(page, state, world["id"])
+
+    if state.get(init_key) != "1":
+        state[zoom_key] = 1.0
+        state[pan_x_key] = (viewport_w - canvas_w) / 2.0
+        state[pan_y_key] = (viewport_h - canvas_h) / 2.0
+        state[init_key] = "1"
+
+    pan_x, pan_y = clamp_pan(float(state.get(pan_x_key, 0.0) or 0.0), float(state.get(pan_y_key, 0.0) or 0.0))
+    state[pan_x_key], state[pan_y_key] = pan_x, pan_y
+    current_zoom = zoom()
+    display_w, display_h = display_size()
 
     def back_to_owned(e):
         state["questions_path_scene"] = "own"
         _questions_path_render_owned(e.page, state)
 
+    def set_zoom(new_zoom: float):
+        # Flet web exposes drag deltas reliably here; zoom is kept manual so dragging math stays deterministic.
+        old_zoom = zoom()
+        center_world_x = (-float(state.get(pan_x_key, pan_x) or 0.0) + viewport_w / 2.0) / old_zoom
+        center_world_y = (-float(state.get(pan_y_key, pan_y) or 0.0) + viewport_h / 2.0) / old_zoom
+        state[zoom_key] = clamp_zoom(new_zoom)
+        new_pan_x = viewport_w / 2.0 - center_world_x * state[zoom_key]
+        new_pan_y = viewport_h / 2.0 - center_world_y * state[zoom_key]
+        state[pan_x_key], state[pan_y_key] = clamp_pan(new_pan_x, new_pan_y)
+        render_again()
+
     def reset_view(e):
-        current = current_zoom()
-        state[pan_key_x] = int((viewport_w - int(round(canvas_w * current))) / 2)
-        state[pan_key_y] = int((viewport_h - int(round(canvas_h * current))) / 2)
-        _questions_path_render_world_editor(e.page, state, world["id"])
+        state[zoom_key] = 1.0
+        state[pan_x_key] = (viewport_w - canvas_w) / 2.0
+        state[pan_y_key] = (viewport_h - canvas_h) / 2.0
+        render_again()
 
     def pan_map(e):
-        dx, dy = _consume_drag_delta(e, pan_drag_last_x_key, pan_drag_last_y_key)
-        state[pan_key_x], state[pan_key_y] = clamp_pan(
-            float(state.get(pan_key_x, pan_x) or 0.0) + dx,
-            float(state.get(pan_key_y, pan_y) or 0.0) + dy,
+        dx, dy = _gesture_delta_xy(e)
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+        state[pan_x_key], state[pan_y_key] = clamp_pan(
+            float(state.get(pan_x_key, pan_x) or 0.0) + dx,
+            float(state.get(pan_y_key, pan_y) or 0.0) + dy,
         )
-        _questions_path_render_world_editor(page, state, world["id"])
-
-    def pan_start(e):
-        position = _drag_position(e)
-        if position is not None:
-            state[pan_drag_last_x_key], state[pan_drag_last_y_key] = position
-
-    def pan_end(e):
-        state.pop(pan_drag_last_x_key, None)
-        state.pop(pan_drag_last_y_key, None)
-
-    def zoom_map(e):
-        start_zoom = float(state.get("_questions_path_editor_zoom_start", current_zoom()) or current_zoom())
-        start_pan_x = float(state.get("_questions_path_editor_pan_start_x", state.get(pan_key_x, pan_x)) or 0.0)
-        start_pan_y = float(state.get("_questions_path_editor_pan_start_y", state.get(pan_key_y, pan_y)) or 0.0)
-        scale = float(getattr(e, "scale", 1.0) or 1.0)
-        focus = _event_point(e, "local_focal_point") or _event_point(e, "local_position")
-        new_zoom = clamp_zoom(start_zoom * scale)
-        if focus is not None:
-            focus_x, focus_y = focus
-            world_x = (focus_x - start_pan_x) / start_zoom
-            world_y = (focus_y - start_pan_y) / start_zoom
-            state[pan_key_x], state[pan_key_y] = clamp_pan(
-                focus_x - world_x * new_zoom,
-                focus_y - world_y * new_zoom,
-            )
-        state[zoom_key] = new_zoom
-        _questions_path_render_world_editor(page, state, world["id"])
-
-    def zoom_start(e):
-        state["_questions_path_editor_zoom_start"] = current_zoom()
-        state["_questions_path_editor_pan_start_x"] = float(state.get(pan_key_x, pan_x) or 0.0)
-        state["_questions_path_editor_pan_start_y"] = float(state.get(pan_key_y, pan_y) or 0.0)
-
-    def zoom_end(e):
-        state.pop("_questions_path_editor_zoom_start", None)
-        state.pop("_questions_path_editor_pan_start_x", None)
-        state.pop("_questions_path_editor_pan_start_y", None)
-
-    def scroll_map(e):
-        scroll = _event_point(e, "scroll_delta")
-        if scroll is None:
-            return
-        _, scroll_y = scroll
-        if abs(scroll_y) < 0.01:
-            return
-        focus = _event_point(e, "local_position")
-        factor = max(0.65, min(1.35, 1.0 + (-scroll_y / 800.0)))
-        _apply_zoom(current_zoom() * factor, focus)
-        _questions_path_render_world_editor(page, state, world["id"])
-
-    def select_island(island_id: str):
-        state["_questions_path_editor_selected_island_id"] = island_id
-        _questions_path_render_world_editor(page, state, world["id"])
-
-    def island_drag_keys(island_id: str) -> tuple[str, str]:
-        return f"_questions_path_editor_island_drag_last_x_{island_id}", f"_questions_path_editor_island_drag_last_y_{island_id}"
-
-    def move_island(island_id: str, e):
-        dx, dy = _consume_drag_delta(e, *island_drag_keys(island_id))
-        zoom = current_zoom()
-        for island in islands:
-            if str(island.get("id")) == str(island_id):
-                island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + ((dx / zoom) / canvas_w) * 100.0)
-                island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + ((dy / zoom) / canvas_h) * 100.0)
-                persist_world()
-                _questions_path_render_world_editor(page, state, world["id"])
-                return
-
-    def island_drag_start(island_id: str, e):
-        position = _drag_position(e)
-        if position is not None:
-            x_key, y_key = island_drag_keys(island_id)
-            state[x_key], state[y_key] = position
-
-    def island_drag_end(island_id: str, e):
-        x_key, y_key = island_drag_keys(island_id)
-        state.pop(x_key, None)
-        state.pop(y_key, None)
+        render_again()
 
     def add_island(template_key: str):
         cfg = _questions_path_editor_template_cfg(template_key)
-        zoom = current_zoom()
-        visible_center_x = ((viewport_w / 2.0) - float(state.get(pan_key_x, pan_x) or 0.0)) / zoom
-        visible_center_y = ((viewport_h / 2.0) - float(state.get(pan_key_y, pan_y) or 0.0)) / zoom
+        center_x = (-float(state.get(pan_x_key, pan_x) or 0.0) + viewport_w / 2.0) / zoom()
+        center_y = (-float(state.get(pan_y_key, pan_y) or 0.0) + viewport_h / 2.0) / zoom()
         island = {
             "id": str(uuid.uuid4()),
             "name": f"Insel {len(islands) + 1}",
             "template": template_key,
-            "x": _questions_path_clamp_pct((visible_center_x / canvas_w) * 100.0),
-            "y": _questions_path_clamp_pct((visible_center_y / canvas_h) * 100.0),
+            "x": _questions_path_clamp_pct((center_x / canvas_w) * 100.0),
+            "y": _questions_path_clamp_pct((center_y / canvas_h) * 100.0),
             "w": cfg["w"],
             "h": cfg["h"],
         }
         islands.append(island)
         state["_questions_path_editor_selected_island_id"] = island["id"]
         persist_world()
-        _questions_path_render_world_editor(page, state, world["id"])
+        render_again()
 
-    def delete_selected_island(e):
+    def move_island(island_id: str, e):
+        dx, dy = _gesture_delta_xy(e)
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+        # Drag deltas arrive in screen pixels; divide by zoom to write back canvas coordinates.
+        for island in islands:
+            if str(island.get("id")) == island_id:
+                island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + ((dx / zoom()) / canvas_w) * 100.0)
+                island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + ((dy / zoom()) / canvas_h) * 100.0)
+                state["_questions_path_editor_selected_island_id"] = island_id
+                persist_world()
+                render_again()
+                return
+
+    def delete_selected(e):
         island_id = str(state.get("_questions_path_editor_selected_island_id") or "")
         if not island_id:
             return
-        remaining = [item for item in islands if str(item.get("id")) != island_id]
-        if len(remaining) == len(islands):
-            return
-        world["islands"] = remaining
-        if remaining:
-            state["_questions_path_editor_selected_island_id"] = remaining[0]["id"]
-        else:
-            state.pop("_questions_path_editor_selected_island_id", None)
+        world["islands"] = [item for item in islands if str(item.get("id")) != island_id]
+        state.pop("_questions_path_editor_selected_island_id", None)
         persist_world()
-        _questions_path_render_world_editor(e.page, state, world["id"])
+        render_again()
 
-    selected_island = None
-    for island in islands:
-        if str(island.get("id")) == selected_island_id:
-            selected_island = island
-            break
-
-    def update_selected_name(e):
-        if not selected_island:
-            return
-        selected_island["name"] = str(selected_name_field.value or "").strip() or selected_island["name"]
-        persist_world()
-
-    selected_name_field = ft.TextField(
-        label="Selected island",
-        value=selected_island.get("name", "") if selected_island else "",
-        width=300,
-        bgcolor="#FFFFFF",
-        color="#111827",
-        border_color="#D1D5DB",
-        on_change=update_selected_name,
-        disabled=selected_island is None,
-    )
-
-    def island_widget(island: dict) -> ft.Control:
-        cfg = _questions_path_editor_template_cfg(str(island.get("template", "circle")))
-        is_selected = str(island.get("id")) == selected_island_id
-        island_w = max(110, int(round(display_canvas_w * float(island.get("w", cfg["w"])) / 100.0)))
-        island_h = max(90, int(round(display_canvas_h * float(island.get("h", cfg["h"])) / 100.0)))
-        island_left = int(round(display_canvas_w * float(island.get("x", 50.0)) / 100.0)) - int(island_w / 2)
-        island_top = int(round(display_canvas_h * float(island.get("y", 50.0)) / 100.0)) - int(island_h / 2)
-        image_src = _questions_path_editor_shape_to_data_uri(str(island.get("template", "circle")))
+    def island_shape(island: dict, width: float, height: float, selected: bool) -> ft.Control:
+        template = str(island.get("template", "circle"))
+        cfg = _questions_path_editor_template_cfg(template)
+        radius = 999 if template in ("circle", "oval") else 8
+        shape_kwargs = {"shape": ft.BoxShape.CIRCLE} if template == "circle" else {"border_radius": radius}
         return ft.Container(
-            left=island_left,
-            top=island_top,
-            width=island_w,
-            height=island_h,
+            width=width,
+            height=height,
+            bgcolor=cfg["fill"],
+            border=ft.border.Border.all(3 if selected else 2, "#FFFFFF" if selected else cfg["outline"]),
+            shadow=ft.BoxShadow(blur_radius=14, color="#33000000", offset=ft.Offset(0, 5)),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Text(str(island.get("name", "Insel"))[:10], size=11, weight="bold", color="#1F2937"),
+            **shape_kwargs,
+        )
+
+    def island_control(island: dict) -> ft.Control:
+        cfg = _questions_path_editor_template_cfg(str(island.get("template", "circle")))
+        width = max(52.0, canvas_w * float(island.get("w", cfg["w"])) / 100.0 * current_zoom)
+        height = max(42.0, canvas_h * float(island.get("h", cfg["h"])) / 100.0 * current_zoom)
+        left = canvas_w * float(island.get("x", 50.0)) / 100.0 * current_zoom - width / 2.0
+        top = canvas_h * float(island.get("y", 50.0)) / 100.0 * current_zoom - height / 2.0
+        island_id = str(island.get("id"))
+        selected = island_id == str(state.get("_questions_path_editor_selected_island_id") or "")
+        return ft.Container(
+            left=left,
+            top=top,
+            width=width,
+            height=height,
             content=ft.GestureDetector(
-                on_tap=lambda e, island_id=str(island.get("id")): select_island(island_id),
-                on_pan_start=lambda e, island_id=str(island.get("id")): island_drag_start(island_id, e),
-                on_pan_update=lambda e, island_id=str(island.get("id")): move_island(island_id, e),
-                on_pan_end=lambda e, island_id=str(island.get("id")): island_drag_end(island_id, e),
                 drag_interval=0,
-                content=ft.Container(
-                    expand=True,
-                    border_radius=24,
-                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                    border=ft.border.Border.all(3 if is_selected else 1.5, "#FFFFFF" if is_selected else "#D1D5DB"),
-                    shadow=ft.BoxShadow(blur_radius=20 if is_selected else 12, color="#33000000", offset=ft.Offset(0, 6)),
-                    content=ft.Stack(
-                        [
-                            ft.Image(src=image_src, fit=ft.BoxFit.CONTAIN, expand=True),
-                            ft.Container(
-                                expand=True,
-                                alignment=ft.Alignment(0, 1),
-                                padding=ft.Padding(8, 8, 8, 10),
-                                content=ft.Container(
-                                    padding=ft.Padding(10, 4, 10, 4),
-                                    border_radius=999,
-                                    bgcolor="#FFFFFFD9",
-                                    content=ft.Text(
-                                        str(island.get("name", "Island"))[:12],
-                                        size=11,
-                                        weight="bold",
-                                        color="#1F2937",
-                                        text_align=ft.TextAlign.CENTER,
-                                    ),
-                                ),
-                            ),
-                        ],
-                        expand=True,
-                    ),
-                ),
+                on_tap=lambda e, item_id=island_id: (state.__setitem__("_questions_path_editor_selected_island_id", item_id), render_again()),
+                on_pan_update=lambda e, item_id=island_id: move_island(item_id, e),
+                content=island_shape(island, width, height, selected),
             ),
         )
 
-    canvas_layers: list[ft.Control] = [
-        ft.Container(
-            width=display_canvas_w,
-            height=display_canvas_h,
-            border_radius=36,
-            bgcolor="#DDF1E4",
-            border=ft.border.Border.all(1.5, "#C6D9CC"),
+    map_background = ft.GestureDetector(
+        drag_interval=0,
+        on_pan_update=pan_map,
+        content=ft.Container(
+            width=display_w,
+            height=display_h,
+            bgcolor="#DCEFD8",
+            border=ft.border.Border.all(1, "#B9D5B3"),
             content=ft.Stack(
                 [
-                    ft.Container(
-                        expand=True,
-                        gradient=ft.LinearGradient(
-                            begin=ft.Alignment(-1, -1),
-                            end=ft.Alignment(1, 1),
-                            colors=["#DFF2E3", "#E9F6ED", "#D7E8D6"],
-                        ),
-                    ),
-                    ft.Container(
-                        left=int(display_canvas_w * 0.10),
-                        top=int(display_canvas_h * 0.12),
-                        width=int(display_canvas_w * 0.25),
-                        height=int(display_canvas_h * 0.16),
-                        border_radius=999,
-                        bgcolor="#C7E6CC",
-                    ),
-                    ft.Container(
-                        left=int(display_canvas_w * 0.58),
-                        top=int(display_canvas_h * 0.20),
-                        width=int(display_canvas_w * 0.18),
-                        height=int(display_canvas_h * 0.12),
-                        border_radius=999,
-                        bgcolor="#BFE3C4",
-                    ),
-                    ft.Container(
-                        left=int(display_canvas_w * 0.26),
-                        top=int(display_canvas_h * 0.58),
-                        width=int(display_canvas_w * 0.42),
-                        height=int(display_canvas_h * 0.16),
-                        border_radius=999,
-                        bgcolor="#CDE8D0",
-                    ),
-                    *[island_widget(island) for island in islands],
+                    ft.Container(left=display_w * 0.10, top=display_h * 0.14, width=display_w * 0.20, height=display_h * 0.12, border_radius=999, bgcolor="#C5E4BF"),
+                    ft.Container(left=display_w * 0.55, top=display_h * 0.20, width=display_w * 0.24, height=display_h * 0.14, border_radius=999, bgcolor="#CBEAC7"),
+                    ft.Container(left=display_w * 0.28, top=display_h * 0.62, width=display_w * 0.36, height=display_h * 0.12, border_radius=999, bgcolor="#C1DEBD"),
                 ],
                 expand=True,
             ),
+        ),
+    )
+
+    canvas = ft.Container(
+        left=pan_x,
+        top=pan_y,
+        width=display_w,
+        height=display_h,
+        content=ft.Stack([map_background, *[island_control(island) for island in islands]], expand=True),
+    )
+
+    preset_buttons = [
+        ft.Container(
+            height=46,
+            border_radius=8,
+            bgcolor=template["fill"],
+            border=ft.border.Border.all(2, template["outline"]),
+            alignment=ft.Alignment(0, 0),
+            on_click=lambda e, key=template["key"]: add_island(key),
+            content=ft.Text(template["label"], size=13, weight="bold", color="#173018"),
         )
+        for template in _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES
     ]
 
-    template_cards: list[ft.Control] = []
-    for template in _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES:
-        preview = _questions_path_editor_shape_to_data_uri(template["key"])
-        template_cards.append(
-            ft.Container(
-                padding=10,
-                border_radius=16,
-                bgcolor="#F8FAFC",
-                border=ft.border.Border.all(1.2, "#D1D5DB"),
-                on_click=lambda e, template_key=template["key"]: add_island(template_key),
-                content=ft.Column(
-                    [
-                        ft.Container(
-                            height=72,
-                            border_radius=14,
-                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                            bgcolor="#FFFFFF",
-                            content=ft.Image(src=preview, fit=ft.BoxFit.CONTAIN, expand=True),
-                        ),
-                        ft.Text(template["label"], size=12, weight="bold", color="#111827", text_align=ft.TextAlign.CENTER),
-                        ft.Text("Add", size=10, color="#6B7280", text_align=ft.TextAlign.CENTER),
-                    ],
-                    spacing=6,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-            )
-        )
+    selected_id = str(state.get("_questions_path_editor_selected_island_id") or "")
+    selected_name = next((str(item.get("name", "Insel")) for item in islands if str(item.get("id")) == selected_id), "Keine Insel")
 
     page.controls.clear()
     page.add(
         ft.Container(
             expand=True,
             bgcolor="#F3F5F7",
-            padding=16,
-            content=ft.Container(
-                expand=True,
-                border_radius=28,
-                bgcolor="#FFFFFF",
-                border=ft.border.Border.all(1.5, "#E5E7EB"),
-                shadow=ft.BoxShadow(blur_radius=28, color="#14000000", offset=ft.Offset(0, 10)),
-                padding=16,
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                _game_menu_button("Zuruck", back_to_owned, "#64748B", width=150, height=40),
-                                ft.Text("QuestMapper World Editor", size=28, weight="bold", color="#2B2F36"),
-                                ft.Row(
+            padding=14,
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            _game_menu_button("Zuruck", back_to_owned, "#64748B", width=130, height=38),
+                            ft.Text("QuestMapper Editor", size=24, weight="bold", color="#20242A"),
+                            ft.Row(
+                                [
+                                    _game_menu_button("Reset", reset_view, "#64748B", width=90, height=38),
+                                    _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=110, height=38),
+                                ],
+                                spacing=8,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Row(
+                        [
+                            ft.Container(
+                                width=viewport_w,
+                                height=viewport_h,
+                                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                                bgcolor="#EAF4EA",
+                                border=ft.border.Border.all(1.5, "#C8D8C5"),
+                                content=ft.Stack([canvas], expand=True),
+                            ),
+                            ft.Container(
+                                width=sidebar_w,
+                                height=viewport_h,
+                                bgcolor="#FFFFFF",
+                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                padding=14,
+                                content=ft.Column(
                                     [
-                                        _game_menu_button("Center View", reset_view, "#64748B", width=140, height=38),
-                                        _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=120, height=38),
+                                        ft.Text("Inseln", size=18, weight="bold", color="#111827"),
+                                        *preset_buttons,
+                                        ft.Container(height=8),
+                                        ft.Text("Zoom", size=14, weight="bold", color="#111827"),
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("-", lambda e: set_zoom(zoom() / 1.18), "#475569", width=56, height=38),
+                                                ft.Container(width=78, alignment=ft.Alignment(0, 0), content=ft.Text(f"{int(zoom() * 100)}%", size=13, weight="bold", color="#111827")),
+                                                _game_menu_button("+", lambda e: set_zoom(zoom() * 1.18), "#475569", width=56, height=38),
+                                            ],
+                                            spacing=8,
+                                        ),
+                                        ft.Container(height=8),
+                                        ft.Text("Auswahl", size=14, weight="bold", color="#111827"),
+                                        ft.Text(selected_name, size=13, color="#374151"),
+                                        _game_menu_button("Loschen", delete_selected, "#DC2626", width=150, height=38),
                                     ],
                                     spacing=10,
+                                    scroll=ft.ScrollMode.AUTO,
                                 ),
-                            ],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        ),
-                        ft.Container(height=8),
-                        ft.Row(
-                            [
-                                ft.Container(
-                                    width=viewport_w,
-                                    height=viewport_h,
-                                    border_radius=24,
-                                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                    border=ft.border.Border.all(1.5, "#D1D5DB"),
-                                    bgcolor="#EAF4EA",
-                                    content=ft.Stack(
-                                        [
-                                            ft.GestureDetector(
-                                                on_pan_start=pan_start,
-                                                on_pan_update=pan_map,
-                                                on_pan_end=pan_end,
-                                                on_scale_start=zoom_start,
-                                                on_scale_update=zoom_map,
-                                                on_scale_end=zoom_end,
-                                                on_scroll=scroll_map,
-                                                drag_interval=0,
-                                                content=ft.Container(
-                                                    expand=True,
-                                                    gradient=ft.LinearGradient(
-                                                        begin=ft.Alignment(-1, -1),
-                                                        end=ft.Alignment(1, 1),
-                                                        colors=["#D9EFD9", "#EAF7EA", "#D0E6D1"],
-                                                    ),
-                                                ),
-                                            ),
-                                            ft.Container(
-                                                left=pan_x,
-                                                top=pan_y,
-                                                width=display_canvas_w,
-                                                height=display_canvas_h,
-                                                content=ft.Stack(canvas_layers, expand=True),
-                                            ),
-                                        ],
-                                        expand=True,
-                                    ),
-                                ),
-                                ft.Container(
-                                    width=min(360, max(300, int(editor_w * 0.27))),
-                                    height=viewport_h,
-                                    border_radius=24,
-                                    padding=16,
-                                    bgcolor="#FFFFFF",
-                                    border=ft.border.Border.all(1.5, "#E5E7EB"),
-                                    content=ft.Column(
-                                        [
-                                            ft.Text("Build Menu", size=18, weight="bold", color="#111827", text_align="center"),
-                                            ft.Text("Add islands from the templates and drag them around the map.", size=12, color="#6B7280", text_align="center"),
-                                            ft.Container(height=8),
-                                            ft.Text("Island Templates", size=13, weight="bold", color="#111827"),
-                                            ft.Column(template_cards, spacing=10, scroll=ft.ScrollMode.AUTO),
-                                            ft.Container(height=8),
-                                            ft.Text("Selected Island", size=13, weight="bold", color="#111827"),
-                                            selected_name_field,
-                                            ft.Row(
-                                                [
-                                                    _game_menu_button("Delete", delete_selected_island, "#DC2626", width=120, height=38),
-                                                    _game_menu_button("Add New", lambda e: add_island("circle"), theme["accent"], width=120, height=38),
-                                                ],
-                                                spacing=10,
-                                                wrap=True,
-                                            ),
-                                            ft.Text("Drag islands directly on the map. The map itself can be panned by dragging empty space.", size=11, color="#6B7280", text_align="center"),
-                                        ],
-                                        spacing=8,
-                                        scroll=ft.ScrollMode.AUTO,
-                                    ),
-                                ),
-                            ],
-                            spacing=14,
-                            vertical_alignment=ft.CrossAxisAlignment.START,
-                        ),
-                    ],
-                    spacing=10,
-                ),
+                            ),
+                        ],
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                    ),
+                ],
+                spacing=12,
             ),
         )
     )
