@@ -19573,16 +19573,17 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     state["questions_path_scene"] = "editor"
 
     page_w, page_h = _page_size(page)
-    sidebar_w = 300
-    viewport_w = max(420, min(1040, int(page_w - sidebar_w - 72)))
-    viewport_h = max(460, min(760, int(page_h - 140)))
+    sidebar_w = 300 if page_w >= 900 else max(220, int(page_w * 0.30))
+    viewport_w = max(300, int(page_w - sidebar_w - 52))
+    viewport_h = max(360, int(page_h - 88))
     canvas_w, canvas_h = 2200.0, 1600.0
-    min_zoom, max_zoom = 0.5, 2.4
+    min_zoom, max_zoom = 0.15, 6.0
     zoom_key = f"_qpe_zoom_{world['id']}"
     pan_x_key = f"_qpe_pan_x_{world['id']}"
     pan_y_key = f"_qpe_pan_y_{world['id']}"
     init_key = f"_qpe_ready_{world['id']}"
     ctrl_key = "_qpe_ctrl_down_until"
+    pan_drag_key = f"_qpe_pan_drag_{world['id']}"
     previous_keyboard_handler = getattr(page, "on_keyboard_event", None)
     if getattr(previous_keyboard_handler, "_qpe_keyboard_handler", False):
         previous_keyboard_handler = None
@@ -19593,7 +19594,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         if bool(getattr(e, "ctrl", False)):
             # Page keyboard events expose modifier state, while wheel events do not.
             state[ctrl_key] = time.time() + 3.0
-            print(f"[QuestMapper] ctrl key active key={getattr(e, 'key', '')}")
 
     on_editor_keyboard._qpe_keyboard_handler = True
     page.on_keyboard_event = on_editor_keyboard
@@ -19644,23 +19644,34 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         new_pan_x = viewport_w / 2.0 - center_world_x * state[zoom_key]
         new_pan_y = viewport_h / 2.0 - center_world_y * state[zoom_key]
         state[pan_x_key], state[pan_y_key] = clamp_pan(new_pan_x, new_pan_y)
-        print(f"[QuestMapper] zoom scale={state[zoom_key]:.3f}")
         render_again()
 
     def ctrl_wheel_zoom(e):
+        # Flet web does not expose a browser-native preventDefault hook here.
+        # We handle Flet scroll/scale events when they reach Python and keep the visible buttons as the guaranteed fallback.
         event_ctrl = bool(getattr(e, "ctrl", False) or getattr(e, "ctrl_key", False))
         recent_ctrl = float(state.get(ctrl_key, 0.0) or 0.0) > time.time()
         if not event_ctrl and not recent_ctrl:
             return
-        if not state.get("_qpe_logged_wheel_attrs"):
-            state["_qpe_logged_wheel_attrs"] = "1"
-            print(f"[QuestMapper] wheel attrs={sorted([name for name in dir(e) if not name.startswith('_')])}")
         delta_y = _scroll_delta_y(e)
         if abs(delta_y) < 0.01:
             return
-        factor = 1.16 if delta_y < 0 else 1 / 1.16
-        print(f"[QuestMapper] ctrl wheel detected delta_y={delta_y:.2f}")
+        factor = 1.22 if delta_y < 0 else 1 / 1.22
+        print(f"[QuestMapper] ctrl wheel zoom delta_y={delta_y:.2f}")
         set_zoom(zoom() * factor)
+
+    def scale_zoom_start(e):
+        state["_qpe_scale_start_zoom"] = zoom()
+
+    def scale_zoom_update(e):
+        scale = float(getattr(e, "scale", 1.0) or 1.0)
+        if abs(scale - 1.0) < 0.01:
+            return
+        now = time.time()
+        if now - float(state.get("_qpe_scale_last_update", 0.0) or 0.0) < 1 / 20:
+            return
+        state["_qpe_scale_last_update"] = now
+        set_zoom(float(state.get("_qpe_scale_start_zoom", zoom()) or zoom()) * scale)
 
     def reset_view(e):
         state[zoom_key] = 1.0
@@ -19668,15 +19679,40 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         state[pan_y_key] = (viewport_h - canvas_h) / 2.0
         render_again()
 
+    def pan_start(e):
+        state[pan_drag_key] = {"position": _gesture_position_xy(e), "delta": _gesture_delta_xy(e)}
+
     def pan_map(e):
-        dx, dy = _gesture_delta_xy(e)
+        drag_info = state.get(pan_drag_key)
+        if not isinstance(drag_info, dict):
+            drag_info = {"position": None, "delta": (0.0, 0.0)}
+            state[pan_drag_key] = drag_info
+        position = _gesture_position_xy(e)
+        if position is not None and drag_info.get("position") is not None:
+            previous = drag_info.get("position")
+            dx = float(position[0]) - float(previous[0])
+            dy = float(position[1]) - float(previous[1])
+            drag_info["position"] = position
+        else:
+            delta = _gesture_delta_xy(e)
+            previous_delta = drag_info.get("delta") or (0.0, 0.0)
+            dx = float(delta[0]) - float(previous_delta[0])
+            dy = float(delta[1]) - float(previous_delta[1])
+            drag_info["delta"] = delta
+            if position is not None:
+                drag_info["position"] = position
         if abs(dx) < 0.01 and abs(dy) < 0.01:
             return
         state[pan_x_key], state[pan_y_key] = clamp_pan(
             float(state.get(pan_x_key, pan_x) or 0.0) + dx,
             float(state.get(pan_y_key, pan_y) or 0.0) + dy,
         )
-        render_again()
+        canvas.left = state[pan_x_key]
+        canvas.top = state[pan_y_key]
+        canvas.update()
+
+    def pan_end(e):
+        state.pop(pan_drag_key, None)
 
     def add_island(template_key: str):
         cfg = _questions_path_editor_template_cfg(template_key)
@@ -19708,21 +19744,34 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         return f"_qpe_island_drag_{island_id}"
 
     def island_drag_start(island_id: str, e):
-        print(f"[QuestMapper] island drag start id={island_id} attrs={sorted([name for name in dir(e) if not name.startswith('_')])}")
-        state[island_drag_state_key(island_id)] = _gesture_position_xy(e)
+        print(f"[QuestMapper] island drag start id={island_id}")
+        state[island_drag_state_key(island_id)] = {
+            "position": _gesture_position_xy(e),
+            "delta": _gesture_delta_xy(e),
+            "last_update": 0.0,
+        }
         state["_questions_path_editor_selected_island_id"] = island_id
 
     def move_island(island_id: str, e, host: ft.Container):
         delta = _gesture_delta_xy(e)
         position = _gesture_position_xy(e)
-        previous = state.get(island_drag_state_key(island_id))
-        if position is not None and previous is not None:
-            dx = float(position[0]) - float(previous[0])
-            dy = float(position[1]) - float(previous[1])
-            state[island_drag_state_key(island_id)] = position
+        drag_info = state.get(island_drag_state_key(island_id))
+        if not isinstance(drag_info, dict):
+            drag_info = {"position": None, "delta": (0.0, 0.0), "last_update": 0.0}
+            state[island_drag_state_key(island_id)] = drag_info
+
+        previous_position = drag_info.get("position")
+        if position is not None and previous_position is not None:
+            dx = float(position[0]) - float(previous_position[0])
+            dy = float(position[1]) - float(previous_position[1])
+            drag_info["position"] = position
         else:
-            dx, dy = delta
-        print(f"[QuestMapper] island drag update id={island_id} dx={dx:.2f} dy={dy:.2f}")
+            previous_delta = drag_info.get("delta") or (0.0, 0.0)
+            dx = float(delta[0]) - float(previous_delta[0])
+            dy = float(delta[1]) - float(previous_delta[1])
+            drag_info["delta"] = delta
+            if position is not None:
+                drag_info["position"] = position
         if abs(dx) < 0.01 and abs(dy) < 0.01:
             return
         for island in islands:
@@ -19730,14 +19779,17 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + ((dx / zoom()) / canvas_w) * 100.0)
                 island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + ((dy / zoom()) / canvas_h) * 100.0)
                 state["_questions_path_editor_selected_island_id"] = island_id
-                persist_world()
                 host.left, host.top, host.width, host.height = island_pixel_bounds(island)
-                host.update()
-                print(f"[QuestMapper] island moved id={island_id} x={island['x']:.3f} y={island['y']:.3f}")
+                now = time.time()
+                if now - float(drag_info.get("last_update", 0.0) or 0.0) >= 1 / 30:
+                    drag_info["last_update"] = now
+                    host.update()
                 return
 
-    def island_drag_end(island_id: str, e):
+    def island_drag_end(island_id: str, e, host: ft.Container):
         state.pop(island_drag_state_key(island_id), None)
+        host.update()
+        persist_world()
         print(f"[QuestMapper] island drag end id={island_id}")
 
     def delete_selected(e):
@@ -19775,7 +19827,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             on_tap=lambda e, item_id=island_id: (state.__setitem__("_questions_path_editor_selected_island_id", item_id), render_again()),
             on_pan_start=lambda e, item_id=island_id: island_drag_start(item_id, e),
             on_pan_update=lambda e, item_id=island_id, item_host=host: move_island(item_id, e, item_host),
-            on_pan_end=lambda e, item_id=island_id: island_drag_end(item_id, e),
+            on_pan_end=lambda e, item_id=island_id, item_host=host: island_drag_end(item_id, e, item_host),
             on_scroll=ctrl_wheel_zoom,
             content=island_shape(island, width, height, selected),
         )
@@ -19783,7 +19835,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     map_background = ft.GestureDetector(
         drag_interval=0,
+        on_pan_start=pan_start,
         on_pan_update=pan_map,
+        on_pan_end=pan_end,
         on_scroll=ctrl_wheel_zoom,
         content=ft.Container(
             width=display_w,
@@ -19863,6 +19917,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 border=ft.border.Border.all(1.5, "#C8D8C5"),
                                 content=ft.GestureDetector(
                                     on_scroll=ctrl_wheel_zoom,
+                                    on_scale_start=scale_zoom_start,
+                                    on_scale_update=scale_zoom_update,
+                                    trackpad_scroll_causes_scale=True,
                                     content=ft.Stack([canvas], expand=True),
                                 ),
                             ),
@@ -19880,9 +19937,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                         ft.Text("Zoom", size=14, weight="bold", color="#111827"),
                                         ft.Row(
                                             [
-                                                _game_menu_button("-", lambda e: set_zoom(zoom() / 1.18), "#475569", width=56, height=38),
+                                                _game_menu_button("-", lambda e: set_zoom(zoom() / 1.25), "#475569", width=56, height=38),
                                                 ft.Container(width=78, alignment=ft.Alignment(0, 0), content=ft.Text(f"{int(zoom() * 100)}%", size=13, weight="bold", color="#111827")),
-                                                _game_menu_button("+", lambda e: set_zoom(zoom() * 1.18), "#475569", width=56, height=38),
+                                                _game_menu_button("+", lambda e: set_zoom(zoom() * 1.25), "#475569", width=56, height=38),
                                             ],
                                             spacing=8,
                                         ),
