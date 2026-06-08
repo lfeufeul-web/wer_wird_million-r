@@ -19548,12 +19548,26 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     pan_key_x = "_questions_path_editor_pan_x"
     pan_key_y = "_questions_path_editor_pan_y"
+    zoom_key = "_questions_path_editor_zoom"
+    if zoom_key not in state or not isinstance(state.get(zoom_key), (int, float)):
+        state[zoom_key] = 1.0
     init_key = "_questions_path_editor_pan_world_id"
     if state.get(init_key) != world["id"]:
         init_zoom = float(state.get("_questions_path_editor_zoom", 1.0) or 1.0)
         state[pan_key_x] = int((viewport_w - int(round(canvas_w * init_zoom))) / 2)
         state[pan_key_y] = int((viewport_h - int(round(canvas_h * init_zoom))) / 2)
         state[init_key] = world["id"]
+
+    def clamp_zoom(value: float) -> float:
+        return max(0.55, min(2.75, float(value)))
+
+    def current_zoom() -> float:
+        return clamp_zoom(float(state.get(zoom_key, 1.0) or 1.0))
+
+    def scaled_canvas_size() -> tuple[int, int]:
+        zoom = float(state.get(zoom_key, 1.0) or 1.0)
+        zoom = max(0.55, min(2.75, zoom))
+        return max(1, int(round(canvas_w * zoom))), max(1, int(round(canvas_h * zoom)))
 
     def clamp_pan(x: int, y: int) -> tuple[int, int]:
         current_canvas_w, current_canvas_h = scaled_canvas_size()
@@ -19565,21 +19579,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     pan_x, pan_y = clamp_pan(int(state.get(pan_key_x, 0) or 0), int(state.get(pan_key_y, 0) or 0))
     state[pan_key_x], state[pan_key_y] = pan_x, pan_y
-    zoom_key = "_questions_path_editor_zoom"
-    if zoom_key not in state or not isinstance(state.get(zoom_key), (int, float)):
-        state[zoom_key] = 1.0
-
-    def clamp_zoom(value: float) -> float:
-        return max(0.55, min(2.75, float(value)))
-
-    def current_zoom() -> float:
-        return clamp_zoom(float(state.get(zoom_key, 1.0) or 1.0))
-
-    def scaled_canvas_size() -> tuple[int, int]:
-        zoom = float(state.get("_questions_path_editor_zoom", 1.0) or 1.0)
-        zoom = max(0.55, min(2.75, zoom))
-        return max(1, int(round(canvas_w * zoom))), max(1, int(round(canvas_h * zoom)))
-
     def _event_point(event, prefix: str = "local_position") -> tuple[float, float] | None:
         value = getattr(event, prefix, None)
         if value is not None:
