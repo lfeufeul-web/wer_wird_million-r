@@ -182,6 +182,17 @@ def _scroll_delta_y(event) -> float:
     return 0.0
 
 
+def _scroll_delta_x(event) -> float:
+    for attr in ("scroll_delta_x",):
+        value = getattr(event, attr, None)
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
 def load_env_file():
     if not os.path.exists(ENV_FILE):
         return
@@ -19476,7 +19487,7 @@ DEFAULT_ISLAND_SCALE = 1.0
 MIN_ISLAND_SCALE = 0.4
 MAX_ISLAND_SCALE = 3.0
 ISLAND_SCALE_STEP = 0.15
-ISLAND_DRAG_FPS = 30.0
+QUESTIONS_PATH_EDITOR_SIDEBAR_W = 320
 
 
 def _questions_path_normalize_custom_island_presets(raw_presets) -> list[dict]:
@@ -19667,7 +19678,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     state["questions_path_scene"] = "editor"
 
     page_w, page_h = _page_size(page)
-    sidebar_w = 300 if page_w >= 900 else max(220, int(page_w * 0.30))
+    sidebar_w = QUESTIONS_PATH_EDITOR_SIDEBAR_W if page_w >= 760 else max(240, min(QUESTIONS_PATH_EDITOR_SIDEBAR_W, int(page_w * 0.9)))
     viewport_w = max(300, int(page_w - sidebar_w - 52))
     viewport_h = max(360, int(page_h - 88))
     canvas_w, canvas_h = QUESTIONS_PATH_EDITOR_CANVAS_W, QUESTIONS_PATH_EDITOR_CANVAS_H
@@ -19766,6 +19777,25 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             return
         factor = 1.22 if delta_y < 0 else 1 / 1.22
         set_zoom(zoom() * factor)
+
+    def scroll_pan_map(e):
+        event_ctrl = bool(getattr(e, "ctrl", False) or getattr(e, "ctrl_key", False))
+        held_ctrl = bool(state.get(ctrl_hold_key))
+        recent_ctrl = float(state.get(ctrl_key, 0.0) or 0.0) > time.time()
+        if event_ctrl or held_ctrl or recent_ctrl:
+            ctrl_wheel_zoom(e)
+            return
+        dx = _scroll_delta_x(e)
+        dy = _scroll_delta_y(e)
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+        state[pan_x_key], state[pan_y_key] = clamp_pan(
+            float(state.get(pan_x_key, pan_x) or 0.0) - dx,
+            float(state.get(pan_y_key, pan_y) or 0.0) - dy,
+        )
+        canvas.left = state[pan_x_key]
+        canvas.top = state[pan_y_key]
+        canvas.update()
 
     def editor_key_down(e):
         if str(getattr(e, "key", "") or "").lower() in {"control", "ctrl"} or bool(getattr(e, "ctrl", False)):
@@ -19957,10 +19987,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + ((dx / zoom()) / canvas_w) * 100.0)
         island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + ((dy / zoom()) / canvas_h) * 100.0)
         host.left, host.top, host.width, host.height = island_pixel_bounds(island)
-        now = time.time()
-        if now - float(drag_info.get("last_update", 0.0) or 0.0) >= 1 / ISLAND_DRAG_FPS:
-            drag_info["last_update"] = now
-            host.update()
+        host.update()
 
     def island_drag_end(island_id: str, e, host: ft.Container):
         state.pop(island_drag_state_key(island_id), None)
@@ -20005,11 +20032,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 height=height,
                 bgcolor="transparent",
                 border=ft.border.Border.all(1.5, "#38BDF8") if selected else None,
-                shadow=ft.BoxShadow(
-                    blur_radius=18 if selected else 10,
-                    color="#2238BDF8" if selected else "#22000000",
-                    offset=ft.Offset(0, 3),
-                ),
+                shadow=ft.BoxShadow(blur_radius=12, color="#1838BDF8", offset=ft.Offset(0, 2)) if selected else None,
                 content=ft.Image(src=str(island.get("src") or cfg.get("src") or ""), fit=ft.BoxFit.CONTAIN, width=width, height=height),
             )
         radius = 999 if template in ("circle", "oval") else 8
@@ -20032,12 +20055,12 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         host = ft.Container(left=left, top=top, width=width, height=height)
         island_hosts[island_id] = host
         host.content = ft.GestureDetector(
-            drag_interval=16,
+            drag_interval=0,
             on_tap=lambda e, item_id=island_id: set_selected_island(item_id),
             on_pan_start=lambda e, item_id=island_id: island_drag_start(item_id, e),
             on_pan_update=lambda e, item_id=island_id, item_host=host: move_island(item_id, e, item_host),
             on_pan_end=lambda e, item_id=island_id, item_host=host: island_drag_end(item_id, e, item_host),
-            on_scroll=ctrl_wheel_zoom,
+            on_scroll=scroll_pan_map,
             content=island_shape(island, width, height, selected),
         )
         return host
@@ -20047,20 +20070,12 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         on_pan_start=pan_start,
         on_pan_update=pan_map,
         on_pan_end=pan_end,
-        on_scroll=ctrl_wheel_zoom,
+        on_scroll=scroll_pan_map,
         content=ft.Container(
             width=display_w,
             height=display_h,
-            bgcolor="#DCEFD8",
+            bgcolor="#EAF4EA",
             border=ft.border.Border.all(1, "#B9D5B3"),
-            content=ft.Stack(
-                [
-                    ft.Container(left=display_w * 0.10, top=display_h * 0.14, width=display_w * 0.20, height=display_h * 0.12, border_radius=999, bgcolor="#C5E4BF"),
-                    ft.Container(left=display_w * 0.55, top=display_h * 0.20, width=display_w * 0.24, height=display_h * 0.14, border_radius=999, bgcolor="#CBEAC7"),
-                    ft.Container(left=display_w * 0.28, top=display_h * 0.62, width=display_w * 0.36, height=display_h * 0.12, border_radius=999, bgcolor="#C1DEBD"),
-                ],
-                expand=True,
-            ),
         ),
     )
 
@@ -20078,34 +20093,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         content=ft.Stack([map_background, island_layer], expand=True),
     )
 
-    shape_presets = [template for template in editor_presets() if template.get("type") == "shape"]
     image_presets = [template for template in editor_presets() if template.get("type") == "image"]
-    shape_buttons: list[ft.Control] = []
-    for template in shape_presets:
-        shape_buttons.append(
-            ft.Container(
-                height=52,
-                border_radius=8,
-                bgcolor="#FFFFFF",
-                border=ft.border.Border.all(1.5, "#D1D5DB"),
-                padding=8,
-                on_click=lambda e, key=template["key"]: add_island(key),
-                content=ft.Row(
-                    [
-                        ft.Container(
-                            width=54,
-                            height=40,
-                            border_radius=999 if template["key"] in ("circle", "oval") else 8,
-                            bgcolor=template["fill"],
-                            border=ft.border.Border.all(2, template["outline"]),
-                        ),
-                        ft.Text(template["label"], size=13, weight="bold", color="#1F2937"),
-                    ],
-                    spacing=10,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-            )
-        )
 
     tile_size = 62 if sidebar_w < 260 else 66
     image_tiles: list[ft.Control] = []
@@ -20167,7 +20155,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                     on_key_down=editor_key_down,
                                     on_key_up=editor_key_up,
                                     content=ft.GestureDetector(
-                                        on_scroll=ctrl_wheel_zoom,
+                                        on_scroll=scroll_pan_map,
                                         on_scale_start=scale_zoom_start,
                                         on_scale_update=scale_zoom_update,
                                         trackpad_scroll_causes_scale=True,
@@ -20185,8 +20173,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                     [
                                         ft.Text("Inseln", size=18, weight="bold", color="#111827"),
                                         _game_menu_button("Inselordner aktualisieren", refresh_island_folder, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
-                                        ft.Text("Grundformen", size=14, weight="bold", color="#111827"),
-                                        *shape_buttons,
                                         ft.Text("Bild-Inseln", size=14, weight="bold", color="#111827"),
                                         ft.Container(
                                             content=ft.Row(image_tiles, wrap=True, spacing=8, run_spacing=8),
