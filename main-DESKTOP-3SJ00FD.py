@@ -10881,7 +10881,7 @@ def _game_portal_back_overlay(page: ft.Page, state: dict) -> ft.Container:
                 ft.Container(
                     content=ft.TextButton(
                         "← Spielauswahl",
-                        on_click=lambda e: e.page.go("/"),
+                        on_click=lambda e: open_main_menu(e.page, state),
                         style=ft.ButtonStyle(color="white"),
                     ),
                     bgcolor="#0000008f",
@@ -17464,6 +17464,10 @@ def _questions_path_render_home(page: ft.Page, state: dict):
 
 
 def _questions_path_make_world_editor_map(world: dict) -> dict:
+    points = list(world.get("points", []) or [])
+    if not points:
+        points = [_questions_path_default_point(0)]
+        world["points"] = points
     return {
         "title": str(world.get("name", "Welt")).strip() or "Welt",
         "subtitle": "Eigene Welt",
@@ -17474,7 +17478,7 @@ def _questions_path_make_world_editor_map(world: dict) -> dict:
         "border": _questions_path_preset_cfg(world.get("background_preset", "forest"))["colors"][2],
         "line": "#D1FAE5",
         "image": _questions_path_map_art_asset(),
-        "points": world.get("points", []),
+        "points": points,
         "_world": world,
     }
 
@@ -17578,6 +17582,7 @@ def _questions_path_create_world_dialog(page: ft.Page, state: dict):
             world = _questions_path_default_world(len(worlds), world_name or None)
             world["name"] = world_name or world["name"]
             world["background_preset"] = QUESTIONS_PATH_WORLD_PRESETS[0]["key"]
+            world["points"] = [_questions_path_default_point(0)]
             worlds.append(world)
             current["worlds"] = worlds
             profiles[idx] = current
@@ -17891,6 +17896,10 @@ def _questions_path_render_owned(page: ft.Page, state: dict):
 def _questions_path_game_map_cfg(state: dict, map_key: str) -> dict:
     world = _questions_path_world_by_id(state, map_key)
     if world:
+        points = list(world.get("points", []) or [])
+        if not points:
+            points = [_questions_path_default_point(0)]
+            world["points"] = points
         return _questions_path_make_world_editor_map(world)
     return QUESTIONS_PATH_MAPS.get(map_key) or QUESTIONS_PATH_MAPS["waldpfad"]
 
@@ -18830,6 +18839,11 @@ def resume_questions_path_game(page: ft.Page, state: dict, saved: dict | None = 
 
 def show_questions_path_hub(page: ft.Page, state: dict):
     _set_resize_view(state, show_questions_path_hub)
+    profiles = get_questions_path_profiles(state)
+    if profiles:
+        state["questions_path_profiles"] = profiles
+    elif "questions_path_profiles" not in state:
+        state["questions_path_profiles"] = []
     if state.pop("_startup_recovering", False):
         saved = get_saved_questions_path_game(state)
         if saved:
