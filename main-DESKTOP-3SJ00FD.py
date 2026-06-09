@@ -19614,6 +19614,8 @@ def _questions_path_editor_normalize_islands(world: dict, profile: dict | None =
             else:
                 template_key = _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES[idx % len(_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES)]["key"]
         template_cfg = _questions_path_editor_template_cfg(template_key, profile)
+        fallback_pct_w = float(template_cfg.get("w", 12.0) or 12.0)
+        fallback_pct_h = float(template_cfg.get("h", 10.0) or 10.0)
         normalized.append(
             {
                 "id": str(island.get("id") or uuid.uuid4()),
@@ -19630,7 +19632,7 @@ def _questions_path_editor_normalize_islands(world: dict, profile: dict | None =
                             "base_w",
                             template_cfg.get(
                                 "base_w",
-                                QUESTIONS_PATH_EDITOR_CANVAS_W * float(island.get("w", template_cfg["w"])) / 100.0,
+                                QUESTIONS_PATH_EDITOR_CANVAS_W * float(island.get("w", fallback_pct_w)) / 100.0,
                             ),
                         )
                         or DEFAULT_IMAGE_ISLAND_BASE_WIDTH
@@ -19643,7 +19645,7 @@ def _questions_path_editor_normalize_islands(world: dict, profile: dict | None =
                             "base_h",
                             template_cfg.get(
                                 "base_h",
-                                QUESTIONS_PATH_EDITOR_CANVAS_H * float(island.get("h", template_cfg["h"])) / 100.0,
+                                QUESTIONS_PATH_EDITOR_CANVAS_H * float(island.get("h", fallback_pct_h)) / 100.0,
                             ),
                         )
                         or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT
