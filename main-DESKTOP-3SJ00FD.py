@@ -11314,7 +11314,6 @@ def show_points_quiz_hub(page: ft.Page, state: dict):
                                 ft.Text("Punkte-Quiz", size=30, weight="w900", color=ui["text"]),
                                 ft.Text("Teams, Kategorien, Punktebrett und freie Spielleitung.", size=14, color=theme_txt(theme, "secondary")),
                                 ft.Row([random_card, own_card], spacing=18, wrap=True, alignment=ft.MainAxisAlignment.CENTER),
-                                ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
                             ],
                             spacing=16,
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -11611,7 +11610,7 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                                         ),
                                         ft.Row(
                                             [
-                                                _game_menu_button("Spielauswahl", lambda e: e.page.go("/"), "#4B5563", width=150 if is_mobile else 170, height=40),
+                                                _game_menu_button("Spielauswahl", lambda e: open_main_menu(e.page, state), "#4B5563", width=150 if is_mobile else 170, height=40),
                                                 _game_menu_button("Spiel beenden", lambda e: show_points_quiz_summary(e.page, state, finished_early=True), theme["danger"], width=170 if is_mobile else 180, height=40),
                                                 _game_menu_button("Zurück", lambda e: show_points_quiz_hub(e.page, state), "#4B5563", width=130 if is_mobile else 140, height=40),
                                             ],
@@ -17589,7 +17588,7 @@ def _questions_path_create_world_dialog(page: ft.Page, state: dict):
             close_dialog()
             e.page.snack_bar = ft.SnackBar(content=ft.Text(f"Welt '{world['name']}' wurde erstellt."), open=True)
             e.page.update()
-            _open_questmapper_web(e.page)
+            _questions_path_render_owned(e.page, state)
         except Exception as exc:
             print(f"Create world error: {exc}")
             e.page.snack_bar = ft.SnackBar(content=ft.Text("Welt konnte nicht erstellt werden."), open=True)
