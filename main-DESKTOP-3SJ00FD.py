@@ -17724,7 +17724,7 @@ def _questions_path_render_owned(page: ft.Page, state: dict):
             return lambda e: start_questions_path_game(e.page, state, world_id)
 
         def _edit(world_id=world["id"]):
-            return lambda e: _open_questmapper_web(e.page)
+            return lambda e: _questions_path_render_world_editor(e.page, state, world_id)
 
         def _delete(world_id=world["id"], world_name=world.get("name", "Welt")):
             def _handler(e):
