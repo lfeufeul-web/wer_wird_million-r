@@ -20056,6 +20056,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         island_hosts[island_id] = host
         host.content = ft.GestureDetector(
             drag_interval=0,
+            mouse_cursor=ft.MouseCursor.GRAB,
             on_tap=lambda e, item_id=island_id: set_selected_island(item_id),
             on_pan_start=lambda e, item_id=island_id: island_drag_start(item_id, e),
             on_pan_update=lambda e, item_id=island_id, item_host=host: move_island(item_id, e, item_host),
@@ -20067,6 +20068,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     map_background = ft.GestureDetector(
         drag_interval=16,
+        mouse_cursor=ft.MouseCursor.ALL_SCROLL,
         on_pan_start=pan_start,
         on_pan_update=pan_map,
         on_pan_end=pan_end,
@@ -20115,7 +20117,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     selected_id = str(state.get("_questions_path_editor_selected_island_id") or "")
     selected_name = next((str(item.get("name", "Insel")) for item in islands if str(item.get("id")) == selected_id), "Keine Insel")
-    compact_layout = page_w < 980
     selection_text = ft.Text(selected_name, size=13, color="#374151")
     selected_scale = float((selected_island() or {}).get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)
     island_scale_label = ft.Text(f"{int(selected_scale * 100)}%", size=13, weight="bold", color="#111827")
@@ -20150,6 +20151,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
                                 bgcolor="#EAF4EA",
                                 border=ft.border.Border.all(1.5, "#C8D8C5"),
+                                on_click=lambda e: None,
                                 content=ft.KeyboardListener(
                                     autofocus=True,
                                     on_key_down=editor_key_down,
@@ -20165,7 +20167,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                             ),
                             ft.Container(
                                 width=sidebar_w,
-                                height=viewport_h if not compact_layout else min(360, viewport_h),
+                                height=viewport_h,
                                 bgcolor="#FFFFFF",
                                 border=ft.border.Border.all(1.5, "#E5E7EB"),
                                 padding=14,
@@ -20207,7 +20209,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                         ],
                         spacing=12,
                         vertical_alignment=ft.CrossAxisAlignment.START,
-                        wrap=compact_layout,
+                        wrap=False,
                     ),
                 ],
                 spacing=12,
