@@ -11131,7 +11131,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         [
             portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: _go_route_or_render(e.page, "/wwm", open_wwm_main_menu, state)),
             portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: _go_route_or_render(e.page, "/points", show_points_quiz_hub, state)),
-            portal_card("Fragen-Pfad", "Eine lange Karte mit vielen Stationen, die du Stück für Stück freischaltest.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: _go_route_or_render(e.page, "/path", show_questions_path_hub, state)),
+            portal_card("Fragen-Pfad", "QuestMapper im neuen schnellen Web-Editor oeffnen.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: _open_questmapper_web(e.page)),
         ],
         spacing=16,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -11139,7 +11139,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         [
             portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: _go_route_or_render(e.page, "/wwm", open_wwm_main_menu, state)),
             portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: _go_route_or_render(e.page, "/points", show_points_quiz_hub, state)),
-            portal_card("Fragen-Pfad", "Eine lange Karte mit vielen Stationen, die du Stück für Stück freischaltest.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: _go_route_or_render(e.page, "/path", show_questions_path_hub, state)),
+            portal_card("Fragen-Pfad", "QuestMapper im neuen schnellen Web-Editor oeffnen.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: _open_questmapper_web(e.page)),
         ],
         spacing=18 if not compact else 14,
         run_spacing=18,
