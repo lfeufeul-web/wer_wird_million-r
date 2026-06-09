@@ -19454,28 +19454,57 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
 
 _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES = [
-    {"key": "circle", "label": "Circle", "w": 11.0, "h": 11.0, "fill": "#74C365", "outline": "#356C2A"},
-    {"key": "oval", "label": "Oval", "w": 13.0, "h": 9.0, "fill": "#7CCB72", "outline": "#3C7A33"},
-    {"key": "rect", "label": "Rectangle", "w": 12.0, "h": 8.5, "fill": "#6FB85D", "outline": "#3A6C33"},
-    {"key": "triangle", "label": "Triangle", "w": 12.0, "h": 11.0, "fill": "#8ACF6B", "outline": "#3D7530"},
-    {"key": "polygon", "label": "Polygon", "w": 13.0, "h": 10.0, "fill": "#69B35A", "outline": "#325F2C"},
+    {"key": "circle", "label": "Circle", "type": "shape", "shape": "circle", "w": 11.0, "h": 11.0, "fill": "#74C365", "outline": "#356C2A"},
+    {"key": "oval", "label": "Oval", "type": "shape", "shape": "oval", "w": 13.0, "h": 9.0, "fill": "#7CCB72", "outline": "#3C7A33"},
+    {"key": "rect", "label": "Rectangle", "type": "shape", "shape": "rect", "w": 12.0, "h": 8.5, "fill": "#6FB85D", "outline": "#3A6C33"},
+    {"key": "triangle", "label": "Triangle", "type": "shape", "shape": "triangle", "w": 12.0, "h": 11.0, "fill": "#8ACF6B", "outline": "#3D7530"},
+    {"key": "polygon", "label": "Polygon", "type": "shape", "shape": "polygon", "w": 13.0, "h": 10.0, "fill": "#69B35A", "outline": "#325F2C"},
 ]
 
 _QUESTIONS_PATH_EDITOR_TEMPLATE_IMAGE_CACHE: dict[str, str] = {}
 
 
 def _questions_path_editor_template_cfg(template_key: str) -> dict:
-    for template in _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES:
+    for template in _questions_path_editor_presets():
         if template["key"] == template_key:
             return template
     return _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES[0]
 
 
+def _questions_path_editor_presets() -> list[dict]:
+    presets = list(_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES)
+    image_candidates = [
+        ("forest_island", "Forest", "islands/forest_island.png", 16.0, 12.0),
+        ("sand_island", "Sand", "islands/sand_island.png", 16.0, 12.0),
+        ("volcano_island", "Volcano", "islands/volcano_island.png", 16.0, 12.0),
+        ("fragenpfad_island", "Fragenpfad", "Fragenpfad/level_insel_1.png", 16.0, 12.0),
+        ("hub_island", "Hub", "Fragenpfad/Inseln.png", 18.0, 12.0),
+    ]
+    for key, label, src, width, height in image_candidates:
+        asset_path = os.path.join("assets", *src.split("/"))
+        if os.path.exists(asset_path):
+            presets.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "type": "image",
+                    "src": src,
+                    "w": width,
+                    "h": height,
+                    "fill": "#E5E7EB",
+                    "outline": "#94A3B8",
+                }
+            )
+    return presets
+
+
 def _questions_path_editor_shape_to_data_uri(template_key: str) -> str:
+    cfg = _questions_path_editor_template_cfg(template_key)
+    if cfg.get("type") == "image":
+        return str(cfg.get("src") or "")
     cached = _QUESTIONS_PATH_EDITOR_TEMPLATE_IMAGE_CACHE.get(template_key)
     if cached:
         return cached
-    cfg = _questions_path_editor_template_cfg(template_key)
     canvas_w, canvas_h = 512, 320
     img = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -19530,10 +19559,11 @@ def _questions_path_editor_normalize_islands(world: dict) -> list[dict]:
     if not isinstance(raw_islands, list):
         raw_islands = []
     normalized: list[dict] = []
+    preset_keys = {tpl["key"] for tpl in _questions_path_editor_presets()}
     for idx, island in enumerate(raw_islands):
         island = island if isinstance(island, dict) else {}
         template_key = str(island.get("template") or island.get("shape") or island.get("design") or "circle").strip().lower()
-        if template_key not in {tpl["key"] for tpl in _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES}:
+        if template_key not in preset_keys:
             template_key = _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES[idx % len(_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES)]["key"]
         template_cfg = _questions_path_editor_template_cfg(template_key)
         normalized.append(
@@ -19541,6 +19571,8 @@ def _questions_path_editor_normalize_islands(world: dict) -> list[dict]:
                 "id": str(island.get("id") or uuid.uuid4()),
                 "name": str(island.get("name") or f"Insel {idx + 1}").strip() or f"Insel {idx + 1}",
                 "template": template_key,
+                "type": str(island.get("type") or template_cfg.get("type") or "shape"),
+                "src": str(island.get("src") or template_cfg.get("src") or ""),
                 "x": _questions_path_clamp_pct(island.get("x", 50.0)),
                 "y": _questions_path_clamp_pct(island.get("y", 50.0)),
                 "w": float(island.get("w", template_cfg["w"])),
@@ -19576,7 +19608,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     sidebar_w = 300 if page_w >= 900 else max(220, int(page_w * 0.30))
     viewport_w = max(300, int(page_w - sidebar_w - 52))
     viewport_h = max(360, int(page_h - 88))
-    canvas_w, canvas_h = 2200.0, 1600.0
+    canvas_w, canvas_h = 6000.0, 4200.0
     min_zoom, max_zoom = 0.15, 6.0
     zoom_key = f"_qpe_zoom_{world['id']}"
     pan_x_key = f"_qpe_pan_x_{world['id']}"
@@ -19722,6 +19754,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             "id": str(uuid.uuid4()),
             "name": f"Insel {len(islands) + 1}",
             "template": template_key,
+            "type": cfg.get("type", "shape"),
+            "src": cfg.get("src", ""),
             "x": _questions_path_clamp_pct((center_x / canvas_w) * 100.0),
             "y": _questions_path_clamp_pct((center_y / canvas_h) * 100.0),
             "w": cfg["w"],
@@ -19781,7 +19815,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 state["_questions_path_editor_selected_island_id"] = island_id
                 host.left, host.top, host.width, host.height = island_pixel_bounds(island)
                 now = time.time()
-                if now - float(drag_info.get("last_update", 0.0) or 0.0) >= 1 / 30:
+                if now - float(drag_info.get("last_update", 0.0) or 0.0) >= 1 / 24:
                     drag_info["last_update"] = now
                     host.update()
                 return
@@ -19804,6 +19838,15 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     def island_shape(island: dict, width: float, height: float, selected: bool) -> ft.Control:
         template = str(island.get("template", "circle"))
         cfg = _questions_path_editor_template_cfg(template)
+        if str(island.get("type") or cfg.get("type") or "shape") == "image":
+            return ft.Container(
+                width=width,
+                height=height,
+                border=ft.border.Border.all(3 if selected else 1.5, "#FFFFFF" if selected else "#A7B3C4"),
+                shadow=ft.BoxShadow(blur_radius=14, color="#33000000", offset=ft.Offset(0, 5)),
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                content=ft.Image(src=str(island.get("src") or cfg.get("src") or ""), fit=ft.BoxFit.CONTAIN, width=width, height=height),
+            )
         radius = 999 if template in ("circle", "oval") else 8
         shape_kwargs = {"shape": ft.BoxShape.CIRCLE} if template == "circle" else {"border_radius": radius}
         return ft.Container(
@@ -19823,7 +19866,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         selected = island_id == str(state.get("_questions_path_editor_selected_island_id") or "")
         host = ft.Container(left=left, top=top, width=width, height=height)
         host.content = ft.GestureDetector(
-            drag_interval=0,
+            drag_interval=16,
             on_tap=lambda e, item_id=island_id: (state.__setitem__("_questions_path_editor_selected_island_id", item_id), render_again()),
             on_pan_start=lambda e, item_id=island_id: island_drag_start(item_id, e),
             on_pan_update=lambda e, item_id=island_id, item_host=host: move_island(item_id, e, item_host),
@@ -19834,7 +19877,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         return host
 
     map_background = ft.GestureDetector(
-        drag_interval=0,
+        drag_interval=16,
         on_pan_start=pan_start,
         on_pan_update=pan_map,
         on_pan_end=pan_end,
@@ -19869,21 +19912,48 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         content=ft.Stack([map_background, island_layer], expand=True),
     )
 
-    preset_buttons = [
-        ft.Container(
-            height=46,
-            border_radius=8,
-            bgcolor=template["fill"],
-            border=ft.border.Border.all(2, template["outline"]),
-            alignment=ft.Alignment(0, 0),
-            on_click=lambda e, key=template["key"]: add_island(key),
-            content=ft.Text(template["label"], size=13, weight="bold", color="#173018"),
+    preset_buttons: list[ft.Control] = []
+    for template in _questions_path_editor_presets():
+        preview = (
+            ft.Container(
+                width=54,
+                height=40,
+                border_radius=8,
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                bgcolor="#F8FAFC",
+                content=ft.Image(src=str(template.get("src") or ""), fit=ft.BoxFit.CONTAIN),
+            )
+            if template.get("type") == "image"
+            else ft.Container(
+                width=54,
+                height=40,
+                border_radius=999 if template["key"] in ("circle", "oval") else 8,
+                bgcolor=template["fill"],
+                border=ft.border.Border.all(2, template["outline"]),
+            )
         )
-        for template in _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES
-    ]
+        preset_buttons.append(
+            ft.Container(
+                height=52,
+                border_radius=8,
+                bgcolor="#FFFFFF",
+                border=ft.border.Border.all(1.5, "#D1D5DB"),
+                padding=8,
+                on_click=lambda e, key=template["key"]: add_island(key),
+                content=ft.Row(
+                    [
+                        preview,
+                        ft.Text(template["label"], size=13, weight="bold", color="#1F2937"),
+                    ],
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+        )
 
     selected_id = str(state.get("_questions_path_editor_selected_island_id") or "")
     selected_name = next((str(item.get("name", "Insel")) for item in islands if str(item.get("id")) == selected_id), "Keine Insel")
+    compact_layout = page_w < 980
 
     page.controls.clear()
     page.add(
@@ -19910,7 +19980,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                     ft.Row(
                         [
                             ft.Container(
-                                width=viewport_w,
+                                expand=True,
                                 height=viewport_h,
                                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
                                 bgcolor="#EAF4EA",
@@ -19925,7 +19995,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                             ),
                             ft.Container(
                                 width=sidebar_w,
-                                height=viewport_h,
+                                height=viewport_h if not compact_layout else min(360, viewport_h),
                                 bgcolor="#FFFFFF",
                                 border=ft.border.Border.all(1.5, "#E5E7EB"),
                                 padding=14,
@@ -19955,6 +20025,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                         ],
                         spacing=12,
                         vertical_alignment=ft.CrossAxisAlignment.START,
+                        wrap=compact_layout,
                     ),
                 ],
                 spacing=12,
