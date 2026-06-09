@@ -17496,6 +17496,18 @@ def _questions_path_world_by_id(state: dict, world_id: str | None) -> dict | Non
     return None
 
 
+def _questmapper_web_url() -> str:
+    return os.getenv("QUESTMAPPER_WEB_URL", "https://questmapper-web.onrender.com").strip() or "https://questmapper-web.onrender.com"
+
+
+def _open_questmapper_web(page: ft.Page):
+    try:
+        page.launch_url(_questmapper_web_url())
+    except Exception:
+        page.snack_bar = ft.SnackBar(content=ft.Text(f"QuestMapper Web: {_questmapper_web_url()}"), open=True)
+        page.update()
+
+
 def _questions_path_save_world(state: dict, world: dict):
     profiles = list(get_questions_path_profiles(state))
     idx = get_questions_path_profile_index(state)
@@ -17577,7 +17589,7 @@ def _questions_path_create_world_dialog(page: ft.Page, state: dict):
             close_dialog()
             e.page.snack_bar = ft.SnackBar(content=ft.Text(f"Welt '{world['name']}' wurde erstellt."), open=True)
             e.page.update()
-            _questions_path_render_world_editor(e.page, state, world["id"])
+            _open_questmapper_web(e.page)
         except Exception as exc:
             print(f"Create world error: {exc}")
             e.page.snack_bar = ft.SnackBar(content=ft.Text("Welt konnte nicht erstellt werden."), open=True)
@@ -17713,7 +17725,7 @@ def _questions_path_render_owned(page: ft.Page, state: dict):
             return lambda e: start_questions_path_game(e.page, state, world_id)
 
         def _edit(world_id=world["id"]):
-            return lambda e: _questions_path_render_world_editor(e.page, state, world_id)
+            return lambda e: _open_questmapper_web(e.page)
 
         def _delete(world_id=world["id"], world_name=world.get("name", "Welt")):
             def _handler(e):

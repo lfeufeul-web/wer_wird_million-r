@@ -8,6 +8,8 @@ services:
     envVars:
       - key: APP_NAME
         value: Wer wird Millionär
+      - key: QUESTMAPPER_WEB_URL
+        value: https://questmapper-web.onrender.com
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT
