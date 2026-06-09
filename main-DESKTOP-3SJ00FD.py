@@ -18808,33 +18808,101 @@ def render_questions_path_complete(page: ft.Page, state: dict):
 
 
 def resume_questions_path_game(page: ft.Page, state: dict, saved: dict | None = None):
-    if saved and saved.get("map_key"):
-        state["questions_path_game"] = dict(saved)
-        state["questions_path_scene"] = "game"
-        render_questions_path_game(page, state)
-        return
+    # The old Flet Fragen-Pfad flow is intentionally bypassed. It still has
+    # several legacy profile/editor paths that can crash with empty lists, while
+    # the maintained QuestMapper editor now lives in the standalone web app.
     show_questions_path_hub(page, state)
 
 
 def show_questions_path_hub(page: ft.Page, state: dict):
     _set_resize_view(state, show_questions_path_hub)
-    profiles = get_questions_path_profiles(state)
-    state["questions_path_profiles"] = profiles
-    scene = state.get("questions_path_scene") or "menu"
-    if scene == "quick":
-        _questions_path_render_quick(page, state)
-        return
-    if scene == "own":
-        _questions_path_render_owned(page, state)
-        return
-    if scene == "editor":
-        world_id = state.get("questions_path_selected_world_id")
-        _questions_path_render_world_editor(page, state, world_id)
-        return
-    if scene == "game":
-        render_questions_path_game(page, state)
-        return
-    _questions_path_render_home(page, state)
+    state["questions_path_scene"] = "web"
+    theme = get_theme(state)
+    page.bgcolor = "#06131D"
+    page.controls.clear()
+
+    def open_editor(e):
+        _open_questmapper_web(e.page)
+
+    width, height = _page_size(page)
+    card_width = min(640, max(320, width - 32))
+    page.add(
+        ft.Container(
+            expand=True,
+            padding=24,
+            alignment=ft.Alignment(0, 0),
+            gradient=ft.LinearGradient(
+                begin=ft.alignment.top_left,
+                end=ft.alignment.bottom_right,
+                colors=["#07131F", "#102A2A", "#0F172A"],
+            ),
+            content=ft.Container(
+                width=card_width,
+                padding=28,
+                border_radius=26,
+                bgcolor="#0B1726",
+                border=ft.border.all(1, "#1FBA9A"),
+                shadow=ft.BoxShadow(
+                    blur_radius=28,
+                    spread_radius=2,
+                    color="#00000055",
+                    offset=ft.Offset(0, 16),
+                ),
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "QuestMapper Editor",
+                            size=32,
+                            weight=ft.FontWeight.BOLD,
+                            color="white",
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.Text(
+                            "Der Fragen-Pfad wird jetzt in der neuen Web-Version geoeffnet. Dadurch laufen Karte, Zoom, Dragging und Inseln nicht mehr ueber die alte Flet-Editorlogik.",
+                            size=14,
+                            color="#CFE7DD",
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.Container(height=10),
+                        ft.ElevatedButton(
+                            "QuestMapper oeffnen",
+                            icon=ft.Icons.OPEN_IN_NEW,
+                            on_click=open_editor,
+                            style=ft.ButtonStyle(
+                                bgcolor="#22C55E",
+                                color="white",
+                                shape=ft.RoundedRectangleBorder(radius=16),
+                                padding=ft.padding.symmetric(horizontal=26, vertical=16),
+                            ),
+                        ),
+                        ft.OutlinedButton(
+                            "Zurueck zur Spielauswahl",
+                            icon=ft.Icons.ARROW_BACK,
+                            on_click=lambda e: open_main_menu(e.page, state),
+                            style=ft.ButtonStyle(
+                                color=theme.get("text", "white"),
+                                side=ft.BorderSide(1, "#64748B"),
+                                shape=ft.RoundedRectangleBorder(radius=14),
+                                padding=ft.padding.symmetric(horizontal=22, vertical=14),
+                            ),
+                        ),
+                        ft.Text(
+                            _questmapper_web_url(),
+                            size=11,
+                            color="#8CA3AF",
+                            text_align=ft.TextAlign.CENTER,
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=16,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    tight=True,
+                ),
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
 
 
 def main(page: ft.Page):
