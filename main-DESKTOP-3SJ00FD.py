@@ -11131,7 +11131,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         [
             portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: _go_route_or_render(e.page, "/wwm", open_wwm_main_menu, state)),
             portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: _go_route_or_render(e.page, "/points", show_points_quiz_hub, state)),
-            portal_card("Fragen-Pfad", "QuestMapper im neuen schnellen Web-Editor oeffnen.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: _open_questmapper_web(e.page)),
+            portal_card("Fragen-Pfad", "Karten, Inseln und Fragen direkt in der App starten.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: show_questions_path_hub(e.page, state)),
         ],
         spacing=16,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -11139,7 +11139,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         [
             portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: _go_route_or_render(e.page, "/wwm", open_wwm_main_menu, state)),
             portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: _go_route_or_render(e.page, "/points", show_points_quiz_hub, state)),
-            portal_card("Fragen-Pfad", "QuestMapper im neuen schnellen Web-Editor oeffnen.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: _open_questmapper_web(e.page)),
+            portal_card("Fragen-Pfad", "Karten, Inseln und Fragen direkt in der App starten.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: show_questions_path_hub(e.page, state)),
         ],
         spacing=18 if not compact else 14,
         run_spacing=18,
@@ -18808,101 +18808,37 @@ def render_questions_path_complete(page: ft.Page, state: dict):
 
 
 def resume_questions_path_game(page: ft.Page, state: dict, saved: dict | None = None):
-    # The old Flet Fragen-Pfad flow is intentionally bypassed. It still has
-    # several legacy profile/editor paths that can crash with empty lists, while
-    # the maintained QuestMapper editor now lives in the standalone web app.
-    show_questions_path_hub(page, state)
+    saved = saved or get_saved_questions_path_game(state)
+    if not saved:
+        show_questions_path_hub(page, state)
+        return
+    state["questions_path_game"] = {
+        "map_key": saved.get("map_key", "waldpfad"),
+        "map_title": saved.get("map_title", QUESTIONS_PATH_MAPS["waldpfad"]["title"]),
+        "age": saved.get("age", "mid"),
+        "node_index": int(saved.get("node_index", 0)),
+        "completed_nodes": list(saved.get("completed_nodes", [])),
+        "questions": [_path_question_to_dict(q) for q in saved.get("questions", [])],
+        "game_finished": bool(saved.get("game_finished", False)),
+        "checkpoint_index": int(saved.get("checkpoint_index", 0)),
+        "current_hint": saved.get("current_hint"),
+        "current_level_index": int(saved.get("current_level_index", 0)),
+    }
+    state.pop("_questions_path_active_node", None)
+    state.pop("_questions_path_modal", None)
+    render_questions_path_game(page, state)
 
 
 def show_questions_path_hub(page: ft.Page, state: dict):
     _set_resize_view(state, show_questions_path_hub)
-    state["questions_path_scene"] = "web"
+    if state.pop("_startup_recovering", False):
+        saved = get_saved_questions_path_game(state)
+        if saved:
+            resume_questions_path_game(page, state, saved)
+            return
+    state["questions_path_scene"] = "menu"
     theme = get_theme(state)
-    page.bgcolor = "#06131D"
-    page.controls.clear()
-
-    def open_editor(e):
-        _open_questmapper_web(e.page)
-
-    width, height = _page_size(page)
-    card_width = min(640, max(320, width - 32))
-    page.add(
-        ft.Container(
-            expand=True,
-            padding=24,
-            alignment=ft.Alignment(0, 0),
-            gradient=ft.LinearGradient(
-                begin=ft.alignment.top_left,
-                end=ft.alignment.bottom_right,
-                colors=["#07131F", "#102A2A", "#0F172A"],
-            ),
-            content=ft.Container(
-                width=card_width,
-                padding=28,
-                border_radius=26,
-                bgcolor="#0B1726",
-                border=ft.border.all(1, "#1FBA9A"),
-                shadow=ft.BoxShadow(
-                    blur_radius=28,
-                    spread_radius=2,
-                    color="#00000055",
-                    offset=ft.Offset(0, 16),
-                ),
-                content=ft.Column(
-                    [
-                        ft.Text(
-                            "QuestMapper Editor",
-                            size=32,
-                            weight=ft.FontWeight.BOLD,
-                            color="white",
-                            text_align=ft.TextAlign.CENTER,
-                        ),
-                        ft.Text(
-                            "Der Fragen-Pfad wird jetzt in der neuen Web-Version geoeffnet. Dadurch laufen Karte, Zoom, Dragging und Inseln nicht mehr ueber die alte Flet-Editorlogik.",
-                            size=14,
-                            color="#CFE7DD",
-                            text_align=ft.TextAlign.CENTER,
-                        ),
-                        ft.Container(height=10),
-                        ft.ElevatedButton(
-                            "QuestMapper oeffnen",
-                            icon=ft.Icons.OPEN_IN_NEW,
-                            on_click=open_editor,
-                            style=ft.ButtonStyle(
-                                bgcolor="#22C55E",
-                                color="white",
-                                shape=ft.RoundedRectangleBorder(radius=16),
-                                padding=ft.padding.symmetric(horizontal=26, vertical=16),
-                            ),
-                        ),
-                        ft.OutlinedButton(
-                            "Zurueck zur Spielauswahl",
-                            icon=ft.Icons.ARROW_BACK,
-                            on_click=lambda e: open_main_menu(e.page, state),
-                            style=ft.ButtonStyle(
-                                color=theme.get("text", "white"),
-                                side=ft.BorderSide(1, "#64748B"),
-                                shape=ft.RoundedRectangleBorder(radius=14),
-                                padding=ft.padding.symmetric(horizontal=22, vertical=14),
-                            ),
-                        ),
-                        ft.Text(
-                            _questmapper_web_url(),
-                            size=11,
-                            color="#8CA3AF",
-                            text_align=ft.TextAlign.CENTER,
-                            selectable=True,
-                        ),
-                    ],
-                    spacing=16,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    tight=True,
-                ),
-            ),
-        )
-    )
-    page.update()
-    page.run_task(_sync_bg_music_async, page, state)
+    _questions_path_render_home(page, state)
 
 
 def main(page: ft.Page):
