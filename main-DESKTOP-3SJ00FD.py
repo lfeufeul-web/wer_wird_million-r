@@ -10,6 +10,7 @@ import re
 import urllib.request
 import time
 import shutil
+from pathlib import Path
 from datetime import datetime, date, timezone
 import uuid
 import smtplib
@@ -19464,7 +19465,10 @@ _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES = [
 ]
 
 _QUESTIONS_PATH_EDITOR_TEMPLATE_IMAGE_CACHE: dict[str, str] = {}
-QUESTIONS_PATH_CUSTOM_ISLAND_ASSET_DIR = os.path.join("assets", "user_islands")
+_QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE: list[dict] = []
+_QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE: tuple = ()
+QUESTIONS_PATH_EDITOR_ASSET_ISLAND_DIR = Path("assets") / "islands"
+QUESTIONS_PATH_CUSTOM_ISLAND_ASSET_DIR = Path("assets") / "user_islands"
 QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
@@ -19496,6 +19500,52 @@ def _questions_path_normalize_custom_island_presets(raw_presets) -> list[dict]:
     return normalized
 
 
+def _questions_path_editor_asset_island_presets() -> list[dict]:
+    global _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE
+    global _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE
+
+    asset_dir = QUESTIONS_PATH_EDITOR_ASSET_ISLAND_DIR
+    if not asset_dir.exists():
+        _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE = []
+        _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE = ()
+        return []
+
+    image_files = []
+    for path in asset_dir.iterdir():
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS:
+            continue
+        stat = path.stat()
+        image_files.append((path, stat.st_mtime_ns, stat.st_size))
+    image_files.sort(key=lambda item: item[0].name.lower())
+    signature = tuple((item[0].name.lower(), item[1], item[2]) for item in image_files)
+    if signature == _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE:
+        return list(_QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE)
+
+    presets: list[dict] = []
+    for path, _mtime, _size in image_files:
+        stem_label = path.stem.replace("_", " ").replace("-", " ").strip()
+        rel_src = path.relative_to(Path("assets")).as_posix()
+        presets.append(
+            {
+                "key": f"asset_{_sanitize_filename_part(path.stem.lower())}",
+                "label": stem_label.title() or path.stem,
+                "type": "image",
+                "src": rel_src,
+                "w": 16.0,
+                "h": 12.0,
+                "fill": "#E5E7EB",
+                "outline": "#94A3B8",
+                "is_asset_folder": True,
+            }
+        )
+
+    _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE = list(presets)
+    _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE = signature
+    return list(presets)
+
+
 def _questions_path_editor_template_cfg(template_key: str, profile: dict | None = None) -> dict:
     for template in _questions_path_editor_presets(profile):
         if template["key"] == template_key:
@@ -19505,16 +19555,13 @@ def _questions_path_editor_template_cfg(template_key: str, profile: dict | None 
 
 def _questions_path_editor_presets(profile: dict | None = None) -> list[dict]:
     presets = list(_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES)
-    image_candidates = [
-        ("forest_island", "Forest", "islands/forest_island.png", 16.0, 12.0),
-        ("sand_island", "Sand", "islands/sand_island.png", 16.0, 12.0),
-        ("volcano_island", "Volcano", "islands/volcano_island.png", 16.0, 12.0),
+    presets.extend(_questions_path_editor_asset_island_presets())
+    legacy_candidates = [
         ("fragenpfad_island", "Fragenpfad", "Fragenpfad/level_insel_1.png", 16.0, 12.0),
         ("hub_island", "Hub", "Fragenpfad/Inseln.png", 18.0, 12.0),
     ]
-    for key, label, src, width, height in image_candidates:
-        asset_path = os.path.join("assets", *src.split("/"))
-        if os.path.exists(asset_path):
+    for key, label, src, width, height in legacy_candidates:
+        if Path("assets", *src.split("/")).exists():
             presets.append(
                 {
                     "key": key,
@@ -19834,11 +19881,11 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             show_editor_message("Bitte ein PNG, JPG, JPEG oder WEBP auswählen.", "#B91C1C")
             return
 
-        os.makedirs(QUESTIONS_PATH_CUSTOM_ISLAND_ASSET_DIR, exist_ok=True)
+        QUESTIONS_PATH_CUSTOM_ISLAND_ASSET_DIR.mkdir(parents=True, exist_ok=True)
         base_name = _sanitize_filename_part(os.path.splitext(original_name)[0] or "custom_island")
         unique_name = f"{base_name}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
         rel_src = f"user_islands/{unique_name}"
-        abs_src = os.path.join("assets", "user_islands", unique_name)
+        abs_src = QUESTIONS_PATH_CUSTOM_ISLAND_ASSET_DIR / unique_name
         upload_ok = False
 
         try:
@@ -19859,7 +19906,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 upload_call = picker.upload([upload_job])
             if inspect.isawaitable(upload_call):
                 await upload_call
-            upload_ok = os.path.exists(abs_src)
+            upload_ok = abs_src.exists()
         except Exception as ex:
             print(f"[QuestMapper] custom island upload fallback: {ex}")
 
@@ -19956,9 +20003,13 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             "h": cfg["h"],
         }
         islands.append(island)
+        world["islands"] = islands
         state["_questions_path_editor_selected_island_id"] = island["id"]
         persist_world()
-        render_again()
+        island_layer.controls.append(island_control(island))
+        island_layer.update()
+        selection_text.value = island["name"]
+        selection_text.update()
 
     def island_pixel_bounds(island: dict) -> tuple[float, float, float, float]:
         cfg = _questions_path_editor_template_cfg(str(island.get("template", "circle")), profile)
@@ -20106,27 +20157,11 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         content=ft.Stack([map_background, island_layer], expand=True),
     )
 
-    preset_buttons: list[ft.Control] = []
-    for template in editor_presets():
-        preview = (
-            ft.Container(
-                width=54,
-                height=40,
-                border_radius=8,
-                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                bgcolor="#F8FAFC",
-                content=ft.Image(src=str(template.get("src") or ""), fit=ft.BoxFit.CONTAIN),
-            )
-            if template.get("type") == "image"
-            else ft.Container(
-                width=54,
-                height=40,
-                border_radius=999 if template["key"] in ("circle", "oval") else 8,
-                bgcolor=template["fill"],
-                border=ft.border.Border.all(2, template["outline"]),
-            )
-        )
-        preset_buttons.append(
+    shape_presets = [template for template in editor_presets() if template.get("type") == "shape"]
+    image_presets = [template for template in editor_presets() if template.get("type") == "image"]
+    shape_buttons: list[ft.Control] = []
+    for template in shape_presets:
+        shape_buttons.append(
             ft.Container(
                 height=52,
                 border_radius=8,
@@ -20136,7 +20171,13 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 on_click=lambda e, key=template["key"]: add_island(key),
                 content=ft.Row(
                     [
-                        preview,
+                        ft.Container(
+                            width=54,
+                            height=40,
+                            border_radius=999 if template["key"] in ("circle", "oval") else 8,
+                            bgcolor=template["fill"],
+                            border=ft.border.Border.all(2, template["outline"]),
+                        ),
                         ft.Text(template["label"], size=13, weight="bold", color="#1F2937"),
                     ],
                     spacing=10,
@@ -20145,9 +20186,28 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             )
         )
 
+    tile_size = 62 if sidebar_w < 260 else 66
+    image_tiles: list[ft.Control] = []
+    for template in image_presets:
+        image_tiles.append(
+            ft.Container(
+                width=tile_size,
+                height=tile_size,
+                border_radius=12,
+                bgcolor="#F8FAFC",
+                border=ft.border.Border.all(1.2, "#D7DEE7"),
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                shadow=ft.BoxShadow(blur_radius=8, color="#14000000", offset=ft.Offset(0, 2)),
+                padding=6,
+                on_click=lambda e, key=template["key"]: add_island(key),
+                content=ft.Image(src=str(template.get("src") or ""), fit=ft.BoxFit.CONTAIN),
+            )
+        )
+
     selected_id = str(state.get("_questions_path_editor_selected_island_id") or "")
     selected_name = next((str(item.get("name", "Insel")) for item in islands if str(item.get("id")) == selected_id), "Keine Insel")
     compact_layout = page_w < 980
+    selection_text = ft.Text(selected_name, size=13, color="#374151")
 
     page.controls.clear()
     page.add(
@@ -20202,7 +20262,12 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                     [
                                         ft.Text("Inseln", size=18, weight="bold", color="#111827"),
                                         _game_menu_button("Eigene Insel hinzufügen", add_custom_island_click, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
-                                        *preset_buttons,
+                                        ft.Text("Grundformen", size=14, weight="bold", color="#111827"),
+                                        *shape_buttons,
+                                        ft.Text("Bild-Inseln", size=14, weight="bold", color="#111827"),
+                                        ft.Container(
+                                            content=ft.Row(image_tiles, wrap=True, spacing=8, run_spacing=8),
+                                        ),
                                         ft.Container(height=8),
                                         ft.Text("Zoom", size=14, weight="bold", color="#111827"),
                                         ft.Row(
@@ -20215,7 +20280,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                         ),
                                         ft.Container(height=8),
                                         ft.Text("Auswahl", size=14, weight="bold", color="#111827"),
-                                        ft.Text(selected_name, size=13, color="#374151"),
+                                        selection_text,
                                         _game_menu_button("Loschen", delete_selected, "#DC2626", width=150, height=38),
                                     ],
                                     spacing=10,
