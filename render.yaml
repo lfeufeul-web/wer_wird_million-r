@@ -22,3 +22,12 @@ services:
         value: "true"
       - key: SMTP_SSL
         value: "false"
+  - type: web
+    runtime: static
+    name: questmapper-web
+    buildCommand: cd web/questmapper && npm install && npm run build
+    staticPublishPath: web/questmapper/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

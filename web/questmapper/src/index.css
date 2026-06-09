@@ -1,0 +1,90 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
+
+  --color-on-tertiary: #ffffff;
+  --color-surface-tint: #494bd6;
+  --color-error: #ba1a1a;
+  --color-surface-variant: #e1e3e1;
+  --color-on-secondary-container: #007165;
+  --color-on-tertiary-container: #000701;
+  --color-on-surface: #191c1b;
+  --color-on-error-container: #93000a;
+  --color-secondary-fixed-dim: #3cddc7;
+  --color-on-surface-variant: #464554;
+  --color-tertiary: #4d644d;
+  --color-surface-dim: #d8dad9;
+  --color-on-background: #191c1b;
+  --color-secondary: #006b5f;
+  --color-inverse-surface: #2e3130;
+  --color-tertiary-container: #657d65;
+  --color-surface-container: #eceeec;
+  --color-secondary-container: #62fae3;
+  --color-on-error: #ffffff;
+  --color-surface-container-high: #e6e9e7;
+  --color-on-tertiary-fixed-variant: #364c37;
+  --color-surface-container-lowest: #ffffff;
+  --color-on-primary: #ffffff;
+  --color-surface-container-highest: #e1e3e1;
+  --color-tertiary-fixed-dim: #b3cdb2;
+  --color-surface: #f8faf8;
+  --color-inverse-primary: #c0c1ff;
+  --color-surface-bright: #f8faf8;
+  --color-on-secondary-fixed: #00201c;
+  --color-outline: #767586;
+  --color-on-primary-fixed-variant: #2f2ebe;
+  --color-error-container: #ffdad6;
+  --color-primary: #4648d4;
+  --color-primary-fixed-dim: #c0c1ff;
+  --color-primary-fixed: #e1e0ff;
+  --color-secondary-fixed: #62fae3;
+  --color-primary-container: #6063ee;
+  --color-surface-container-low: #f2f4f2;
+  --color-inverse-on-surface: #eff1ef;
+  --color-on-secondary-fixed-variant: #005047;
+  --color-on-tertiary-fixed: #0a200e;
+  --color-background: #f8faf8;
+  --color-on-primary-fixed: #07006c;
+  --color-outline-variant: #c7c4d7;
+  --color-on-secondary: #ffffff;
+  --color-on-primary-container: #fffbff;
+  --color-tertiary-fixed: #cfeacd;
+
+  --border-radius-card: 16px;
+}
+
+/* Custom interactive styling matching the design specifications */
+.btn-tactile {
+  border-bottom-width: 2px;
+  border-color: rgba(0, 0, 0, 0.15);
+  transition: all 0.12s ease-out;
+}
+.btn-tactile:active {
+  transform: translateY(1px);
+  border-bottom-width: 0px;
+}
+
+.shadow-lifted {
+  box-shadow: 0 10px 25px -5px rgba(70, 72, 212, 0.12), 0 8px 10px -6px rgba(70, 72, 212, 0.08);
+}
+
+.map-container {
+  perspective: 1000px;
+}
+
+/* Floating bounce for interactive quest pins */
+@keyframes soft-pulse {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.05);
+  }
+}
+
+.pin-pulse {
+  animation: soft-pulse 2s infinite ease-in-out;
+}
