@@ -19555,25 +19555,27 @@ def _questions_path_editor_template_cfg(template_key: str, profile: dict | None 
 
 def _questions_path_editor_presets(profile: dict | None = None) -> list[dict]:
     presets = list(_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES)
-    presets.extend(_questions_path_editor_asset_island_presets())
-    legacy_candidates = [
-        ("fragenpfad_island", "Fragenpfad", "Fragenpfad/level_insel_1.png", 16.0, 12.0),
-        ("hub_island", "Hub", "Fragenpfad/Inseln.png", 18.0, 12.0),
-    ]
-    for key, label, src, width, height in legacy_candidates:
-        if Path("assets", *src.split("/")).exists():
-            presets.append(
-                {
-                    "key": key,
-                    "label": label,
-                    "type": "image",
-                    "src": src,
-                    "w": width,
-                    "h": height,
-                    "fill": "#E5E7EB",
-                    "outline": "#94A3B8",
-                }
-            )
+    folder_presets = _questions_path_editor_asset_island_presets()
+    presets.extend(folder_presets)
+    if not folder_presets:
+        legacy_candidates = [
+            ("fragenpfad_island", "Fragenpfad", "Fragenpfad/level_insel_1.png", 16.0, 12.0),
+            ("hub_island", "Hub", "Fragenpfad/Inseln.png", 18.0, 12.0),
+        ]
+        for key, label, src, width, height in legacy_candidates:
+            if Path("assets", *src.split("/")).exists():
+                presets.append(
+                    {
+                        "key": key,
+                        "label": label,
+                        "type": "image",
+                        "src": src,
+                        "w": width,
+                        "h": height,
+                        "fill": "#E5E7EB",
+                        "outline": "#94A3B8",
+                    }
+                )
     if isinstance(profile, dict):
         presets.extend(_questions_path_normalize_custom_island_presets(profile.get("custom_island_presets", [])))
     return presets
@@ -19834,104 +19836,17 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         persist_profile_updates(profile)
         return preset
 
-    def ensure_custom_island_picker() -> ft.FilePicker:
-        picker = state.get("_questions_path_custom_island_picker")
-        if not isinstance(picker, ft.FilePicker):
-            picker = ft.FilePicker()
-            state["_questions_path_custom_island_picker"] = picker
-        if picker not in page.overlay:
-            page.overlay.append(picker)
-            page.update()
-        return picker
-
-    async def pick_and_store_custom_island():
-        picker = ensure_custom_island_picker()
-        allowed_extensions = [ext.lstrip(".") for ext in sorted(QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS)]
-        try:
-            pick_call = picker.pick_files(
-                dialog_title="Inselbild auswählen",
-                allow_multiple=False,
-                with_data=True,
-                file_type=ft.FilePickerFileType.CUSTOM,
-                allowed_extensions=allowed_extensions,
-            )
-        except TypeError:
-            try:
-                pick_call = picker.pick_files(
-                    allow_multiple=False,
-                    with_data=True,
-                    file_type=ft.FilePickerFileType.CUSTOM,
-                    allowed_extensions=allowed_extensions,
-                )
-            except TypeError:
-                pick_call = picker.pick_files(
-                    allow_multiple=False,
-                    file_type=ft.FilePickerFileType.CUSTOM,
-                    allowed_extensions=allowed_extensions,
-                )
-        picked_files = await pick_call if inspect.isawaitable(pick_call) else pick_call
-        picked_files = list(picked_files or [])
-        if not picked_files:
-            return
-
-        picked = picked_files[0]
-        original_name = str(getattr(picked, "name", "") or "").strip()
-        ext = os.path.splitext(original_name)[1].lower()
-        if ext not in QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS:
-            show_editor_message("Bitte ein PNG, JPG, JPEG oder WEBP auswählen.", "#B91C1C")
-            return
-
-        QUESTIONS_PATH_CUSTOM_ISLAND_ASSET_DIR.mkdir(parents=True, exist_ok=True)
-        base_name = _sanitize_filename_part(os.path.splitext(original_name)[0] or "custom_island")
-        unique_name = f"{base_name}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
-        rel_src = f"user_islands/{unique_name}"
-        abs_src = QUESTIONS_PATH_CUSTOM_ISLAND_ASSET_DIR / unique_name
-        upload_ok = False
-
-        try:
-            try:
-                upload_job = ft.FilePickerUploadFile(
-                    id=getattr(picked, "id", None),
-                    name=original_name,
-                    upload_url=page.get_upload_url(rel_src, 600),
-                )
-            except TypeError:
-                upload_job = ft.FilePickerUploadFile(
-                    name=original_name,
-                    upload_url=page.get_upload_url(rel_src, 600),
-                )
-            try:
-                upload_call = picker.upload(files=[upload_job])
-            except TypeError:
-                upload_call = picker.upload([upload_job])
-            if inspect.isawaitable(upload_call):
-                await upload_call
-            upload_ok = abs_src.exists()
-        except Exception as ex:
-            print(f"[QuestMapper] custom island upload fallback: {ex}")
-
-        if not upload_ok:
-            file_bytes = getattr(picked, "bytes", None)
-            if isinstance(file_bytes, (bytes, bytearray)) and file_bytes:
-                with open(abs_src, "wb") as f:
-                    f.write(bytes(file_bytes))
-                upload_ok = True
-            else:
-                source_path = str(getattr(picked, "path", "") or "")
-                if source_path and os.path.exists(source_path):
-                    shutil.copy2(source_path, abs_src)
-                    upload_ok = True
-
-        if not upload_ok:
-            show_editor_message("Die Inseldatei konnte nicht hochgeladen werden. Bitte erneut versuchen.", "#B91C1C")
-            return
-
-        store_custom_island_preset(rel_src, original_name)
-        show_editor_message(f"Eigene Insel '{os.path.splitext(original_name)[0]}' hinzugefügt.", "#166534")
+    def refresh_island_folder(e):
+        global _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE
+        global _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE
+        _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE = ()
+        _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE = []
+        count = len(_questions_path_editor_asset_island_presets())
+        if count:
+            show_editor_message(f"{count} Inselbilder aus assets/islands geladen.", "#166534")
+        else:
+            show_editor_message("Keine Inselbilder in assets/islands gefunden.", "#B91C1C")
         render_again()
-
-    def add_custom_island_click(e):
-        e.page.run_task(pick_and_store_custom_island)
 
     def scale_zoom_start(e):
         state["_qpe_scale_start_zoom"] = zoom()
@@ -20261,7 +20176,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 content=ft.Column(
                                     [
                                         ft.Text("Inseln", size=18, weight="bold", color="#111827"),
-                                        _game_menu_button("Eigene Insel hinzufügen", add_custom_island_click, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
+                                        _game_menu_button("Inselordner aktualisieren", refresh_island_folder, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
                                         ft.Text("Grundformen", size=14, weight="bold", color="#111827"),
                                         *shape_buttons,
                                         ft.Text("Bild-Inseln", size=14, weight="bold", color="#111827"),
