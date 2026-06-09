@@ -17068,6 +17068,7 @@ def _questions_path_default_profile(index: int) -> dict:
         "active_level_index": 0,
         "active_game": None,
         "selected_world_id": None,
+        "custom_island_presets": [],
         "worlds": [],
         "level_progress": {
             map_key: _questions_path_default_level_state() for map_key in QUESTIONS_PATH_LEVEL_ORDER
@@ -17090,6 +17091,7 @@ def ensure_questions_path_defaults(user: dict):
         profile["active_level_index"] = max(0, min(int(raw.get("active_level_index", 0) or 0), len(QUESTIONS_PATH_LEVEL_ORDER) - 1))
         profile["selected_world_id"] = raw.get("selected_world_id")
         profile["active_game"] = raw.get("active_game") if isinstance(raw.get("active_game"), dict) else None
+        profile["custom_island_presets"] = _questions_path_normalize_custom_island_presets(raw.get("custom_island_presets", []))
         worlds = raw.get("worlds", [])
         if not isinstance(worlds, list):
             worlds = []
@@ -19462,16 +19464,46 @@ _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES = [
 ]
 
 _QUESTIONS_PATH_EDITOR_TEMPLATE_IMAGE_CACHE: dict[str, str] = {}
+QUESTIONS_PATH_CUSTOM_ISLAND_ASSET_DIR = os.path.join("assets", "user_islands")
+QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
-def _questions_path_editor_template_cfg(template_key: str) -> dict:
-    for template in _questions_path_editor_presets():
+def _questions_path_normalize_custom_island_presets(raw_presets) -> list[dict]:
+    presets = raw_presets if isinstance(raw_presets, list) else []
+    normalized: list[dict] = []
+    for idx, raw in enumerate(presets):
+        raw = raw if isinstance(raw, dict) else {}
+        src = str(raw.get("src") or "").strip().replace("\\", "/").lstrip("/")
+        ext = os.path.splitext(src)[1].lower()
+        if not src or ext not in QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS:
+            continue
+        asset_path = os.path.join("assets", *src.split("/"))
+        if not os.path.exists(asset_path):
+            continue
+        normalized.append(
+            {
+                "key": str(raw.get("key") or f"custom_island_{idx + 1}"),
+                "label": str(raw.get("label") or raw.get("name") or f"Custom {idx + 1}").strip() or f"Custom {idx + 1}",
+                "type": "image",
+                "src": src,
+                "w": max(8.0, float(raw.get("w", 16.0) or 16.0)),
+                "h": max(6.0, float(raw.get("h", 12.0) or 12.0)),
+                "fill": "#E5E7EB",
+                "outline": "#94A3B8",
+                "is_custom": True,
+            }
+        )
+    return normalized
+
+
+def _questions_path_editor_template_cfg(template_key: str, profile: dict | None = None) -> dict:
+    for template in _questions_path_editor_presets(profile):
         if template["key"] == template_key:
             return template
     return _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES[0]
 
 
-def _questions_path_editor_presets() -> list[dict]:
+def _questions_path_editor_presets(profile: dict | None = None) -> list[dict]:
     presets = list(_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES)
     image_candidates = [
         ("forest_island", "Forest", "islands/forest_island.png", 16.0, 12.0),
@@ -19495,11 +19527,13 @@ def _questions_path_editor_presets() -> list[dict]:
                     "outline": "#94A3B8",
                 }
             )
+    if isinstance(profile, dict):
+        presets.extend(_questions_path_normalize_custom_island_presets(profile.get("custom_island_presets", [])))
     return presets
 
 
-def _questions_path_editor_shape_to_data_uri(template_key: str) -> str:
-    cfg = _questions_path_editor_template_cfg(template_key)
+def _questions_path_editor_shape_to_data_uri(template_key: str, profile: dict | None = None) -> str:
+    cfg = _questions_path_editor_template_cfg(template_key, profile)
     if cfg.get("type") == "image":
         return str(cfg.get("src") or "")
     cached = _QUESTIONS_PATH_EDITOR_TEMPLATE_IMAGE_CACHE.get(template_key)
@@ -19554,18 +19588,21 @@ def _questions_path_editor_shape_to_data_uri(template_key: str) -> str:
     return cached
 
 
-def _questions_path_editor_normalize_islands(world: dict) -> list[dict]:
+def _questions_path_editor_normalize_islands(world: dict, profile: dict | None = None) -> list[dict]:
     raw_islands = world.get("islands", [])
     if not isinstance(raw_islands, list):
         raw_islands = []
     normalized: list[dict] = []
-    preset_keys = {tpl["key"] for tpl in _questions_path_editor_presets()}
+    preset_keys = {tpl["key"] for tpl in _questions_path_editor_presets(profile)}
     for idx, island in enumerate(raw_islands):
         island = island if isinstance(island, dict) else {}
         template_key = str(island.get("template") or island.get("shape") or island.get("design") or "circle").strip().lower()
         if template_key not in preset_keys:
-            template_key = _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES[idx % len(_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES)]["key"]
-        template_cfg = _questions_path_editor_template_cfg(template_key)
+            if str(island.get("type") or "").strip().lower() == "image" and str(island.get("src") or "").strip():
+                template_key = str(island.get("template") or island.get("id") or f"custom_image_{idx + 1}")
+            else:
+                template_key = _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES[idx % len(_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES)]["key"]
+        template_cfg = _questions_path_editor_template_cfg(template_key, profile)
         normalized.append(
             {
                 "id": str(island.get("id") or uuid.uuid4()),
@@ -19600,7 +19637,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             state["questions_path_profiles"] = profiles
             persist_questions_path_profiles(state, profiles)
 
-    islands = _questions_path_editor_normalize_islands(world)
+    islands = _questions_path_editor_normalize_islands(world, profile)
     state["questions_path_selected_world_id"] = world["id"]
     state["questions_path_scene"] = "editor"
 
@@ -19615,6 +19652,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     pan_y_key = f"_qpe_pan_y_{world['id']}"
     init_key = f"_qpe_ready_{world['id']}"
     ctrl_key = "_qpe_ctrl_down_until"
+    ctrl_hold_key = "_qpe_ctrl_held"
     pan_drag_key = f"_qpe_pan_drag_{world['id']}"
     previous_keyboard_handler = getattr(page, "on_keyboard_event", None)
     if getattr(previous_keyboard_handler, "_qpe_keyboard_handler", False):
@@ -19623,9 +19661,19 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     def on_editor_keyboard(e):
         if callable(previous_keyboard_handler):
             previous_keyboard_handler(e)
-        if bool(getattr(e, "ctrl", False)):
-            # Page keyboard events expose modifier state, while wheel events do not.
-            state[ctrl_key] = time.time() + 3.0
+        if str(getattr(e, "key", "") or "").lower() in {"control", "ctrl"}:
+            event_type = str(getattr(e, "event_type", "") or "").lower()
+            if event_type in {"down", "repeat"}:
+                state[ctrl_hold_key] = True
+                state[ctrl_key] = time.time() + 5.0
+            elif event_type == "up":
+                state[ctrl_hold_key] = False
+                state[ctrl_key] = 0.0
+        elif bool(getattr(e, "ctrl", False)):
+            state[ctrl_hold_key] = True
+            state[ctrl_key] = time.time() + 5.0
+        elif str(getattr(e, "event_type", "") or "").lower() == "up":
+            state[ctrl_hold_key] = False
 
     on_editor_keyboard._qpe_keyboard_handler = True
     page.on_keyboard_event = on_editor_keyboard
@@ -19682,8 +19730,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         # Flet web does not expose a browser-native preventDefault hook here.
         # We handle Flet scroll/scale events when they reach Python and keep the visible buttons as the guaranteed fallback.
         event_ctrl = bool(getattr(e, "ctrl", False) or getattr(e, "ctrl_key", False))
+        held_ctrl = bool(state.get(ctrl_hold_key))
         recent_ctrl = float(state.get(ctrl_key, 0.0) or 0.0) > time.time()
-        if not event_ctrl and not recent_ctrl:
+        if not event_ctrl and not held_ctrl and not recent_ctrl:
             return
         delta_y = _scroll_delta_y(e)
         if abs(delta_y) < 0.01:
@@ -19691,6 +19740,151 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         factor = 1.22 if delta_y < 0 else 1 / 1.22
         print(f"[QuestMapper] ctrl wheel zoom delta_y={delta_y:.2f}")
         set_zoom(zoom() * factor)
+
+    def editor_key_down(e):
+        if str(getattr(e, "key", "") or "").lower() in {"control", "ctrl"} or bool(getattr(e, "ctrl", False)):
+            state[ctrl_hold_key] = True
+            state[ctrl_key] = time.time() + 5.0
+
+    def editor_key_up(e):
+        if str(getattr(e, "key", "") or "").lower() in {"control", "ctrl"}:
+            state[ctrl_hold_key] = False
+            state[ctrl_key] = 0.0
+
+    def editor_presets() -> list[dict]:
+        return _questions_path_editor_presets(profile)
+
+    def show_editor_message(message: str, color: str | None = None):
+        page.snack_bar = ft.SnackBar(content=ft.Text(message), bgcolor=color)
+        page.snack_bar.open = True
+        page.update()
+
+    def persist_profile_updates(updated_profile: dict):
+        profiles = list(state.get("questions_path_profiles") or get_questions_path_profiles(state))
+        idx = get_questions_path_profile_index(state)
+        while idx >= len(profiles):
+            profiles.append(_questions_path_default_profile(len(profiles)))
+        profiles[idx] = updated_profile
+        state["questions_path_profiles"] = profiles
+        persist_questions_path_profiles(state, profiles)
+
+    def store_custom_island_preset(rel_src: str, original_name: str) -> dict:
+        custom_presets = list(profile.get("custom_island_presets", []) or [])
+        label = os.path.splitext(str(original_name or "Eigene Insel"))[0].strip() or "Eigene Insel"
+        preset = {
+            "key": f"custom_{uuid.uuid4().hex[:10]}",
+            "label": label[:32],
+            "type": "image",
+            "src": rel_src,
+            "w": 16.0,
+            "h": 12.0,
+            "fill": "#E5E7EB",
+            "outline": "#94A3B8",
+            "is_custom": True,
+        }
+        custom_presets.append(preset)
+        profile["custom_island_presets"] = _questions_path_normalize_custom_island_presets(custom_presets)
+        persist_profile_updates(profile)
+        return preset
+
+    def ensure_custom_island_picker() -> ft.FilePicker:
+        picker = state.get("_questions_path_custom_island_picker")
+        if not isinstance(picker, ft.FilePicker):
+            picker = ft.FilePicker()
+            state["_questions_path_custom_island_picker"] = picker
+        if picker not in page.overlay:
+            page.overlay.append(picker)
+            page.update()
+        return picker
+
+    async def pick_and_store_custom_island():
+        picker = ensure_custom_island_picker()
+        allowed_extensions = [ext.lstrip(".") for ext in sorted(QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS)]
+        try:
+            pick_call = picker.pick_files(
+                dialog_title="Inselbild auswählen",
+                allow_multiple=False,
+                with_data=True,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=allowed_extensions,
+            )
+        except TypeError:
+            try:
+                pick_call = picker.pick_files(
+                    allow_multiple=False,
+                    with_data=True,
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=allowed_extensions,
+                )
+            except TypeError:
+                pick_call = picker.pick_files(
+                    allow_multiple=False,
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=allowed_extensions,
+                )
+        picked_files = await pick_call if inspect.isawaitable(pick_call) else pick_call
+        picked_files = list(picked_files or [])
+        if not picked_files:
+            return
+
+        picked = picked_files[0]
+        original_name = str(getattr(picked, "name", "") or "").strip()
+        ext = os.path.splitext(original_name)[1].lower()
+        if ext not in QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS:
+            show_editor_message("Bitte ein PNG, JPG, JPEG oder WEBP auswählen.", "#B91C1C")
+            return
+
+        os.makedirs(QUESTIONS_PATH_CUSTOM_ISLAND_ASSET_DIR, exist_ok=True)
+        base_name = _sanitize_filename_part(os.path.splitext(original_name)[0] or "custom_island")
+        unique_name = f"{base_name}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
+        rel_src = f"user_islands/{unique_name}"
+        abs_src = os.path.join("assets", "user_islands", unique_name)
+        upload_ok = False
+
+        try:
+            try:
+                upload_job = ft.FilePickerUploadFile(
+                    id=getattr(picked, "id", None),
+                    name=original_name,
+                    upload_url=page.get_upload_url(rel_src, 600),
+                )
+            except TypeError:
+                upload_job = ft.FilePickerUploadFile(
+                    name=original_name,
+                    upload_url=page.get_upload_url(rel_src, 600),
+                )
+            try:
+                upload_call = picker.upload(files=[upload_job])
+            except TypeError:
+                upload_call = picker.upload([upload_job])
+            if inspect.isawaitable(upload_call):
+                await upload_call
+            upload_ok = os.path.exists(abs_src)
+        except Exception as ex:
+            print(f"[QuestMapper] custom island upload fallback: {ex}")
+
+        if not upload_ok:
+            file_bytes = getattr(picked, "bytes", None)
+            if isinstance(file_bytes, (bytes, bytearray)) and file_bytes:
+                with open(abs_src, "wb") as f:
+                    f.write(bytes(file_bytes))
+                upload_ok = True
+            else:
+                source_path = str(getattr(picked, "path", "") or "")
+                if source_path and os.path.exists(source_path):
+                    shutil.copy2(source_path, abs_src)
+                    upload_ok = True
+
+        if not upload_ok:
+            show_editor_message("Die Inseldatei konnte nicht hochgeladen werden. Bitte erneut versuchen.", "#B91C1C")
+            return
+
+        store_custom_island_preset(rel_src, original_name)
+        show_editor_message(f"Eigene Insel '{os.path.splitext(original_name)[0]}' hinzugefügt.", "#166534")
+        render_again()
+
+    def add_custom_island_click(e):
+        e.page.run_task(pick_and_store_custom_island)
 
     def scale_zoom_start(e):
         state["_qpe_scale_start_zoom"] = zoom()
@@ -19747,7 +19941,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         state.pop(pan_drag_key, None)
 
     def add_island(template_key: str):
-        cfg = _questions_path_editor_template_cfg(template_key)
+        cfg = _questions_path_editor_template_cfg(template_key, profile)
         center_x = (-float(state.get(pan_x_key, pan_x) or 0.0) + viewport_w / 2.0) / zoom()
         center_y = (-float(state.get(pan_y_key, pan_y) or 0.0) + viewport_h / 2.0) / zoom()
         island = {
@@ -19767,7 +19961,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         render_again()
 
     def island_pixel_bounds(island: dict) -> tuple[float, float, float, float]:
-        cfg = _questions_path_editor_template_cfg(str(island.get("template", "circle")))
+        cfg = _questions_path_editor_template_cfg(str(island.get("template", "circle")), profile)
         width = max(52.0, canvas_w * float(island.get("w", cfg["w"])) / 100.0 * current_zoom)
         height = max(42.0, canvas_h * float(island.get("h", cfg["h"])) / 100.0 * current_zoom)
         left = canvas_w * float(island.get("x", 50.0)) / 100.0 * current_zoom - width / 2.0
@@ -19837,7 +20031,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     def island_shape(island: dict, width: float, height: float, selected: bool) -> ft.Control:
         template = str(island.get("template", "circle"))
-        cfg = _questions_path_editor_template_cfg(template)
+        cfg = _questions_path_editor_template_cfg(template, profile)
         if str(island.get("type") or cfg.get("type") or "shape") == "image":
             return ft.Container(
                 width=width,
@@ -19913,7 +20107,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     )
 
     preset_buttons: list[ft.Control] = []
-    for template in _questions_path_editor_presets():
+    for template in editor_presets():
         preview = (
             ft.Container(
                 width=54,
@@ -19985,12 +20179,17 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
                                 bgcolor="#EAF4EA",
                                 border=ft.border.Border.all(1.5, "#C8D8C5"),
-                                content=ft.GestureDetector(
-                                    on_scroll=ctrl_wheel_zoom,
-                                    on_scale_start=scale_zoom_start,
-                                    on_scale_update=scale_zoom_update,
-                                    trackpad_scroll_causes_scale=True,
-                                    content=ft.Stack([canvas], expand=True),
+                                content=ft.KeyboardListener(
+                                    autofocus=True,
+                                    on_key_down=editor_key_down,
+                                    on_key_up=editor_key_up,
+                                    content=ft.GestureDetector(
+                                        on_scroll=ctrl_wheel_zoom,
+                                        on_scale_start=scale_zoom_start,
+                                        on_scale_update=scale_zoom_update,
+                                        trackpad_scroll_causes_scale=True,
+                                        content=ft.Stack([canvas], expand=True),
+                                    ),
                                 ),
                             ),
                             ft.Container(
@@ -20002,6 +20201,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 content=ft.Column(
                                     [
                                         ft.Text("Inseln", size=18, weight="bold", color="#111827"),
+                                        _game_menu_button("Eigene Insel hinzufügen", add_custom_island_click, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
                                         *preset_buttons,
                                         ft.Container(height=8),
                                         ft.Text("Zoom", size=14, weight="bold", color="#111827"),
