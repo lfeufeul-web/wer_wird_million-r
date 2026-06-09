@@ -19464,12 +19464,19 @@ _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES = [
     {"key": "polygon", "label": "Polygon", "type": "shape", "shape": "polygon", "w": 13.0, "h": 10.0, "fill": "#69B35A", "outline": "#325F2C"},
 ]
 
-_QUESTIONS_PATH_EDITOR_TEMPLATE_IMAGE_CACHE: dict[str, str] = {}
 _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE: list[dict] = []
 _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE: tuple = ()
 QUESTIONS_PATH_EDITOR_ASSET_ISLAND_DIR = Path("assets") / "islands"
-QUESTIONS_PATH_CUSTOM_ISLAND_ASSET_DIR = Path("assets") / "user_islands"
 QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+QUESTIONS_PATH_EDITOR_CANVAS_W = 6000.0
+QUESTIONS_PATH_EDITOR_CANVAS_H = 4200.0
+DEFAULT_IMAGE_ISLAND_BASE_WIDTH = 220.0
+DEFAULT_IMAGE_ISLAND_BASE_HEIGHT = 160.0
+DEFAULT_ISLAND_SCALE = 1.0
+MIN_ISLAND_SCALE = 0.4
+MAX_ISLAND_SCALE = 3.0
+ISLAND_SCALE_STEP = 0.15
+ISLAND_DRAG_FPS = 30.0
 
 
 def _questions_path_normalize_custom_island_presets(raw_presets) -> list[dict]:
@@ -19490,8 +19497,8 @@ def _questions_path_normalize_custom_island_presets(raw_presets) -> list[dict]:
                 "label": str(raw.get("label") or raw.get("name") or f"Custom {idx + 1}").strip() or f"Custom {idx + 1}",
                 "type": "image",
                 "src": src,
-                "w": max(8.0, float(raw.get("w", 16.0) or 16.0)),
-                "h": max(6.0, float(raw.get("h", 12.0) or 12.0)),
+                "base_w": max(40.0, float(raw.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH)),
+                "base_h": max(40.0, float(raw.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT)),
                 "fill": "#E5E7EB",
                 "outline": "#94A3B8",
                 "is_custom": True,
@@ -19533,8 +19540,8 @@ def _questions_path_editor_asset_island_presets() -> list[dict]:
                 "label": stem_label.title() or path.stem,
                 "type": "image",
                 "src": rel_src,
-                "w": 16.0,
-                "h": 12.0,
+                "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+                "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
                 "fill": "#E5E7EB",
                 "outline": "#94A3B8",
                 "is_asset_folder": True,
@@ -19570,8 +19577,8 @@ def _questions_path_editor_presets(profile: dict | None = None) -> list[dict]:
                         "label": label,
                         "type": "image",
                         "src": src,
-                        "w": width,
-                        "h": height,
+                        "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+                        "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
                         "fill": "#E5E7EB",
                         "outline": "#94A3B8",
                     }
@@ -19579,62 +19586,6 @@ def _questions_path_editor_presets(profile: dict | None = None) -> list[dict]:
     if isinstance(profile, dict):
         presets.extend(_questions_path_normalize_custom_island_presets(profile.get("custom_island_presets", [])))
     return presets
-
-
-def _questions_path_editor_shape_to_data_uri(template_key: str, profile: dict | None = None) -> str:
-    cfg = _questions_path_editor_template_cfg(template_key, profile)
-    if cfg.get("type") == "image":
-        return str(cfg.get("src") or "")
-    cached = _QUESTIONS_PATH_EDITOR_TEMPLATE_IMAGE_CACHE.get(template_key)
-    if cached:
-        return cached
-    canvas_w, canvas_h = 512, 320
-    img = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    def hex_rgba(hex_color: str, alpha: int = 255) -> tuple[int, int, int, int]:
-        hex_color = hex_color.lstrip("#")
-        return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4)) + (alpha,)
-
-    fill = hex_rgba(cfg["fill"])
-    outline = hex_rgba(cfg["outline"])
-    shadow = (0, 0, 0, 65)
-
-    if template_key == "circle":
-        shadow_box = (88, 60, 452, 284)
-        main_box = (76, 46, 440, 272)
-        draw.ellipse(shadow_box, fill=shadow)
-        draw.ellipse(main_box, fill=fill, outline=outline, width=8)
-    elif template_key == "oval":
-        shadow_box = (66, 74, 446, 260)
-        main_box = (54, 60, 434, 246)
-        draw.ellipse(shadow_box, fill=shadow)
-        draw.ellipse(main_box, fill=fill, outline=outline, width=8)
-    elif template_key == "rect":
-        shadow_box = (74, 74, 444, 252)
-        main_box = (62, 62, 432, 240)
-        draw.rounded_rectangle(shadow_box, radius=40, fill=shadow)
-        draw.rounded_rectangle(main_box, radius=40, fill=fill, outline=outline, width=8)
-    elif template_key == "triangle":
-        shadow_points = [(258, 40), (470, 270), (54, 270)]
-        main_points = [(246, 28), (458, 258), (42, 258)]
-        draw.polygon(shadow_points, fill=shadow)
-        draw.polygon(main_points, fill=fill, outline=outline)
-    else:
-        shadow_points = [(74, 84), (154, 46), (274, 58), (388, 36), (462, 122), (418, 246), (300, 278), (144, 268), (58, 176)]
-        main_points = [(62, 72), (142, 34), (262, 46), (376, 24), (450, 110), (406, 234), (288, 266), (132, 256), (46, 164)]
-        draw.polygon(shadow_points, fill=shadow)
-        draw.polygon(main_points, fill=fill, outline=outline)
-
-    highlight = (255, 255, 255, 40)
-    draw.ellipse((120, 72, 260, 132), fill=highlight)
-
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    data = base64.b64encode(buffer.getvalue()).decode("ascii")
-    cached = f"data:image/png;base64,{data}"
-    _QUESTIONS_PATH_EDITOR_TEMPLATE_IMAGE_CACHE[template_key] = cached
-    return cached
 
 
 def _questions_path_editor_normalize_islands(world: dict, profile: dict | None = None) -> list[dict]:
@@ -19661,8 +19612,33 @@ def _questions_path_editor_normalize_islands(world: dict, profile: dict | None =
                 "src": str(island.get("src") or template_cfg.get("src") or ""),
                 "x": _questions_path_clamp_pct(island.get("x", 50.0)),
                 "y": _questions_path_clamp_pct(island.get("y", 50.0)),
-                "w": float(island.get("w", template_cfg["w"])),
-                "h": float(island.get("h", template_cfg["h"])),
+                "base_w": max(
+                    40.0,
+                    float(
+                        island.get(
+                            "base_w",
+                            template_cfg.get(
+                                "base_w",
+                                QUESTIONS_PATH_EDITOR_CANVAS_W * float(island.get("w", template_cfg["w"])) / 100.0,
+                            ),
+                        )
+                        or DEFAULT_IMAGE_ISLAND_BASE_WIDTH
+                    ),
+                ),
+                "base_h": max(
+                    40.0,
+                    float(
+                        island.get(
+                            "base_h",
+                            template_cfg.get(
+                                "base_h",
+                                QUESTIONS_PATH_EDITOR_CANVAS_H * float(island.get("h", template_cfg["h"])) / 100.0,
+                            ),
+                        )
+                        or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT
+                    ),
+                ),
+                "scale": max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE))),
             }
         )
     world["islands"] = normalized
@@ -19694,7 +19670,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     sidebar_w = 300 if page_w >= 900 else max(220, int(page_w * 0.30))
     viewport_w = max(300, int(page_w - sidebar_w - 52))
     viewport_h = max(360, int(page_h - 88))
-    canvas_w, canvas_h = 6000.0, 4200.0
+    canvas_w, canvas_h = QUESTIONS_PATH_EDITOR_CANVAS_W, QUESTIONS_PATH_EDITOR_CANVAS_H
     min_zoom, max_zoom = 0.15, 6.0
     zoom_key = f"_qpe_zoom_{world['id']}"
     pan_x_key = f"_qpe_pan_x_{world['id']}"
@@ -19759,6 +19735,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     state[pan_x_key], state[pan_y_key] = pan_x, pan_y
     current_zoom = zoom()
     display_w, display_h = display_size()
+    island_by_id = {str(island.get("id")): island for island in islands}
+    island_hosts: dict[str, ft.Container] = {}
 
     def back_to_owned(e):
         state["questions_path_scene"] = "own"
@@ -19787,7 +19765,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         if abs(delta_y) < 0.01:
             return
         factor = 1.22 if delta_y < 0 else 1 / 1.22
-        print(f"[QuestMapper] ctrl wheel zoom delta_y={delta_y:.2f}")
         set_zoom(zoom() * factor)
 
     def editor_key_down(e):
@@ -19807,34 +19784,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         page.snack_bar = ft.SnackBar(content=ft.Text(message), bgcolor=color)
         page.snack_bar.open = True
         page.update()
-
-    def persist_profile_updates(updated_profile: dict):
-        profiles = list(state.get("questions_path_profiles") or get_questions_path_profiles(state))
-        idx = get_questions_path_profile_index(state)
-        while idx >= len(profiles):
-            profiles.append(_questions_path_default_profile(len(profiles)))
-        profiles[idx] = updated_profile
-        state["questions_path_profiles"] = profiles
-        persist_questions_path_profiles(state, profiles)
-
-    def store_custom_island_preset(rel_src: str, original_name: str) -> dict:
-        custom_presets = list(profile.get("custom_island_presets", []) or [])
-        label = os.path.splitext(str(original_name or "Eigene Insel"))[0].strip() or "Eigene Insel"
-        preset = {
-            "key": f"custom_{uuid.uuid4().hex[:10]}",
-            "label": label[:32],
-            "type": "image",
-            "src": rel_src,
-            "w": 16.0,
-            "h": 12.0,
-            "fill": "#E5E7EB",
-            "outline": "#94A3B8",
-            "is_custom": True,
-        }
-        custom_presets.append(preset)
-        profile["custom_island_presets"] = _questions_path_normalize_custom_island_presets(custom_presets)
-        persist_profile_updates(profile)
-        return preset
 
     def refresh_island_folder(e):
         global _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE
@@ -19914,22 +19863,25 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             "src": cfg.get("src", ""),
             "x": _questions_path_clamp_pct((center_x / canvas_w) * 100.0),
             "y": _questions_path_clamp_pct((center_y / canvas_h) * 100.0),
-            "w": cfg["w"],
-            "h": cfg["h"],
+            "base_w": float(cfg.get("base_w") or canvas_w * float(cfg["w"]) / 100.0),
+            "base_h": float(cfg.get("base_h") or canvas_h * float(cfg["h"]) / 100.0),
+            "scale": DEFAULT_ISLAND_SCALE,
         }
         islands.append(island)
+        island_by_id[island["id"]] = island
         world["islands"] = islands
         state["_questions_path_editor_selected_island_id"] = island["id"]
         persist_world()
         island_layer.controls.append(island_control(island))
         island_layer.update()
-        selection_text.value = island["name"]
-        selection_text.update()
+        update_selection_ui()
 
     def island_pixel_bounds(island: dict) -> tuple[float, float, float, float]:
-        cfg = _questions_path_editor_template_cfg(str(island.get("template", "circle")), profile)
-        width = max(52.0, canvas_w * float(island.get("w", cfg["w"])) / 100.0 * current_zoom)
-        height = max(42.0, canvas_h * float(island.get("h", cfg["h"])) / 100.0 * current_zoom)
+        base_width = max(40.0, float(island.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH))
+        base_height = max(40.0, float(island.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT))
+        island_scale = max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)))
+        width = base_width * island_scale * current_zoom
+        height = base_height * island_scale * current_zoom
         left = canvas_w * float(island.get("x", 50.0)) / 100.0 * current_zoom - width / 2.0
         top = canvas_h * float(island.get("y", 50.0)) / 100.0 * current_zoom - height / 2.0
         return left, top, width, height
@@ -19937,14 +19889,45 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     def island_drag_state_key(island_id: str) -> str:
         return f"_qpe_island_drag_{island_id}"
 
+    def selected_island() -> dict | None:
+        return island_by_id.get(str(state.get("_questions_path_editor_selected_island_id") or ""))
+
+    def update_selection_ui():
+        selected = selected_island()
+        selection_text.value = str(selected.get("name")) if selected else "Keine Insel"
+        scale_value = float(selected.get("scale", DEFAULT_ISLAND_SCALE)) if selected else DEFAULT_ISLAND_SCALE
+        island_scale_label.value = f"{int(scale_value * 100)}%"
+        selection_text.update()
+        island_scale_label.update()
+
+    def refresh_island_host(island_id: str, update_control: bool = True):
+        island = island_by_id.get(island_id)
+        host = island_hosts.get(island_id)
+        if island is None or host is None:
+            return
+        left, top, width, height = island_pixel_bounds(island)
+        host.left, host.top, host.width, host.height = left, top, width, height
+        selected = island_id == str(state.get("_questions_path_editor_selected_island_id") or "")
+        if isinstance(host.content, ft.GestureDetector):
+            host.content.content = island_shape(island, width, height, selected)
+        if update_control:
+            host.update()
+
+    def set_selected_island(item_id: str):
+        state["_questions_path_editor_selected_island_id"] = item_id
+        for known_id in island_hosts:
+            refresh_island_host(known_id, update_control=False)
+        island_layer.update()
+        update_selection_ui()
+
     def island_drag_start(island_id: str, e):
-        print(f"[QuestMapper] island drag start id={island_id}")
         state[island_drag_state_key(island_id)] = {
             "position": _gesture_position_xy(e),
             "delta": _gesture_delta_xy(e),
             "last_update": 0.0,
         }
-        state["_questions_path_editor_selected_island_id"] = island_id
+        if island_id != str(state.get("_questions_path_editor_selected_island_id") or ""):
+            set_selected_island(island_id)
 
     def move_island(island_id: str, e, host: ft.Container):
         delta = _gesture_delta_xy(e)
@@ -19968,32 +19951,50 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 drag_info["position"] = position
         if abs(dx) < 0.01 and abs(dy) < 0.01:
             return
-        for island in islands:
-            if str(island.get("id")) == island_id:
-                island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + ((dx / zoom()) / canvas_w) * 100.0)
-                island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + ((dy / zoom()) / canvas_h) * 100.0)
-                state["_questions_path_editor_selected_island_id"] = island_id
-                host.left, host.top, host.width, host.height = island_pixel_bounds(island)
-                now = time.time()
-                if now - float(drag_info.get("last_update", 0.0) or 0.0) >= 1 / 24:
-                    drag_info["last_update"] = now
-                    host.update()
-                return
+        island = island_by_id.get(island_id)
+        if island is None:
+            return
+        island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + ((dx / zoom()) / canvas_w) * 100.0)
+        island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + ((dy / zoom()) / canvas_h) * 100.0)
+        host.left, host.top, host.width, host.height = island_pixel_bounds(island)
+        now = time.time()
+        if now - float(drag_info.get("last_update", 0.0) or 0.0) >= 1 / ISLAND_DRAG_FPS:
+            drag_info["last_update"] = now
+            host.update()
 
     def island_drag_end(island_id: str, e, host: ft.Container):
         state.pop(island_drag_state_key(island_id), None)
         host.update()
         persist_world()
-        print(f"[QuestMapper] island drag end id={island_id}")
 
     def delete_selected(e):
-        island_id = str(state.get("_questions_path_editor_selected_island_id") or "")
-        if not island_id:
+        island = selected_island()
+        if island is None:
             return
+        island_id = str(island.get("id"))
         world["islands"] = [item for item in islands if str(item.get("id")) != island_id]
+        islands[:] = world["islands"]
+        island_by_id.pop(island_id, None)
+        host = island_hosts.pop(island_id, None)
+        if host is not None and host in island_layer.controls:
+            island_layer.controls.remove(host)
+            island_layer.update()
         state.pop("_questions_path_editor_selected_island_id", None)
         persist_world()
-        render_again()
+        update_selection_ui()
+
+    def scale_selected_island(direction: int):
+        island = selected_island()
+        if island is None:
+            return
+        current_scale = float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)
+        next_scale = max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, current_scale + (ISLAND_SCALE_STEP * direction)))
+        if abs(next_scale - current_scale) < 0.001:
+            return
+        island["scale"] = next_scale
+        refresh_island_host(str(island.get("id")))
+        persist_world()
+        update_selection_ui()
 
     def island_shape(island: dict, width: float, height: float, selected: bool) -> ft.Control:
         template = str(island.get("template", "circle"))
@@ -20002,9 +20003,13 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             return ft.Container(
                 width=width,
                 height=height,
-                border=ft.border.Border.all(3 if selected else 1.5, "#FFFFFF" if selected else "#A7B3C4"),
-                shadow=ft.BoxShadow(blur_radius=14, color="#33000000", offset=ft.Offset(0, 5)),
-                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                bgcolor="transparent",
+                border=ft.border.Border.all(1.5, "#38BDF8") if selected else None,
+                shadow=ft.BoxShadow(
+                    blur_radius=18 if selected else 10,
+                    color="#2238BDF8" if selected else "#22000000",
+                    offset=ft.Offset(0, 3),
+                ),
                 content=ft.Image(src=str(island.get("src") or cfg.get("src") or ""), fit=ft.BoxFit.CONTAIN, width=width, height=height),
             )
         radius = 999 if template in ("circle", "oval") else 8
@@ -20025,9 +20030,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         island_id = str(island.get("id"))
         selected = island_id == str(state.get("_questions_path_editor_selected_island_id") or "")
         host = ft.Container(left=left, top=top, width=width, height=height)
+        island_hosts[island_id] = host
         host.content = ft.GestureDetector(
             drag_interval=16,
-            on_tap=lambda e, item_id=island_id: (state.__setitem__("_questions_path_editor_selected_island_id", item_id), render_again()),
+            on_tap=lambda e, item_id=island_id: set_selected_island(item_id),
             on_pan_start=lambda e, item_id=island_id: island_drag_start(item_id, e),
             on_pan_update=lambda e, item_id=island_id, item_host=host: move_island(item_id, e, item_host),
             on_pan_end=lambda e, item_id=island_id, item_host=host: island_drag_end(item_id, e, item_host),
@@ -20123,6 +20129,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     selected_name = next((str(item.get("name", "Insel")) for item in islands if str(item.get("id")) == selected_id), "Keine Insel")
     compact_layout = page_w < 980
     selection_text = ft.Text(selected_name, size=13, color="#374151")
+    selected_scale = float((selected_island() or {}).get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)
+    island_scale_label = ft.Text(f"{int(selected_scale * 100)}%", size=13, weight="bold", color="#111827")
 
     page.controls.clear()
     page.add(
@@ -20196,6 +20204,14 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                         ft.Container(height=8),
                                         ft.Text("Auswahl", size=14, weight="bold", color="#111827"),
                                         selection_text,
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("-", lambda e: scale_selected_island(-1), "#475569", width=48, height=36),
+                                                ft.Container(width=72, alignment=ft.Alignment(0, 0), content=island_scale_label),
+                                                _game_menu_button("+", lambda e: scale_selected_island(1), "#475569", width=48, height=36),
+                                            ],
+                                            spacing=8,
+                                        ),
                                         _game_menu_button("Loschen", delete_selected, "#DC2626", width=150, height=38),
                                     ],
                                     spacing=10,
