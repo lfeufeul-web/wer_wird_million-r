@@ -2223,15 +2223,15 @@ def resume_questions_path_game(page: ft.Page, state: dict, saved: dict | None = 
 
 
 def _questions_path_map_art_asset() -> str:
-    return "Fragenpfad/questions_path_forest.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 def _questions_path_island_hub_asset() -> str:
-    return "Fragenpfad/Inseln.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 def _questions_path_level_background_asset() -> str:
-    return "Fragenpfad/level_insel_1.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 QUESTIONS_PATH_MAPS = {}
@@ -2408,15 +2408,15 @@ def render_questions_path_complete(page: ft.Page, state: dict):
 
 
 def _questions_path_map_art_asset() -> str:
-    return "Fragenpfad/questions_path_forest.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 def _questions_path_island_hub_asset() -> str:
-    return "Fragenpfad/Inseln.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 def _questions_path_level_background_asset() -> str:
-    return "Fragenpfad/level_insel_1.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 QUESTIONS_PATH_MAPS["ernaehrung"] = {
@@ -3321,15 +3321,15 @@ def show_questions_path_hub(page: ft.Page, state: dict):
 
 
 def _questions_path_map_art_asset() -> str:
-    return "Fragenpfad/questions_path_forest.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 def _questions_path_island_hub_asset() -> str:
-    return "Fragenpfad/Inseln.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 def _questions_path_level_background_asset() -> str:
-    return "Fragenpfad/level_insel_1.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 QUESTIONS_PATH_MAPS["ernaehrung"] = {
@@ -7420,7 +7420,7 @@ def _path_nodes(points: list[tuple[float, float]], labels: list[str]) -> list[di
 
 
 def _questions_path_map_art_asset() -> str:
-    return "Fragenpfad/questions_path_forest.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 def _questions_path_island_hub_asset() -> str:
@@ -7445,7 +7445,7 @@ def _questions_path_island_hub_asset() -> str:
                 best_path = path
     if best_path:
         return os.path.relpath(best_path, "assets").replace("\\", "/")
-    return "Fragenpfad/questions_path_forest.png"
+    return "Fragenpfad/waldmap_1.png"
 
 
 QUESTIONS_PATH_MAPS = {
@@ -16544,7 +16544,7 @@ QUESTIONS_PATH_NUTRITION_QUESTIONS = [
 
 
 def _questions_path_island_hub_asset() -> str:
-    return os.path.join("Fragenpfad", "Inseln.png")
+    return os.path.join("Fragenpfad", "waldmap_1.png")
 
 
 _QUESTIONS_PATH_ASSET_BYTES_CACHE: dict[str, str | None] = {}
@@ -16565,7 +16565,7 @@ def _questions_path_asset_bytes(rel_path: str) -> str | None:
 
 
 def _questions_path_level_background_asset() -> str:
-    return os.path.join("Fragenpfad", "level_insel_1.png")
+    return os.path.join("Fragenpfad", "waldmap_1.png")
 
 
 def _questions_path_level_start_asset() -> str:
@@ -19873,8 +19873,8 @@ def _questions_path_editor_presets(profile: dict | None = None) -> list[dict]:
     presets.extend(folder_presets)
     if not folder_presets:
         legacy_candidates = [
-            ("fragenpfad_island", "Fragenpfad", "Fragenpfad/level_insel_1.png", 16.0, 12.0),
-            ("hub_island", "Hub", "Fragenpfad/Inseln.png", 18.0, 12.0),
+            ("fragenpfad_island", "Fragenpfad", "Fragenpfad/waldmap_1.png", 16.0, 12.0),
+            ("hub_island", "Hub", "Fragenpfad/waldmap_1.png", 18.0, 12.0),
         ]
         for key, label, src, width, height in legacy_candidates:
             if Path("assets", *src.split("/")).exists():
@@ -20815,9 +20815,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                     [
                                         ft.Row(
                                             [
-                                                _game_menu_button("Zurück zum Spiel", lambda e: _questions_path_render_owned(e.page, state), "#64748B", width=170, height=40),
-                                                ft.Text("Inselmenü", size=28, weight="bold", color="#2B2F36"),
-                                                _game_menu_button("+ Insel hinzufügen", create_island_dialog, theme["accent"], width=170, height=40),
+                                                _game_menu_button("Zurueck zum Spiel", lambda e: _questions_path_render_owned(e.page, state), "#64748B", width=170, height=40),
+                                                ft.Text("Inselmenue", size=28, weight="bold", color="#2B2F36"),
+                                                _game_menu_button("+ Insel hinzufuegen", create_island_dialog, theme["accent"], width=170, height=40),
                                             ],
                                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                         ),
@@ -20833,7 +20833,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                     content=ft.Column(
                                                         [
                                                             ft.Text("Inseln", size=16, weight="bold", color="#111827", text_align="center"),
-                                                            ft.Text("Klicke eine Insel an, um den Map-Editor zu öffnen.", size=12, color="#6B7280", text_align="center"),
+                                                            ft.Text("Klicke eine Insel an, um den Map-Editor zu oeffnen.", size=12, color="#6B7280", text_align="center"),
                                                             ft.Container(height=8),
                                                             ft.Container(
                                                                 width=canvas_w,
@@ -20859,7 +20859,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                                             ft.Text("Inseln", size=18, weight="bold", color="#111827", text_align="center"),
                                                             ft.Text(f"Vorhanden: {len(islands)}", size=12, color="#6B7280", text_align="center"),
                                                             ft.Text("Ziehe Inseln, um sie zu verschieben. Tippe eine Insel an, um den Map-Editor zu oeffnen.", size=12, color="#6B7280", text_align="center"),
-                                                            _game_menu_button("Eigene Insel hinzufügen", open_custom_island_dialog, "#0EA5E9", width=min(240, max(180, int(page_w * 0.20))), height=38),
+                                                            _game_menu_button("Eigene Insel hinzufuegen", open_custom_island_dialog, "#0EA5E9", width=min(240, max(180, int(page_w * 0.20))), height=38),
                                                             ft.Text("Zoom", size=14, weight="bold", color="#111827"),
                                                             zoom_slider,
                                                             ft.Text("Auswahl", size=14, weight="bold", color="#111827"),
