@@ -19921,7 +19921,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     viewport_w = max(300, int(page_w - sidebar_w - 52))
     viewport_h = max(360, int(page_h - 88))
     canvas_w, canvas_h = QUESTIONS_PATH_EDITOR_CANVAS_W, QUESTIONS_PATH_EDITOR_CANVAS_H
-    min_zoom, max_zoom = 0.15, 6.0
+    fit_zoom = min(1.0, max(0.15, min(viewport_w / canvas_w, viewport_h / canvas_h)))
+    min_zoom, max_zoom = fit_zoom, 6.0
     zoom_key = f"_qpe_zoom_{world['id']}"
     pan_x_key = f"_qpe_pan_x_{world['id']}"
     pan_y_key = f"_qpe_pan_y_{world['id']}"
@@ -20001,8 +20002,15 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         state["questions_path_scene"] = "editor_map"
         _questions_path_render_island_map_editor(page, state, world["id"], island_id)
 
+    def center_pan_for_zoom(target_zoom: float) -> tuple[float, float]:
+        display_w = canvas_w * target_zoom
+        display_h = canvas_h * target_zoom
+        return clamp_pan((viewport_w - display_w) / 2.0, (viewport_h - display_h) / 2.0)
+
     def set_zoom(new_zoom: float):
-        state[zoom_key] = clamp_zoom(new_zoom)
+        target_zoom = clamp_zoom(new_zoom)
+        state[zoom_key] = target_zoom
+        state[pan_x_key], state[pan_y_key] = center_pan_for_zoom(target_zoom)
         sync_canvas_transform()
 
     def ctrl_wheel_zoom(e):
@@ -20067,103 +20075,17 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         render_again()
 
     def open_custom_island_dialog(e):
-        name_field = ft.TextField(label="Name der Insel", value="Eigene Insel", width=360, autofocus=True)
-        src_field = ft.TextField(
-            label="Bild-URL oder lokaler Pfad",
-            hint_text="assets/islands/meine_insel.png, https://... oder data:image/...",
-            width=360,
-        )
-        width_field = ft.TextField(label="Basis-Breite", value=str(int(DEFAULT_IMAGE_ISLAND_BASE_WIDTH)), width=170)
-        height_field = ft.TextField(label="Basis-Hoehe", value=str(int(DEFAULT_IMAGE_ISLAND_BASE_HEIGHT)), width=170)
-        overlay_ref = [None]
-
-        def close_dialog():
-            overlay = overlay_ref[0]
-            if overlay is not None:
-                close_page_dialog(page, overlay)
-            elif getattr(page, "dialog", None):
-                close_page_dialog(page, page.dialog)
-
-        def add_custom(e):
-            raw_src = str(src_field.value or "").strip().replace("\\", "/")
-            if not raw_src:
-                show_editor_message("Bitte ein Bild angeben.", "#B91C1C")
-                return
-            src_value = raw_src
-            if not raw_src.startswith(("data:", "http://", "https://")):
-                normalized_src = raw_src[7:] if raw_src.startswith("assets/") else raw_src
-                normalized_src = normalized_src.lstrip("/")
-                local_candidates = [Path(normalized_src), Path("assets", *normalized_src.split("/"))]
-                existing = next((candidate for candidate in local_candidates if candidate.exists()), None)
-                if existing is None:
-                    show_editor_message("Bild nicht gefunden. Nutze assets/... oder eine Bild-URL.", "#B91C1C")
-                    return
-                try:
-                    with open(existing, "rb") as f:
-                        file_bytes = f.read()
-                except Exception:
-                    file_bytes = None
-                if file_bytes:
-                    src_value = f"data:{_questions_path_island_mime_type(existing.name)};base64,{base64.b64encode(file_bytes).decode('ascii')}"
-                else:
-                    src_value = Path(normalized_src).as_posix()
-            try:
-                base_w = max(40.0, float(width_field.value or DEFAULT_IMAGE_ISLAND_BASE_WIDTH))
-            except Exception:
-                base_w = DEFAULT_IMAGE_ISLAND_BASE_WIDTH
-            try:
-                base_h = max(40.0, float(height_field.value or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT))
-            except Exception:
-                base_h = DEFAULT_IMAGE_ISLAND_BASE_HEIGHT
-            label = str(name_field.value or "").strip() or "Eigene Insel"
-            new_preset = {
-                "key": f"custom_island_{_sanitize_filename_part(label.lower())}_{int(time.time() * 1000)}",
-                "label": label,
-                "type": "image",
-                "src": src_value,
-                "base_w": base_w,
-                "base_h": base_h,
-                "fill": "#E5E7EB",
-                "outline": "#94A3B8",
-                "is_custom": True,
-            }
-            custom_presets = _questions_path_normalize_custom_island_presets(profile.get("custom_island_presets", []))
-            custom_presets.append(new_preset)
-            profile["custom_island_presets"] = custom_presets
-            profiles = list(get_questions_path_profiles(state))
-            idx = get_questions_path_profile_index(state)
-            if idx < len(profiles):
-                profiles[idx] = profile
-                state["questions_path_profiles"] = profiles
-                persist_questions_path_profiles(state, profiles)
-            add_island(new_preset["key"])
-            render_again()
-            close_dialog()
-            show_editor_message(f"Eigene Insel '{label}' hinzugefuegt.", "#166534")
-
-        dlg = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Eigene Insel hinzufuegen"),
-            content=ft.Container(
-                width=420,
-                content=ft.Column(
-                    [
-                        name_field,
-                        src_field,
-                        ft.Row([width_field, height_field], spacing=10),
-                        ft.Text("Tipp: Lokale Bilder einfach als assets/... angeben.", size=11, color="#6B7280"),
-                    ],
-                    spacing=10,
-                    tight=True,
-                ),
-            ),
-            actions=[
-                ft.TextButton("Abbrechen", on_click=lambda e: close_dialog()),
-                ft.TextButton("Hinzufuegen", on_click=add_custom),
-            ],
-        )
-        overlay_ref[0] = dlg
-        open_page_dialog(page, dlg)
+        folder_path = Path("assets") / "islands"
+        try:
+            folder_path.mkdir(parents=True, exist_ok=True)
+            resolved = folder_path.resolve()
+            if os.name == "nt":
+                os.startfile(str(resolved))
+            else:
+                page.launch_url(resolved.as_uri())
+            show_editor_message(f"Ordner geoeffnet: {resolved}", "#166534")
+        except Exception:
+            show_editor_message("Der Insel-Ordner konnte nicht geoeffnet werden.", "#B91C1C")
 
     def set_world_background(preset_key: str | None = None, image_src: str | None = None):
         if preset_key:
@@ -20257,9 +20179,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         set_zoom(float(state.get("_qpe_scale_start_zoom", zoom()) or zoom()) * scale)
 
     def reset_view(e):
-        state[zoom_key] = 1.0
-        state[pan_x_key] = (viewport_w - canvas_w) / 2.0
-        state[pan_y_key] = (viewport_h - canvas_h) / 2.0
+        state[zoom_key] = fit_zoom
+        state[pan_x_key], state[pan_y_key] = center_pan_for_zoom(fit_zoom)
         sync_canvas_transform()
 
     def pan_start(e):
@@ -20492,7 +20413,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         host = ft.Container(left=left, top=top, width=width, height=height)
         island_hosts[island_id] = host
         host.content = ft.GestureDetector(
-            drag_interval=0,
+            drag_interval=16,
             on_tap=lambda e, item_id=island_id: open_island_map_editor(item_id),
             on_pan_start=lambda e, item_id=island_id: island_drag_start(item_id, e),
             on_pan_update=lambda e, item_id=island_id, item_host=host: move_island(item_id, e, item_host),
@@ -20518,7 +20439,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 expand=True,
                 alignment=ft.Alignment(0, 0),
                 content=ft.Text(
-                    "Klicke eine Insel an, um ihren Map-Editor zu oeffnen.",
+                    "",
                     size=16,
                     color="#6B7280",
                     text_align=ft.TextAlign.CENTER,
@@ -20616,7 +20537,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                     ft.Row(
                         [
                             _game_menu_button("Zuruck", back_to_owned, "#64748B", width=130, height=38),
-                            ft.Text("Inselmenue", size=24, weight="bold", color="#20242A"),
+                            ft.Text("Inselmenü", size=24, weight="bold", color="#20242A"),
                             ft.Row(
                                 [
                                     _game_menu_button("Reset", reset_view, "#64748B", width=90, height=38),
@@ -20824,12 +20745,8 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
 
     def add_path_point(e):
         new_point = _questions_path_default_point(len(points))
-        if points:
-            new_point["x"] = min(90.0, float(points[-1].get("x", 50.0)) + 8.0)
-            new_point["y"] = float(points[-1].get("y", 50.0))
-        else:
-            new_point["x"] = 12.0
-            new_point["y"] = 52.0
+        new_point["x"] = 50.0
+        new_point["y"] = 50.0
         points.append(new_point)
         state["_questions_path_editor_selected_point"] = len(points) - 1
         persist_points()
@@ -20879,7 +20796,7 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
         selected = point_index == int(state.get("_questions_path_editor_selected_point", -1) or -1)
         host = ft.Container(left=left, top=top, width=width, height=height)
         host.content = ft.GestureDetector(
-            drag_interval=0,
+            drag_interval=16,
             on_tap=lambda e, idx=point_index: open_point_dialog(idx),
             on_pan_start=lambda e, idx=point_index: point_drag_start(idx, e),
             on_pan_update=lambda e, idx=point_index, item_host=host: move_point(idx, e, item_host),
