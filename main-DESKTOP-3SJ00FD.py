@@ -2316,6 +2316,57 @@ def render_questions_path_complete(page: ft.Page, state: dict):
     clear_questions_path_game(state)
     state.pop("_questions_path_active_node", None)
     state["questions_path_scene"] = "islands"
+    points = list(selected_island_points() or [])
+    if not points:
+        points = [_questions_path_default_point(0)]
+    selected_point = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+    if selected_point >= len(points):
+        selected_point = max(0, len(points) - 1)
+    state["_questions_path_editor_selected_point"] = selected_point
+    point = points[selected_point]
+    while len(point.get("answers", [])) < 4:
+        point.setdefault("answers", []).append("")
+
+    def select_point(index: int):
+        state["_questions_path_editor_selected_point"] = max(0, min(index, len(points) - 1))
+        render_again()
+
+    def delete_point(e):
+        if len(points) <= 1:
+            return
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if 0 <= idx < len(points):
+            points.pop(idx)
+            world["points"] = points
+            persist_world()
+            state["_questions_path_editor_selected_point"] = max(0, min(idx - 1, len(points) - 1))
+            render_again()
+
+    def save_point_fields(e):
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if not (0 <= idx < len(points)):
+            return
+        current = points[idx]
+        current["name"] = str(point_name_field.value or "").strip() or current.get("name", f"Punkt {idx + 1}")
+        current["question"] = str(question_field.value or "").strip()
+        current["answers"] = [str(field.value or "").strip() for field in answer_fields]
+        while len(current["answers"]) < 4:
+            current["answers"].append("")
+        current["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+        world["points"] = points
+        persist_world()
+        render_again()
+
+    point_name_field = ft.TextField(label="Punktname", value=point.get("name", ""), width=300)
+    question_field = ft.TextField(label="Frage", value=point.get("question", ""), width=300, min_lines=3, max_lines=6, multiline=True)
+    answer_fields = []
+    answers = list(point.get("answers", []) or [])
+    while len(answers) < 4:
+        answers.append("")
+    for idx in range(4):
+        answer_fields.append(ft.TextField(label=f"Antwort {ANSWER_LETTERS[idx]}", value=answers[idx], width=300))
+    correct_dropdown = ft.Dropdown(label="Richtige Antwort", value=str(point.get("correct", 0)), width=220, options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)])
+
     page.controls.clear()
     page.add(
         ft.Container(
@@ -17032,16 +17083,43 @@ def _questions_path_normalize_islands(raw_islands, legacy_points=None, world_ind
     normalized = []
     for i_idx, island in enumerate(islands):
         island = island if isinstance(island, dict) else {}
-        preset_key = str(island.get("design", QUESTIONS_PATH_WORLD_PRESETS[i_idx % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"])).strip()
-        if preset_key not in {p["key"] for p in QUESTIONS_PATH_WORLD_PRESETS}:
-            preset_key = QUESTIONS_PATH_WORLD_PRESETS[i_idx % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"]
+        raw_type = str(island.get("type") or "").strip().lower()
+        raw_src = str(island.get("src") or "").strip()
+        template_key = str(island.get("template") or island.get("design") or QUESTIONS_PATH_WORLD_PRESETS[i_idx % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"]).strip()
+        is_image = raw_type == "image" or bool(raw_src) or raw_src.startswith("data:")
+        if is_image:
+            normalized.append(
+                {
+                    "id": str(island.get("id") or uuid.uuid4()),
+                    "name": str(island.get("name", f"Insel {i_idx + 1}")).strip() or f"Insel {i_idx + 1}",
+                    "template": template_key or str(island.get("id") or f"custom_image_{i_idx + 1}"),
+                    "design": template_key or str(island.get("id") or f"custom_image_{i_idx + 1}"),
+                    "type": "image",
+                    "src": raw_src,
+                    "x": _questions_path_clamp_pct(island.get("x", 50.0)),
+                    "y": _questions_path_clamp_pct(island.get("y", 50.0)),
+                    "base_w": max(40.0, float(island.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH)),
+                    "base_h": max(40.0, float(island.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT)),
+                    "scale": max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE))),
+                    "points": _questions_path_normalize_points(island.get("points", [])),
+                }
+            )
+            continue
+        if template_key not in {p["key"] for p in QUESTIONS_PATH_WORLD_PRESETS}:
+            template_key = QUESTIONS_PATH_WORLD_PRESETS[i_idx % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"]
         normalized.append(
             {
                 "id": str(island.get("id") or uuid.uuid4()),
                 "name": str(island.get("name", f"Insel {i_idx + 1}")).strip() or f"Insel {i_idx + 1}",
-                "design": preset_key,
+                "template": template_key,
+                "design": template_key,
+                "type": "shape",
+                "src": "",
                 "x": _questions_path_clamp_pct(island.get("x", 50.0)),
                 "y": _questions_path_clamp_pct(island.get("y", 50.0)),
+                "base_w": max(40.0, float(island.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH)),
+                "base_h": max(40.0, float(island.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT)),
+                "scale": max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE))),
                 "points": _questions_path_normalize_points(island.get("points", [])),
             }
         )
@@ -17051,8 +17129,14 @@ def _questions_path_normalize_islands(raw_islands, legacy_points=None, world_ind
                 "id": str(uuid.uuid4()),
                 "name": "Insel 1",
                 "design": QUESTIONS_PATH_WORLD_PRESETS[world_index % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"],
+                "template": QUESTIONS_PATH_WORLD_PRESETS[world_index % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"],
+                "type": "shape",
+                "src": "",
                 "x": 50.0,
                 "y": 50.0,
+                "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+                "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
+                "scale": DEFAULT_ISLAND_SCALE,
                 "points": _questions_path_normalize_points(legacy_points),
             }
         )
@@ -19974,23 +20058,104 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             show_editor_message("Keine Inselbilder in assets/islands gefunden.", "#B91C1C")
         render_again()
 
-    async def add_custom_island(e):
-        new_preset = await _questions_path_pick_custom_island_asset(e.page)
-        if not new_preset:
-            show_editor_message("Keine neue Insel ausgewählt.", "#B91C1C")
-            return
-        custom_presets = _questions_path_normalize_custom_island_presets(profile.get("custom_island_presets", []))
-        custom_presets.append(new_preset)
-        profile["custom_island_presets"] = custom_presets
-        profiles = list(get_questions_path_profiles(state))
-        idx = get_questions_path_profile_index(state)
-        if idx < len(profiles):
-            profiles[idx] = profile
-            state["questions_path_profiles"] = profiles
-            persist_questions_path_profiles(state, profiles)
-        add_island(new_preset["key"])
-        render_again()
-        show_editor_message(f"Eigene Insel '{new_preset['label']}' hinzugefuegt.", "#166534")
+    def open_custom_island_dialog(e):
+        name_field = ft.TextField(label="Name der Insel", value="Eigene Insel", width=360, autofocus=True)
+        src_field = ft.TextField(
+            label="Bild-URL oder lokaler Pfad",
+            hint_text="assets/islands/meine_insel.png, https://... oder data:image/...",
+            width=360,
+        )
+        width_field = ft.TextField(label="Basis-Breite", value=str(int(DEFAULT_IMAGE_ISLAND_BASE_WIDTH)), width=170)
+        height_field = ft.TextField(label="Basis-Hoehe", value=str(int(DEFAULT_IMAGE_ISLAND_BASE_HEIGHT)), width=170)
+        overlay_ref = [None]
+
+        def close_dialog():
+            overlay = overlay_ref[0]
+            if overlay is not None:
+                close_page_dialog(page, overlay)
+            elif getattr(page, "dialog", None):
+                close_page_dialog(page, page.dialog)
+
+        def add_custom(e):
+            raw_src = str(src_field.value or "").strip().replace("\\", "/")
+            if not raw_src:
+                show_editor_message("Bitte ein Bild angeben.", "#B91C1C")
+                return
+            src_value = raw_src
+            if not raw_src.startswith(("data:", "http://", "https://")):
+                normalized_src = raw_src[7:] if raw_src.startswith("assets/") else raw_src
+                normalized_src = normalized_src.lstrip("/")
+                local_candidates = [Path(normalized_src), Path("assets", *normalized_src.split("/"))]
+                existing = next((candidate for candidate in local_candidates if candidate.exists()), None)
+                if existing is None:
+                    show_editor_message("Bild nicht gefunden. Nutze assets/... oder eine Bild-URL.", "#B91C1C")
+                    return
+                try:
+                    with open(existing, "rb") as f:
+                        file_bytes = f.read()
+                except Exception:
+                    file_bytes = None
+                if file_bytes:
+                    src_value = f"data:{_questions_path_island_mime_type(existing.name)};base64,{base64.b64encode(file_bytes).decode('ascii')}"
+                else:
+                    src_value = Path(normalized_src).as_posix()
+            try:
+                base_w = max(40.0, float(width_field.value or DEFAULT_IMAGE_ISLAND_BASE_WIDTH))
+            except Exception:
+                base_w = DEFAULT_IMAGE_ISLAND_BASE_WIDTH
+            try:
+                base_h = max(40.0, float(height_field.value or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT))
+            except Exception:
+                base_h = DEFAULT_IMAGE_ISLAND_BASE_HEIGHT
+            label = str(name_field.value or "").strip() or "Eigene Insel"
+            new_preset = {
+                "key": f"custom_island_{_sanitize_filename_part(label.lower())}_{int(time.time() * 1000)}",
+                "label": label,
+                "type": "image",
+                "src": src_value,
+                "base_w": base_w,
+                "base_h": base_h,
+                "fill": "#E5E7EB",
+                "outline": "#94A3B8",
+                "is_custom": True,
+            }
+            custom_presets = _questions_path_normalize_custom_island_presets(profile.get("custom_island_presets", []))
+            custom_presets.append(new_preset)
+            profile["custom_island_presets"] = custom_presets
+            profiles = list(get_questions_path_profiles(state))
+            idx = get_questions_path_profile_index(state)
+            if idx < len(profiles):
+                profiles[idx] = profile
+                state["questions_path_profiles"] = profiles
+                persist_questions_path_profiles(state, profiles)
+            add_island(new_preset["key"])
+            render_again()
+            close_dialog()
+            show_editor_message(f"Eigene Insel '{label}' hinzugefuegt.", "#166534")
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Eigene Insel hinzufuegen"),
+            content=ft.Container(
+                width=420,
+                content=ft.Column(
+                    [
+                        name_field,
+                        src_field,
+                        ft.Row([width_field, height_field], spacing=10),
+                        ft.Text("Tipp: Lokale Bilder einfach als assets/... angeben.", size=11, color="#6B7280"),
+                    ],
+                    spacing=10,
+                    tight=True,
+                ),
+            ),
+            actions=[
+                ft.TextButton("Abbrechen", on_click=lambda e: close_dialog()),
+                ft.TextButton("Hinzufuegen", on_click=add_custom),
+            ],
+        )
+        overlay_ref[0] = dlg
+        open_page_dialog(page, dlg)
 
     def scale_zoom_start(e):
         state["_qpe_scale_start_zoom"] = zoom()
@@ -20073,23 +20238,33 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         island = selected_island()
         if island is None:
             return []
-        points = list(island.get("points", []) or [])
-        if not points:
-            points = [_questions_path_default_point(0)]
-            island["points"] = points
-            persist_world()
-        return points
+        return list(island.get("points", []) or [])
 
     def add_path_point(e):
         island = selected_island()
         if island is None:
-            show_editor_message("Bitte erst eine Insel auswählen.", "#B91C1C")
+            show_editor_message("Bitte erst eine Insel auswaehlen.", "#B91C1C")
             return
         points = list(island.get("points", []) or [])
         points.append(_questions_path_default_point(len(points)))
         island["points"] = points
         persist_world()
-        show_editor_message(f"Pfadpunkt zu '{island.get('name', 'Insel')}' hinzugefügt.", "#166534")
+        show_editor_message(f"Pfadpunkt zu '{island.get('name', 'Insel')}' hinzugefuegt.", "#166534")
+
+    def delete_path_point(e):
+        island = selected_island()
+        if island is None:
+            return
+        points = list(island.get("points", []) or [])
+        if len(points) <= 1:
+            return
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if 0 <= idx < len(points):
+            points.pop(idx)
+            island["points"] = points
+            persist_world()
+            state["_questions_path_editor_selected_point"] = max(0, min(idx - 1, len(points) - 1))
+            render_again()
 
     def island_pixel_bounds(island: dict) -> tuple[float, float, float, float]:
         base_width = max(40.0, float(island.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH))
@@ -20112,6 +20287,14 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         selection_text.value = str(selected.get("name")) if selected else "Keine Insel"
         scale_value = float(selected.get("scale", DEFAULT_ISLAND_SCALE)) if selected else DEFAULT_ISLAND_SCALE
         island_scale_label.value = f"{int(scale_value * 100)}%"
+        try:
+            island_scale_slider.value = scale_value
+        except Exception:
+            pass
+        try:
+            zoom_slider.value = zoom()
+        except Exception:
+            pass
         selection_text.update()
         island_scale_label.update()
 
@@ -20320,6 +20503,41 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     selected_scale = float((selected_island() or {}).get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)
     island_scale_label = ft.Text(f"{int(selected_scale * 100)}%", size=13, weight="bold", color="#111827")
 
+    def on_zoom_slider(e):
+        set_zoom(float(getattr(e.control, "value", zoom()) or zoom()))
+
+    def on_island_scale_slider(e):
+        scale = float(getattr(e.control, "value", selected_scale) or selected_scale)
+        island = selected_island()
+        if island is None:
+            return
+        current_scale = float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)
+        if abs(scale - current_scale) < 0.001:
+            return
+        island["scale"] = max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, scale))
+        refresh_island_host(str(island.get("id")))
+        persist_world()
+        update_selection_ui()
+
+    zoom_slider = ft.Slider(
+        min=min_zoom,
+        max=max_zoom,
+        value=zoom(),
+        divisions=120,
+        label="{value}x",
+        on_change=on_zoom_slider,
+        expand=True,
+    )
+    island_scale_slider = ft.Slider(
+        min=MIN_ISLAND_SCALE,
+        max=MAX_ISLAND_SCALE,
+        value=selected_scale,
+        divisions=52,
+        label="{value}x",
+        on_change=on_island_scale_slider,
+        expand=True,
+    )
+
     page.controls.clear()
     page.add(
         ft.Container(
@@ -20372,37 +20590,40 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 content=ft.Column(
                                     [
                                         ft.Text("Inseln", size=18, weight="bold", color="#111827"),
-                                        _game_menu_button("Eigene Insel hinzufügen", lambda e: page.run_task(add_custom_island, e), "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
+                                        _game_menu_button("Eigene Insel hinzufügen", open_custom_island_dialog, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
                                         ft.Text("Bild-Inseln", size=14, weight="bold", color="#111827"),
                                         ft.Container(
                                             content=ft.Row(image_tiles, wrap=True, spacing=8, run_spacing=8),
                                         ),
                                         ft.Container(height=8),
                                         ft.Text("Zoom", size=14, weight="bold", color="#111827"),
-                                        ft.Row(
-                                            [
-                                                _game_menu_button("-", lambda e: set_zoom(zoom() / 1.25), "#475569", width=56, height=38),
-                                                ft.Container(width=78, alignment=ft.Alignment(0, 0), content=ft.Text(f"{int(zoom() * 100)}%", size=13, weight="bold", color="#111827")),
-                                                _game_menu_button("+", lambda e: set_zoom(zoom() * 1.25), "#475569", width=56, height=38),
-                                            ],
-                                            spacing=8,
-                                        ),
+                                        zoom_slider,
                                         ft.Container(height=8),
                                         ft.Text("Auswahl", size=14, weight="bold", color="#111827"),
                                         selection_text,
-                                        ft.Row(
-                                            [
-                                                _game_menu_button("-", lambda e: scale_selected_island(-1), "#475569", width=48, height=36),
-                                                ft.Container(width=72, alignment=ft.Alignment(0, 0), content=island_scale_label),
-                                                _game_menu_button("+", lambda e: scale_selected_island(1), "#475569", width=48, height=36),
-                                            ],
-                                            spacing=8,
-                                        ),
+                                        island_scale_slider,
                                         ft.Container(height=4),
                                         ft.Text("Pfade", size=14, weight="bold", color="#111827"),
                                         ft.Text(f"{len(selected_island_points())} Pfadpunkt(e)", size=12, color="#6B7280"),
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("-", lambda e: select_point(selected_point - 1), "#475569", width=48, height=36),
+                                                ft.Container(width=72, alignment=ft.Alignment(0, 0), content=ft.Text(f"{selected_point + 1}/{len(points)}", size=13, weight="bold", color="#111827")),
+                                                _game_menu_button("+", lambda e: select_point(selected_point + 1), "#475569", width=48, height=36),
+                                            ],
+                                            spacing=8,
+                                        ),
                                         _game_menu_button("+ Pfadpunkt", add_path_point, theme["accent"], width=min(sidebar_w - 28, 180), height=38),
                                         _game_menu_button("Loschen", delete_selected, "#DC2626", width=150, height=38),
+                                        ft.Container(height=4),
+                                        ft.Text("Frage", size=14, weight="bold", color="#111827"),
+                                        point_name_field,
+                                        question_field,
+                                        ft.Text("Antworten", size=13, weight="bold", color="#111827"),
+                                        *answer_fields,
+                                        correct_dropdown,
+                                        _game_menu_button("Punkt speichern", save_point_fields, theme["success"], width=min(sidebar_w - 28, 180), height=38),
+                                        _game_menu_button("Punkt loeschen", delete_path_point, "#DC2626", width=min(sidebar_w - 28, 180), height=38),
                                     ],
                                     spacing=10,
                                     scroll=ft.ScrollMode.AUTO,
