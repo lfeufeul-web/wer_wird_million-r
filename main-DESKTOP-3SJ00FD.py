@@ -20538,6 +20538,50 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         expand=True,
     )
 
+    points = list(selected_island_points() or [])
+    if not points:
+        points = [_questions_path_default_point(0)]
+        current_island = selected_island()
+        if current_island is not None:
+            current_island["points"] = points
+
+    selected_point = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+    if selected_point >= len(points):
+        selected_point = max(0, len(points) - 1)
+    state["_questions_path_editor_selected_point"] = selected_point
+    point = points[selected_point]
+
+    def select_point(index: int):
+        state["_questions_path_editor_selected_point"] = max(0, min(index, len(points) - 1))
+        render_again()
+
+    def save_point_fields(e):
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if not (0 <= idx < len(points)):
+            return
+        current = points[idx]
+        current["name"] = str(point_name_field.value or "").strip() or current.get("name", f"Punkt {idx + 1}")
+        current["question"] = str(question_field.value or "").strip()
+        current["answers"] = [str(field.value or "").strip() for field in answer_fields]
+        while len(current["answers"]) < 4:
+            current["answers"].append("")
+        current["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+        current_island = selected_island()
+        if current_island is not None:
+            current_island["points"] = points
+        persist_world()
+        render_again()
+
+    point_name_field = ft.TextField(label="Punktname", value=point.get("name", ""), width=300)
+    question_field = ft.TextField(label="Frage", value=point.get("question", ""), width=300, min_lines=3, max_lines=6, multiline=True)
+    answer_fields = []
+    answers = list(point.get("answers", []) or [])
+    while len(answers) < 4:
+        answers.append("")
+    for idx in range(4):
+        answer_fields.append(ft.TextField(label=f"Antwort {ANSWER_LETTERS[idx]}", value=answers[idx], width=300))
+    correct_dropdown = ft.Dropdown(label="Richtige Antwort", value=str(point.get("correct", 0)), width=220, options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)])
+
     page.controls.clear()
     page.add(
         ft.Container(
