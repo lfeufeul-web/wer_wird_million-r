@@ -17620,15 +17620,19 @@ def _questions_path_world_preview_asset(world: dict) -> str:
         return custom_image
     preset = str(world.get("background_preset", "forest")).strip().lower()
     if preset == "forest":
-        rel = _questions_path_map_art_asset()
+        rel = _questions_path_fragenpfad_background_asset()
     elif preset == "ocean":
         rel = _questions_path_island_hub_asset()
     elif preset == "sunset":
         rel = _questions_path_level_background_asset()
     else:
-        rel = _questions_path_map_art_asset()
+        rel = _questions_path_fragenpfad_background_asset()
     data = _questions_path_asset_bytes(rel)
     return f"data:image/png;base64,{data}" if data else rel
+
+
+def _questions_path_fragenpfad_background_asset() -> str:
+    return os.path.join("Fragenpfad", "waldmap_1.png")
 
 
 def _questions_path_create_world_dialog(page: ft.Page, state: dict):
@@ -17814,7 +17818,7 @@ def _questions_path_render_owned(page: ft.Page, state: dict):
 
         def _edit(world_id=world["id"]):
             def _handler(e):
-                state["questions_path_scene"] = "editor"
+                state["questions_path_scene"] = "editor_islands"
                 state.pop("_questions_path_editor_selected_point", None)
                 state.pop("_questions_path_selected_island_id", None)
                 _questions_path_render_world_editor(e.page, state, world_id)
@@ -19916,7 +19920,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         world["islands"] = islands
         _questions_path_save_world(state, world)
     state["questions_path_selected_world_id"] = world["id"]
-    state["questions_path_scene"] = "editor"
+    state["questions_path_scene"] = str(state.get("questions_path_scene") or "editor_islands")
 
     page_w, page_h = _page_size(page)
     sidebar_w = QUESTIONS_PATH_EDITOR_SIDEBAR_W if page_w >= 760 else max(240, min(QUESTIONS_PATH_EDITOR_SIDEBAR_W, int(page_w * 0.9)))
@@ -19993,9 +19997,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         state["_questions_path_selected_island_id"] = str(islands[0].get("id"))
 
     def back_to_owned(e):
-        state["questions_path_scene"] = "own"
+        state["questions_path_scene"] = "editor_islands"
         state.pop("_questions_path_editor_selected_point", None)
-        _questions_path_render_owned(e.page, state)
+        _questions_path_render_world_editor(e.page, state, world["id"])
 
     def set_zoom(new_zoom: float):
         state[zoom_key] = clamp_zoom(new_zoom)
@@ -20317,36 +20321,25 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         update_selection_ui()
 
     def selected_island_points() -> list[dict]:
-        island = selected_island()
-        if island is None:
-            return []
-        return list(island.get("points", []) or [])
+        return list(_questions_path_world_points(world) or [])
 
     def add_path_point(e):
-        island = selected_island()
-        if island is None:
-            show_editor_message("Bitte erst eine Insel auswaehlen.", "#B91C1C")
-            return
-        points = list(island.get("points", []) or [])
+        points = list(_questions_path_world_points(world) or [])
         points.append(_questions_path_default_point(len(points)))
-        island["points"] = points
         world["points"] = points
         state["_questions_path_editor_selected_point"] = len(points) - 1
         persist_world()
         render_again()
-        show_editor_message(f"Pfadpunkt zu '{island.get('name', 'Insel')}' hinzugefuegt.", "#166534")
+        show_editor_message("Pfadpunkt hinzugefuegt.", "#166534")
 
     def delete_path_point(e):
-        island = selected_island()
-        if island is None:
-            return
-        points = list(island.get("points", []) or [])
+        points = list(_questions_path_world_points(world) or [])
         if len(points) <= 1:
             return
         idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
         if 0 <= idx < len(points):
             points.pop(idx)
-            island["points"] = points
+            world["points"] = points
             persist_world()
             state["_questions_path_editor_selected_point"] = max(0, min(idx - 1, len(points) - 1))
             render_again()
@@ -20404,6 +20397,15 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             refresh_island_host(known_id, update_control=False)
         island_layer.update()
         update_selection_ui()
+
+    def open_island(island_id: str):
+        def _handler(e):
+            state["_questions_path_editor_selected_island_id"] = island_id
+            state["questions_path_scene"] = "editor_map"
+            state["_questions_path_editor_selected_point"] = 0
+            _questions_path_render_world_editor(e.page, state, world["id"])
+
+        return _handler
 
     def island_drag_start(island_id: str, e):
         state[island_drag_state_key(island_id)] = {
@@ -20491,6 +20493,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         except Exception:
             pass
 
+    scene = str(state.get("questions_path_scene") or "editor_islands")
+    if scene not in {"editor_islands", "editor_map"}:
+        scene = "editor_islands"
+
     def island_shape(island: dict, width: float, height: float, selected: bool) -> ft.Control:
         template = str(island.get("template", "circle"))
         cfg = _questions_path_editor_template_cfg(template, profile)
@@ -20524,7 +20530,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         island_hosts[island_id] = host
         host.content = ft.GestureDetector(
             drag_interval=0,
-            on_tap=lambda e, item_id=island_id: set_selected_island(item_id),
+            on_tap=lambda e, item_id=island_id: open_island(item_id),
             on_pan_start=lambda e, item_id=island_id: island_drag_start(item_id, e),
             on_pan_update=lambda e, item_id=island_id, item_host=host: move_island(item_id, e, item_host),
             on_pan_end=lambda e, item_id=island_id, item_host=host: island_drag_end(item_id, e, item_host),
@@ -20543,11 +20549,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             width=canvas_w,
             height=canvas_h,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            border=ft.border.Border.all(1, "#B9D5B3"),
+            border=ft.border.Border.all(1, "#B9D5B3") if scene == "editor_map" else ft.border.Border.all(1, "#D7DEE7"),
             content=ft.Stack(
                 [
-                    ft.Image(src=map_preview_src, fit=ft.BoxFit.COVER, expand=True),
-                    ft.Container(expand=True, bgcolor="#EAF4EA66"),
+                    ft.Image(src=map_preview_src if scene == "editor_map" else "", fit=ft.BoxFit.COVER, expand=True) if scene == "editor_map" else ft.Container(expand=True, bgcolor="#F3F4F6"),
                 ],
                 expand=True,
             ),
@@ -20631,6 +20636,273 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         on_change=on_island_scale_slider,
         expand=True,
     )
+
+    if scene == "editor_islands":
+        page.controls.clear()
+        page.add(
+            ft.Container(
+                expand=True,
+                bgcolor="#F3F5F7",
+                content=ft.Stack(
+                    [
+                        ft.Container(expand=True, bgcolor="#F3F5F7"),
+                        ft.Container(
+                            expand=True,
+                            alignment=ft.Alignment(0, 0),
+                            padding=16,
+                            content=ft.Container(
+                                width=min(1280, max(320, int(page_w - 24))),
+                                padding=ft.Padding(22, 20, 22, 20),
+                                border_radius=30,
+                                bgcolor="#FFFFFF",
+                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                shadow=ft.BoxShadow(blur_radius=28, color="#14000000", offset=ft.Offset(0, 10)),
+                                content=ft.Column(
+                                    [
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("← Eigenes Spiel", lambda e: _questions_path_render_owned(e.page, state), "#64748B", width=170, height=40),
+                                                ft.Text("Inselmenü", size=28, weight="bold", color="#2B2F36"),
+                                                _game_menu_button("+ Insel hinzufügen", create_island_dialog, theme["accent"], width=170, height=40),
+                                            ],
+                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        ),
+                                        ft.Container(height=8),
+                                        ft.Row(
+                                            [
+                                                ft.Container(
+                                                    expand=True,
+                                                    border_radius=24,
+                                                    padding=16,
+                                                    bgcolor="#FFFFFF",
+                                                    border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                    content=ft.Column(
+                                                        [
+                                                            ft.Text("Inseln", size=16, weight="bold", color="#111827", text_align="center"),
+                                                            ft.Text("Klicke eine Insel an, um den Map-Editor zu öffnen.", size=12, color="#6B7280", text_align="center"),
+                                                            ft.Container(height=8),
+                                                            ft.Container(
+                                                                width=canvas_w,
+                                                                height=canvas_h,
+                                                                border_radius=28,
+                                                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                                border=ft.border.Border.all(1.5, "#D1D5DB"),
+                                                                content=ft.Stack([canvas], expand=True),
+                                                            ),
+                                                        ],
+                                                        spacing=10,
+                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                    ),
+                                                ),
+                                                ft.Container(
+                                                    width=min(360, max(280, int(page_w * 0.28))),
+                                                    border_radius=24,
+                                                    padding=16,
+                                                    bgcolor="#FFFFFF",
+                                                    border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                    content=ft.Column(
+                                                        [
+                                                            ft.Text("Inseln", size=18, weight="bold", color="#111827", text_align="center"),
+                                                            ft.Text(f"Vorhanden: {len(islands)}", size=12, color="#6B7280", text_align="center"),
+                                                            ft.Text("Ziehe Inseln, um sie zu verschieben. Tippe eine Insel an, um den Map-Editor zu oeffnen.", size=12, color="#6B7280", text_align="center"),
+                                                            _game_menu_button("Eigene Insel hinzufuegen", open_custom_island_dialog, "#0EA5E9", width=min(240, max(180, int(page_w * 0.20))), height=38),
+                                                            ft.Text("Zoom", size=14, weight="bold", color="#111827"),
+                                                            zoom_slider,
+                                                            ft.Text("Auswahl", size=14, weight="bold", color="#111827"),
+                                                            selection_text,
+                                                            island_scale_slider,
+                                                            ft.Container(height=4),
+                                                            ft.Text("Map-Elemente", size=14, weight="bold", color="#111827"),
+                                                            ft.Container(
+                                                                content=ft.Row(image_tiles, wrap=True, spacing=8, run_spacing=8),
+                                                            ),
+                                                        ],
+                                                        spacing=8,
+                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                        scroll=ft.ScrollMode.AUTO,
+                                                    ),
+                                                ),
+                                            ],
+                                            spacing=14,
+                                            wrap=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.START,
+                                        ),
+                                    ],
+                                    spacing=12,
+                                    scroll=ft.ScrollMode.AUTO,
+                                ),
+                            ),
+                        ),
+                    ],
+                    expand=True,
+                ),
+            )
+        )
+        page.update()
+        page.run_task(_sync_bg_music_async, page, state)
+        return
+
+    if scene == "editor_map":
+        points = list(_questions_path_world_points(world) or [])
+        if not points:
+            points = [_questions_path_default_point(0)]
+            world["points"] = points
+            persist_world()
+        selected_point = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if selected_point >= len(points):
+            selected_point = max(0, len(points) - 1)
+        state["_questions_path_editor_selected_point"] = selected_point
+        point = points[selected_point]
+
+        def select_point(index: int):
+            state["_questions_path_editor_selected_point"] = max(0, min(index, len(points) - 1))
+            render_again()
+
+        def move_point(index: int, dx: float, dy: float):
+            if not (0 <= index < len(points)):
+                return
+            points[index]["x"] = _questions_path_clamp_pct(float(points[index].get("x", 50.0)) + dx * 0.08)
+            points[index]["y"] = _questions_path_clamp_pct(float(points[index].get("y", 50.0)) + dy * 0.08)
+            persist_world()
+            render_again()
+
+        def add_point(e):
+            points.append(_questions_path_default_point(len(points)))
+            world["points"] = points
+            state["_questions_path_editor_selected_point"] = len(points) - 1
+            persist_world()
+            render_again()
+
+        def delete_point(e):
+            if len(points) <= 1:
+                return
+            idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+            if 0 <= idx < len(points):
+                points.pop(idx)
+                world["points"] = points
+                persist_world()
+                state["_questions_path_editor_selected_point"] = max(0, min(idx - 1, len(points) - 1))
+                render_again()
+
+        def save_fields(e):
+            idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+            if not (0 <= idx < len(points)):
+                return
+            point = points[idx]
+            point["name"] = str(point_name_field.value or "").strip() or point.get("name", f"Punkt {idx + 1}")
+            point["question"] = str(question_field.value or "").strip()
+            point["answers"] = [str(field.value or "").strip() for field in answer_fields]
+            while len(point["answers"]) < 4:
+                point["answers"].append("")
+            point["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+            world["points"] = points
+            persist_world()
+            render_again()
+
+        point_name_field = ft.TextField(label="Punktname", value=point.get("name", ""), width=300)
+        question_field = ft.TextField(label="Frage", value=point.get("question", ""), width=300, min_lines=3, max_lines=6, multiline=True)
+        answers = list(point.get("answers", []) or [])
+        while len(answers) < 4:
+            answers.append("")
+        answer_fields = [ft.TextField(label=f"Antwort {ANSWER_LETTERS[i]}", value=answers[i], width=300) for i in range(4)]
+        correct_dropdown = ft.Dropdown(
+            label="Richtige Antwort",
+            value=str(point.get("correct", 0)),
+            width=220,
+            options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)],
+        )
+        map_editor_points = ft.Stack(
+            _questions_path_editor_point_stack(world, canvas_w, canvas_h, selected_point, select_point, move_point),
+            width=canvas_w,
+            height=canvas_h,
+        )
+        canvas.content = ft.Stack([map_background, map_editor_points], expand=True)
+        page.controls.clear()
+        page.add(
+            ft.Container(
+                expand=True,
+                bgcolor="#F3F5F7",
+                padding=14,
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                _game_menu_button("← Inselmenü", back_to_owned, "#64748B", width=150, height=38),
+                                ft.Text("Map-Editor", size=24, weight="bold", color="#20242A"),
+                                ft.Row(
+                                    [
+                                        _game_menu_button("Reset", reset_view, "#64748B", width=90, height=38),
+                                        _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=110, height=38),
+                                    ],
+                                    spacing=8,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        ft.Row(
+                            [
+                                ft.Container(
+                                    expand=True,
+                                    height=viewport_h,
+                                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                                    bgcolor="#EAF4EA",
+                                    border=ft.border.Border.all(1.5, "#C8D8D5"),
+                                    content=ft.Stack([canvas], expand=True),
+                                ),
+                                ft.Container(
+                                    width=sidebar_w,
+                                    height=viewport_h if not compact_layout else min(360, viewport_h),
+                                    bgcolor="#FFFFFF",
+                                    border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                    padding=14,
+                                    content=ft.Column(
+                                        [
+                                            ft.Text("Map-Editor", size=18, weight="bold", color="#111827"),
+                                            ft.Container(
+                                                height=130,
+                                                border_radius=14,
+                                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                border=ft.border.Border.all(1.2, "#D7DEE7"),
+                                                content=ft.Image(src=map_preview_src, fit=ft.BoxFit.COVER, expand=True),
+                                            ),
+                                            ft.Text("Punkte", size=14, weight="bold", color="#111827"),
+                                            ft.Text(f"{len(points)} Punkt(e)", size=12, color="#6B7280"),
+                                            ft.Row(
+                                                [
+                                                    _game_menu_button("-", lambda e: select_point(selected_point - 1), "#475569", width=48, height=36),
+                                                    ft.Container(width=72, alignment=ft.Alignment(0, 0), content=ft.Text(f"{selected_point + 1}/{len(points)}", size=13, weight="bold", color="#111827")),
+                                                    _game_menu_button("+", lambda e: select_point(selected_point + 1), "#475569", width=48, height=36),
+                                                ],
+                                                spacing=8,
+                                            ),
+                                            _game_menu_button("+ Pfadpunkt", add_point, theme["accent"], width=min(sidebar_w - 28, 180), height=38),
+                                            _game_menu_button("Punkt entfernen", delete_point, "#DC2626", width=150, height=38),
+                                            ft.Container(height=4),
+                                            ft.Text("Frage", size=14, weight="bold", color="#111827"),
+                                            point_name_field,
+                                            question_field,
+                                            ft.Text("Antworten", size=13, weight="bold", color="#111827"),
+                                            *answer_fields,
+                                            correct_dropdown,
+                                            _game_menu_button("Punkt speichern", save_fields, theme["success"], width=min(sidebar_w - 28, 180), height=38),
+                                        ],
+                                        spacing=10,
+                                        scroll=ft.ScrollMode.AUTO,
+                                    ),
+                                ),
+                            ],
+                            spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.START,
+                            wrap=compact_layout,
+                        ),
+                    ],
+                    spacing=12,
+                ),
+            )
+        )
+        page.update()
+        page.run_task(_sync_bg_music_async, page, state)
+        return
 
     points = list(selected_island_points() or [])
     if not points:
@@ -20727,7 +20999,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 padding=14,
                                 content=ft.Column(
                                     [
-                                        ft.Text("Map wechseln", size=18, weight="bold", color="#111827"),
+                                        ft.Text("Map-Editor", size=18, weight="bold", color="#111827"),
                                         ft.Container(
                                             height=130,
                                             border_radius=14,
