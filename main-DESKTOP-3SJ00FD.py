@@ -17149,7 +17149,7 @@ def _questions_path_default_world(index: int = 0, name: str | None = None) -> di
         "id": str(uuid.uuid4()),
         "name": name or f"Welt {index + 1}",
         "background_preset": preset["key"],
-        "background_image": None,
+        "background_image": "Fragenpfad/waldmap_1.png",
         "points": [],
         "islands": [],
     }
@@ -19890,6 +19890,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             persist_questions_path_profiles(state, profiles)
 
     islands = _questions_path_editor_normalize_islands(world, profile)
+    map_preview_src = _questions_path_world_preview_asset(world)
+
     if not islands:
         islands = [
             {
@@ -19987,14 +19989,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         _questions_path_render_owned(e.page, state)
 
     def set_zoom(new_zoom: float):
-        # Flet web exposes drag deltas reliably here; zoom is kept manual so dragging math stays deterministic.
-        old_zoom = zoom()
-        center_world_x = (-float(state.get(pan_x_key, pan_x) or 0.0) + viewport_w / 2.0) / old_zoom
-        center_world_y = (-float(state.get(pan_y_key, pan_y) or 0.0) + viewport_h / 2.0) / old_zoom
         state[zoom_key] = clamp_zoom(new_zoom)
-        new_pan_x = viewport_w / 2.0 - center_world_x * state[zoom_key]
-        new_pan_y = viewport_h / 2.0 - center_world_y * state[zoom_key]
-        state[pan_x_key], state[pan_y_key] = clamp_pan(new_pan_x, new_pan_y)
         sync_canvas_transform()
 
     def ctrl_wheel_zoom(e):
@@ -20157,6 +20152,84 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         overlay_ref[0] = dlg
         open_page_dialog(page, dlg)
 
+    def set_world_background(preset_key: str | None = None, image_src: str | None = None):
+        if preset_key:
+            world["background_preset"] = preset_key
+        if image_src is not None:
+            world["background_image"] = image_src or None
+        persist_world()
+        render_again()
+
+    def open_custom_map_dialog(e):
+        name_field = ft.TextField(label="Name der Map", value=world.get("name", "Eigene Map"), width=360, autofocus=True)
+        src_field = ft.TextField(
+            label="Bild-URL oder lokaler Pfad",
+            hint_text="assets/Fragenpfad/waldmap_1.png, https://... oder data:image/...",
+            width=360,
+        )
+        overlay_ref = [None]
+
+        def close_dialog():
+            overlay = overlay_ref[0]
+            if overlay is not None:
+                close_page_dialog(page, overlay)
+            elif getattr(page, "dialog", None):
+                close_page_dialog(page, page.dialog)
+
+        def add_custom_map(e):
+            raw_src = str(src_field.value or "").strip().replace("\\", "/")
+            if not raw_src:
+                show_editor_message("Bitte ein Hintergrundbild angeben.", "#B91C1C")
+                return
+            src_value = raw_src
+            if not raw_src.startswith(("data:", "http://", "https://")):
+                normalized_src = raw_src[7:] if raw_src.startswith("assets/") else raw_src
+                normalized_src = normalized_src.lstrip("/")
+                local_candidates = [Path(normalized_src), Path("assets", *normalized_src.split("/"))]
+                existing = next((candidate for candidate in local_candidates if candidate.exists()), None)
+                if existing is None:
+                    show_editor_message("Bild nicht gefunden. Nutze assets/... oder eine Bild-URL.", "#B91C1C")
+                    return
+                try:
+                    with open(existing, "rb") as f:
+                        file_bytes = f.read()
+                except Exception:
+                    file_bytes = None
+                if file_bytes:
+                    src_value = f"data:image/png;base64,{base64.b64encode(file_bytes).decode('ascii')}"
+                else:
+                    src_value = Path(normalized_src).as_posix()
+            world["name"] = str(name_field.value or "").strip() or world.get("name", "Eigene Map")
+            world["background_preset"] = "custom"
+            world["background_image"] = src_value
+            persist_world()
+            close_dialog()
+            render_again()
+            show_editor_message(f"Eigene Map '{world['name']}' hinzugefügt.", "#166534")
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Eigene Map hinzufügen"),
+            content=ft.Container(
+                width=420,
+                content=ft.Column(
+                    [
+                        name_field,
+                        src_field,
+                        ft.Text("Tipp: Für lokale Dateien einfach assets/... angeben.", size=11, color="#6B7280"),
+                    ],
+                    spacing=10,
+                    tight=True,
+                ),
+            ),
+            actions=[
+                ft.TextButton("Abbrechen", on_click=lambda e: close_dialog()),
+                ft.TextButton("Hinzufügen", on_click=add_custom_map),
+            ],
+        )
+        overlay_ref[0] = dlg
+        open_page_dialog(page, dlg)
+
     def scale_zoom_start(e):
         state["_qpe_scale_start_zoom"] = zoom()
 
@@ -20248,7 +20321,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         points = list(island.get("points", []) or [])
         points.append(_questions_path_default_point(len(points)))
         island["points"] = points
+        world["points"] = points
+        state["_questions_path_editor_selected_point"] = len(points) - 1
         persist_world()
+        render_again()
         show_editor_message(f"Pfadpunkt zu '{island.get('name', 'Insel')}' hinzugefuegt.", "#166534")
 
     def delete_path_point(e):
@@ -20457,8 +20533,15 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         content=ft.Container(
             width=canvas_w,
             height=canvas_h,
-            bgcolor="#EAF4EA",
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             border=ft.border.Border.all(1, "#B9D5B3"),
+            content=ft.Stack(
+                [
+                    ft.Image(src=map_preview_src, fit=ft.BoxFit.COVER, expand=True),
+                    ft.Container(expand=True, bgcolor="#EAF4EA66"),
+                ],
+                expand=True,
+            ),
         ),
     )
 
@@ -20635,9 +20718,23 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 padding=14,
                                 content=ft.Column(
                                     [
+                                        ft.Text("Map wechseln", size=18, weight="bold", color="#111827"),
+                                        ft.Container(
+                                            height=130,
+                                            border_radius=14,
+                                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                            border=ft.border.Border.all(1.2, "#D7DEE7"),
+                                            content=ft.Image(src=map_preview_src, fit=ft.BoxFit.COVER, expand=True),
+                                        ),
+                                        ft.Text("Vorgegebene Maps", size=14, weight="bold", color="#111827"),
+                                        _game_menu_button("Waldmap", lambda e: set_world_background("waldpfad", None), "#0F766E", width=min(sidebar_w - 28, 220), height=36),
+                                        _game_menu_button("Genussinsel", lambda e: set_world_background("stadtpfad", None), "#B45309", width=min(sidebar_w - 28, 220), height=36),
+                                        _game_menu_button("Meeresinsel", lambda e: set_world_background("himmelsroute", None), "#7C3AED", width=min(sidebar_w - 28, 220), height=36),
+                                        _game_menu_button("Eigene Map hinzufügen", open_custom_map_dialog, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
+                                        ft.Container(height=8),
                                         ft.Text("Inseln", size=18, weight="bold", color="#111827"),
                                         _game_menu_button("Eigene Insel hinzufügen", open_custom_island_dialog, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
-                                        ft.Text("Bild-Inseln", size=14, weight="bold", color="#111827"),
+                                        ft.Text("Map-Elemente", size=14, weight="bold", color="#111827"),
                                         ft.Container(
                                             content=ft.Row(image_tiles, wrap=True, spacing=8, run_spacing=8),
                                         ),
