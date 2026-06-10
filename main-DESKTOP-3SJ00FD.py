@@ -19527,10 +19527,12 @@ def _questions_path_normalize_custom_island_presets(raw_presets) -> list[dict]:
         raw = raw if isinstance(raw, dict) else {}
         src = str(raw.get("src") or "").strip().replace("\\", "/").lstrip("/")
         ext = os.path.splitext(src)[1].lower()
-        if not src or ext not in QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS:
+        if not src:
             continue
-        asset_path = os.path.join("assets", *src.split("/"))
-        if not os.path.exists(asset_path):
+        if not src.startswith("data:") and ext not in QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS:
+            continue
+        asset_path = os.path.join("assets", *src.split("/")) if not src.startswith("data:") else None
+        if asset_path and not os.path.exists(asset_path):
             continue
         normalized.append(
             {
@@ -19546,6 +19548,104 @@ def _questions_path_normalize_custom_island_presets(raw_presets) -> list[dict]:
             }
         )
     return normalized
+
+
+def _questions_path_island_mime_type(filename: str) -> str:
+    ext = os.path.splitext(str(filename or "").strip())[1].lower()
+    return {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(ext, "image/png")
+
+
+async def _questions_path_pick_custom_island_asset(page: ft.Page) -> dict | None:
+    picker = ft.FilePicker()
+    try:
+        if picker not in page.overlay:
+            page.overlay.append(picker)
+            page.update()
+    except Exception:
+        pass
+
+    extensions = [ext.lstrip(".") for ext in sorted(QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS)]
+    try:
+        pick_call = picker.pick_files(
+            dialog_title="Eigene Insel auswählen",
+            allow_multiple=False,
+            with_data=True,
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=extensions,
+        )
+    except TypeError:
+        try:
+            pick_call = picker.pick_files(
+                allow_multiple=False,
+                with_data=True,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=extensions,
+            )
+        except TypeError:
+            pick_call = picker.pick_files(
+                allow_multiple=False,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=extensions,
+            )
+    except Exception:
+        try:
+            if picker in page.overlay:
+                page.overlay.remove(picker)
+        except Exception:
+            pass
+        return None
+
+    picked_files = await pick_call if inspect.isawaitable(pick_call) else pick_call
+    picked_files = list(picked_files or [])
+    try:
+        if picker in page.overlay:
+            page.overlay.remove(picker)
+    except Exception:
+        pass
+    try:
+        page.update()
+    except Exception:
+        pass
+
+    if not picked_files:
+        return None
+
+    picked = picked_files[0]
+    original_name = str(getattr(picked, "name", "") or "").strip() or "custom_island.png"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS:
+        ext = ".png"
+    file_bytes = getattr(picked, "bytes", None)
+    if not file_bytes:
+        picked_path = str(getattr(picked, "path", "") or "")
+        if picked_path and os.path.exists(picked_path):
+            try:
+                with open(picked_path, "rb") as f:
+                    file_bytes = f.read()
+            except Exception:
+                file_bytes = None
+    if not file_bytes:
+        return None
+
+    label = Path(original_name).stem.replace("_", " ").replace("-", " ").strip() or "Eigene Insel"
+    data_url = f"data:{_questions_path_island_mime_type(original_name)};base64,{base64.b64encode(file_bytes).decode('ascii')}"
+    return {
+        "key": f"custom_island_{_sanitize_filename_part(label.lower())}_{int(time.time() * 1000)}",
+        "label": label.title(),
+        "type": "image",
+        "src": data_url,
+        "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+        "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
+        "fill": "#E5E7EB",
+        "outline": "#94A3B8",
+        "is_custom": True,
+    }
 
 
 def _questions_path_editor_asset_island_presets() -> list[dict]:
@@ -19706,6 +19806,23 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             persist_questions_path_profiles(state, profiles)
 
     islands = _questions_path_editor_normalize_islands(world, profile)
+    if not islands:
+        islands = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": str(world.get("name", "Welt 1")) or "Welt 1",
+                "template": _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES[0]["key"],
+                "type": "shape",
+                "src": "",
+                "x": 50.0,
+                "y": 50.0,
+                "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+                "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
+                "scale": DEFAULT_ISLAND_SCALE,
+            }
+        ]
+        world["islands"] = islands
+        _questions_path_save_world(state, world)
     state["questions_path_selected_world_id"] = world["id"]
     state["questions_path_scene"] = "editor"
 
@@ -19794,7 +19911,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         new_pan_x = viewport_w / 2.0 - center_world_x * state[zoom_key]
         new_pan_y = viewport_h / 2.0 - center_world_y * state[zoom_key]
         state[pan_x_key], state[pan_y_key] = clamp_pan(new_pan_x, new_pan_y)
-        render_again()
+        sync_canvas_transform()
 
     def ctrl_wheel_zoom(e):
         # Flet web does not expose a browser-native preventDefault hook here.
@@ -19825,9 +19942,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             float(state.get(pan_x_key, pan_x) or 0.0) - dx,
             float(state.get(pan_y_key, pan_y) or 0.0) - dy,
         )
-        canvas.left = state[pan_x_key]
-        canvas.top = state[pan_y_key]
-        canvas.update()
+        sync_canvas_transform()
 
     def editor_key_down(e):
         if str(getattr(e, "key", "") or "").lower() in {"control", "ctrl"} or bool(getattr(e, "ctrl", False)):
@@ -19859,6 +19974,24 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             show_editor_message("Keine Inselbilder in assets/islands gefunden.", "#B91C1C")
         render_again()
 
+    async def add_custom_island(e):
+        new_preset = await _questions_path_pick_custom_island_asset(e.page)
+        if not new_preset:
+            show_editor_message("Keine neue Insel ausgewählt.", "#B91C1C")
+            return
+        custom_presets = _questions_path_normalize_custom_island_presets(profile.get("custom_island_presets", []))
+        custom_presets.append(new_preset)
+        profile["custom_island_presets"] = custom_presets
+        profiles = list(get_questions_path_profiles(state))
+        idx = get_questions_path_profile_index(state)
+        if idx < len(profiles):
+            profiles[idx] = profile
+            state["questions_path_profiles"] = profiles
+            persist_questions_path_profiles(state, profiles)
+        add_island(new_preset["key"])
+        render_again()
+        show_editor_message(f"Eigene Insel '{new_preset['label']}' hinzugefuegt.", "#166534")
+
     def scale_zoom_start(e):
         state["_qpe_scale_start_zoom"] = zoom()
 
@@ -19876,7 +20009,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         state[zoom_key] = 1.0
         state[pan_x_key] = (viewport_w - canvas_w) / 2.0
         state[pan_y_key] = (viewport_h - canvas_h) / 2.0
-        render_again()
+        sync_canvas_transform()
 
     def pan_start(e):
         state[pan_drag_key] = {"position": _gesture_position_xy(e), "delta": _gesture_delta_xy(e)}
@@ -19906,9 +20039,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             float(state.get(pan_x_key, pan_x) or 0.0) + dx,
             float(state.get(pan_y_key, pan_y) or 0.0) + dy,
         )
-        canvas.left = state[pan_x_key]
-        canvas.top = state[pan_y_key]
-        canvas.update()
+        sync_canvas_transform()
 
     def pan_end(e):
         state.pop(pan_drag_key, None)
@@ -19938,14 +20069,36 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         island_layer.update()
         update_selection_ui()
 
+    def selected_island_points() -> list[dict]:
+        island = selected_island()
+        if island is None:
+            return []
+        points = list(island.get("points", []) or [])
+        if not points:
+            points = [_questions_path_default_point(0)]
+            island["points"] = points
+            persist_world()
+        return points
+
+    def add_path_point(e):
+        island = selected_island()
+        if island is None:
+            show_editor_message("Bitte erst eine Insel auswählen.", "#B91C1C")
+            return
+        points = list(island.get("points", []) or [])
+        points.append(_questions_path_default_point(len(points)))
+        island["points"] = points
+        persist_world()
+        show_editor_message(f"Pfadpunkt zu '{island.get('name', 'Insel')}' hinzugefügt.", "#166534")
+
     def island_pixel_bounds(island: dict) -> tuple[float, float, float, float]:
         base_width = max(40.0, float(island.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH))
         base_height = max(40.0, float(island.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT))
         island_scale = max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)))
-        width = base_width * island_scale * current_zoom
-        height = base_height * island_scale * current_zoom
-        left = canvas_w * float(island.get("x", 50.0)) / 100.0 * current_zoom - width / 2.0
-        top = canvas_h * float(island.get("y", 50.0)) / 100.0 * current_zoom - height / 2.0
+        width = base_width * island_scale
+        height = base_height * island_scale
+        left = canvas_w * float(island.get("x", 50.0)) / 100.0 - width / 2.0
+        top = canvas_h * float(island.get("y", 50.0)) / 100.0 - height / 2.0
         return left, top, width, height
 
     def island_drag_state_key(island_id: str) -> str:
@@ -20018,6 +20171,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             return
         island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + ((dx / zoom()) / canvas_w) * 100.0)
         island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + ((dy / zoom()) / canvas_h) * 100.0)
+        now = time.time()
+        if now - float(drag_info.get("last_update", 0.0) or 0.0) < 1 / 30:
+            return
+        drag_info["last_update"] = now
         host.left, host.top, host.width, host.height = island_pixel_bounds(island)
         host.update()
 
@@ -20054,6 +20211,15 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         refresh_island_host(str(island.get("id")))
         persist_world()
         update_selection_ui()
+
+    def sync_canvas_transform():
+        canvas.left = state[pan_x_key]
+        canvas.top = state[pan_y_key]
+        canvas.scale = zoom()
+        try:
+            canvas.update()
+        except Exception:
+            pass
 
     def island_shape(island: dict, width: float, height: float, selected: bool) -> ft.Control:
         template = str(island.get("template", "circle"))
@@ -20104,8 +20270,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         on_pan_end=pan_end,
         on_scroll=scroll_pan_map,
         content=ft.Container(
-            width=display_w,
-            height=display_h,
+            width=canvas_w,
+            height=canvas_h,
             bgcolor="#EAF4EA",
             border=ft.border.Border.all(1, "#B9D5B3"),
         ),
@@ -20113,17 +20279,19 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     island_layer = ft.Stack(
         [island_control(island) for island in islands],
-        width=display_w,
-        height=display_h,
+        width=canvas_w,
+        height=canvas_h,
     )
 
     canvas = ft.Container(
         left=pan_x,
         top=pan_y,
-        width=display_w,
-        height=display_h,
+        width=canvas_w,
+        height=canvas_h,
+        scale=current_zoom,
         content=ft.Stack([map_background, island_layer], expand=True),
     )
+    sync_canvas_transform()
 
     image_presets = [template for template in editor_presets() if template.get("type") == "image"]
 
@@ -20163,7 +20331,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                     ft.Row(
                         [
                             _game_menu_button("Zuruck", back_to_owned, "#64748B", width=130, height=38),
-                            ft.Text("QuestMapper Editor", size=24, weight="bold", color="#20242A"),
+                            ft.Text("Inselmenü", size=24, weight="bold", color="#20242A"),
                             ft.Row(
                                 [
                                     _game_menu_button("Reset", reset_view, "#64748B", width=90, height=38),
@@ -20204,7 +20372,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 content=ft.Column(
                                     [
                                         ft.Text("Inseln", size=18, weight="bold", color="#111827"),
-                                        _game_menu_button("Inselordner aktualisieren", refresh_island_folder, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
+                                        _game_menu_button("Eigene Insel hinzufügen", lambda e: page.run_task(add_custom_island, e), "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
                                         ft.Text("Bild-Inseln", size=14, weight="bold", color="#111827"),
                                         ft.Container(
                                             content=ft.Row(image_tiles, wrap=True, spacing=8, run_spacing=8),
@@ -20230,6 +20398,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                             ],
                                             spacing=8,
                                         ),
+                                        ft.Container(height=4),
+                                        ft.Text("Pfade", size=14, weight="bold", color="#111827"),
+                                        ft.Text(f"{len(selected_island_points())} Pfadpunkt(e)", size=12, color="#6B7280"),
+                                        _game_menu_button("+ Pfadpunkt", add_path_point, theme["accent"], width=min(sidebar_w - 28, 180), height=38),
                                         _game_menu_button("Loschen", delete_selected, "#DC2626", width=150, height=38),
                                     ],
                                     spacing=10,
