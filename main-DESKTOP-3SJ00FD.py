@@ -17813,7 +17813,13 @@ def _questions_path_render_owned(page: ft.Page, state: dict):
             return lambda e: start_questions_path_game(e.page, state, world_id)
 
         def _edit(world_id=world["id"]):
-            return lambda e: _questions_path_render_world_editor(e.page, state, world_id)
+            def _handler(e):
+                state["questions_path_scene"] = "editor"
+                state.pop("_questions_path_editor_selected_point", None)
+                state.pop("_questions_path_selected_island_id", None)
+                _questions_path_render_world_editor(e.page, state, world_id)
+
+            return _handler
 
         def _delete(world_id=world["id"], world_name=world.get("name", "Welt")):
             def _handler(e):
@@ -19983,9 +19989,12 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     display_w, display_h = display_size()
     island_by_id = {str(island.get("id")): island for island in islands}
     island_hosts: dict[str, ft.Container] = {}
+    if islands and str(state.get("_questions_path_selected_island_id") or "") not in island_by_id:
+        state["_questions_path_selected_island_id"] = str(islands[0].get("id"))
 
     def back_to_owned(e):
         state["questions_path_scene"] = "own"
+        state.pop("_questions_path_editor_selected_point", None)
         _questions_path_render_owned(e.page, state)
 
     def set_zoom(new_zoom: float):
@@ -20678,7 +20687,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                     ft.Row(
                         [
                             _game_menu_button("Zuruck", back_to_owned, "#64748B", width=130, height=38),
-                            ft.Text("Inselmenü", size=24, weight="bold", color="#20242A"),
+                            ft.Text("Map-Editor", size=24, weight="bold", color="#20242A"),
                             ft.Row(
                                 [
                                     _game_menu_button("Reset", reset_view, "#64748B", width=90, height=38),
