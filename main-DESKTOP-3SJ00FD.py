@@ -20692,7 +20692,11 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         )
         return host
 
-    background_src = _questions_path_island_hub_asset() if scene == "editor_islands" else map_preview_src
+    island_background = (
+        ft.Container(expand=True, bgcolor="#DDEFD3")
+        if scene == "editor_islands"
+        else ft.Image(src=map_preview_src, fit=ft.BoxFit.COVER, expand=True)
+    )
     map_background = ft.GestureDetector(
         drag_interval=16,
         on_pan_start=pan_start,
@@ -20706,7 +20710,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             border=ft.border.Border.all(1, "#B9D5B3") if scene == "editor_map" else ft.border.Border.all(1, "#D7DEE7"),
             content=ft.Stack(
                 [
-                    ft.Image(src=background_src, fit=ft.BoxFit.COVER, expand=True),
+                    island_background,
                 ],
                 expand=True,
             ),
