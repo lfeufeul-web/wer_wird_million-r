@@ -20746,8 +20746,37 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
 
     def add_path_point(e):
         new_point = _questions_path_default_point(len(points))
-        new_point["x"] = 50.0
-        new_point["y"] = 50.0
+        # Spread new points around the center so they are always visible,
+        # even when there is already a point at the middle.
+        candidate_offsets = [
+            (0.0, 0.0),
+            (8.0, 0.0),
+            (-8.0, 0.0),
+            (0.0, 8.0),
+            (0.0, -8.0),
+            (8.0, 8.0),
+            (-8.0, 8.0),
+            (8.0, -8.0),
+            (-8.0, -8.0),
+            (16.0, 0.0),
+            (-16.0, 0.0),
+            (0.0, 16.0),
+            (0.0, -16.0),
+        ]
+        existing_positions = {
+            (round(float(point.get("x", 50.0)), 1), round(float(point.get("y", 50.0)), 1))
+            for point in points
+        }
+        for dx, dy in candidate_offsets:
+            candidate_x = _questions_path_clamp_pct(50.0 + dx)
+            candidate_y = _questions_path_clamp_pct(50.0 + dy)
+            if (round(candidate_x, 1), round(candidate_y, 1)) not in existing_positions:
+                new_point["x"] = candidate_x
+                new_point["y"] = candidate_y
+                break
+        else:
+            new_point["x"] = _questions_path_clamp_pct(50.0 + (len(points) % 5) * 6.0)
+            new_point["y"] = _questions_path_clamp_pct(50.0 + (len(points) % 3) * 6.0)
         points.append(new_point)
         state["_questions_path_editor_selected_point"] = len(points) - 1
         persist_points()
