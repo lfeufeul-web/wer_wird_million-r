@@ -8,6 +8,8 @@ services:
     envVars:
       - key: APP_NAME
         value: Wer wird Millionär
+      - key: APP_BASE_URL
+        value: https://wer-wird-million-r-eo5q.onrender.com
       - key: QUESTMAPPER_WEB_URL
         value: https://questmapper-web.onrender.com
       - key: SMTP_HOST
@@ -24,6 +26,10 @@ services:
         value: "true"
       - key: SMTP_SSL
         value: "false"
+      - key: FIREBASE_WEB_API_KEY
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
   - type: web
     runtime: static
     name: questmapper-web

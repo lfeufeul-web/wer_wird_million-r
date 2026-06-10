@@ -20824,23 +20824,35 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
     def point_control(point_index: int, point: dict) -> ft.Control:
         left, top, width, height = point_pixel_bounds(point)
         selected = point_index == int(state.get("_questions_path_editor_selected_point", -1) or -1)
+        marker_size = 24 if selected else 20
+        marker_color = "#38BDF8" if selected else "#2563EB"
         host = ft.Container(left=left, top=top, width=width, height=height)
-        host.content = ft.GestureDetector(
-            drag_interval=16,
-            on_tap=lambda e, idx=point_index: open_point_dialog(idx),
-            on_pan_start=lambda e, idx=point_index: point_drag_start(idx, e),
-            on_pan_update=lambda e, idx=point_index, item_host=host: move_point(idx, e, item_host),
-            on_pan_end=lambda e, idx=point_index: point_drag_end(idx, e),
-            content=ft.Container(
-                width=width,
-                height=height,
-                border_radius=999,
-                bgcolor="#2563EB",
-                border=ft.border.Border.all(3 if selected else 2, "#DBEAFE" if selected else "#93C5FD"),
-                alignment=ft.Alignment(0, 0),
-                shadow=ft.BoxShadow(blur_radius=14, color="#332563EB", offset=ft.Offset(0, 3)),
-                content=ft.Text(str(point_index + 1), size=12, weight="bold", color="white"),
-            ),
+        host.content = ft.Stack(
+            [
+                ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Container(
+                        width=marker_size,
+                        height=marker_size,
+                        shape=ft.BoxShape.CIRCLE,
+                        bgcolor=marker_color,
+                        border=ft.border.Border.all(3 if selected else 2, "#FFFFFF" if selected else "#BFDBFE"),
+                        shadow=ft.BoxShadow(blur_radius=16 if selected else 10, color="#552563EB", offset=ft.Offset(0, 3)),
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Text(str(point_index + 1), size=10, weight="bold", color="white"),
+                    ),
+                ),
+                ft.GestureDetector(
+                    drag_interval=16,
+                    on_tap=lambda e, idx=point_index: open_point_dialog(idx),
+                    on_pan_start=lambda e, idx=point_index: point_drag_start(idx, e),
+                    on_pan_update=lambda e, idx=point_index, item_host=host: move_point(idx, e, item_host),
+                    on_pan_end=lambda e, idx=point_index: point_drag_end(idx, e),
+                    content=ft.Container(expand=True, bgcolor="#00000000"),
+                ),
+            ],
+            expand=True,
         )
         return host
 
