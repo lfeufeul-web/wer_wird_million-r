@@ -19896,8 +19896,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             persist_questions_path_profiles(state, profiles)
 
     islands = _questions_path_editor_normalize_islands(world, profile)
-    map_preview_src = _questions_path_world_preview_asset(world)
-
     if not islands:
         islands = [
             {
@@ -19989,13 +19987,19 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     display_w, display_h = display_size()
     island_by_id = {str(island.get("id")): island for island in islands}
     island_hosts: dict[str, ft.Container] = {}
-    if islands and str(state.get("_questions_path_selected_island_id") or "") not in island_by_id:
-        state["_questions_path_selected_island_id"] = str(islands[0].get("id"))
+    if islands and str(state.get("_questions_path_editor_selected_island_id") or "") not in island_by_id:
+        state["_questions_path_editor_selected_island_id"] = str(islands[0].get("id"))
 
     def back_to_owned(e):
         state["questions_path_scene"] = "own"
         state.pop("_questions_path_editor_selected_point", None)
+        state.pop("_questions_path_editor_selected_island_id", None)
         _questions_path_render_owned(e.page, state)
+
+    def open_island_map_editor(island_id: str):
+        state["_questions_path_editor_selected_island_id"] = island_id
+        state["questions_path_scene"] = "editor_map"
+        _questions_path_render_island_map_editor(page, state, world["id"], island_id)
 
     def set_zoom(new_zoom: float):
         state[zoom_key] = clamp_zoom(new_zoom)
@@ -20316,41 +20320,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         island_layer.update()
         update_selection_ui()
 
-    def selected_island_points() -> list[dict]:
-        island = selected_island()
-        if island is None:
-            return []
-        return list(island.get("points", []) or [])
-
-    def add_path_point(e):
-        island = selected_island()
-        if island is None:
-            show_editor_message("Bitte erst eine Insel auswaehlen.", "#B91C1C")
-            return
-        points = list(island.get("points", []) or [])
-        points.append(_questions_path_default_point(len(points)))
-        island["points"] = points
-        world["points"] = points
-        state["_questions_path_editor_selected_point"] = len(points) - 1
-        persist_world()
-        render_again()
-        show_editor_message(f"Pfadpunkt zu '{island.get('name', 'Insel')}' hinzugefuegt.", "#166534")
-
-    def delete_path_point(e):
-        island = selected_island()
-        if island is None:
-            return
-        points = list(island.get("points", []) or [])
-        if len(points) <= 1:
-            return
-        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
-        if 0 <= idx < len(points):
-            points.pop(idx)
-            island["points"] = points
-            persist_world()
-            state["_questions_path_editor_selected_point"] = max(0, min(idx - 1, len(points) - 1))
-            render_again()
-
     def island_pixel_bounds(island: dict) -> tuple[float, float, float, float]:
         base_width = max(40.0, float(island.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH))
         base_height = max(40.0, float(island.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT))
@@ -20524,7 +20493,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         island_hosts[island_id] = host
         host.content = ft.GestureDetector(
             drag_interval=0,
-            on_tap=lambda e, item_id=island_id: set_selected_island(item_id),
+            on_tap=lambda e, item_id=island_id: open_island_map_editor(item_id),
             on_pan_start=lambda e, item_id=island_id: island_drag_start(item_id, e),
             on_pan_update=lambda e, item_id=island_id, item_host=host: move_island(item_id, e, item_host),
             on_pan_end=lambda e, item_id=island_id, item_host=host: island_drag_end(item_id, e, item_host),
@@ -20543,13 +20512,17 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             width=canvas_w,
             height=canvas_h,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            border=ft.border.Border.all(1, "#B9D5B3"),
-            content=ft.Stack(
-                [
-                    ft.Image(src=map_preview_src, fit=ft.BoxFit.COVER, expand=True),
-                    ft.Container(expand=True, bgcolor="#EAF4EA66"),
-                ],
+            bgcolor="#FFFFFF",
+            border=ft.border.Border.all(1.5, "#D7DEE7"),
+            content=ft.Container(
                 expand=True,
+                alignment=ft.Alignment(0, 0),
+                content=ft.Text(
+                    "Klicke eine Insel an, um ihren Map-Editor zu oeffnen.",
+                    size=16,
+                    color="#6B7280",
+                    text_align=ft.TextAlign.CENTER,
+                ),
             ),
         ),
     )
@@ -20632,50 +20605,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         expand=True,
     )
 
-    points = list(selected_island_points() or [])
-    if not points:
-        points = [_questions_path_default_point(0)]
-        current_island = selected_island()
-        if current_island is not None:
-            current_island["points"] = points
-
-    selected_point = int(state.get("_questions_path_editor_selected_point", 0) or 0)
-    if selected_point >= len(points):
-        selected_point = max(0, len(points) - 1)
-    state["_questions_path_editor_selected_point"] = selected_point
-    point = points[selected_point]
-
-    def select_point(index: int):
-        state["_questions_path_editor_selected_point"] = max(0, min(index, len(points) - 1))
-        render_again()
-
-    def save_point_fields(e):
-        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
-        if not (0 <= idx < len(points)):
-            return
-        current = points[idx]
-        current["name"] = str(point_name_field.value or "").strip() or current.get("name", f"Punkt {idx + 1}")
-        current["question"] = str(question_field.value or "").strip()
-        current["answers"] = [str(field.value or "").strip() for field in answer_fields]
-        while len(current["answers"]) < 4:
-            current["answers"].append("")
-        current["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
-        current_island = selected_island()
-        if current_island is not None:
-            current_island["points"] = points
-        persist_world()
-        render_again()
-
-    point_name_field = ft.TextField(label="Punktname", value=point.get("name", ""), width=300)
-    question_field = ft.TextField(label="Frage", value=point.get("question", ""), width=300, min_lines=3, max_lines=6, multiline=True)
-    answer_fields = []
-    answers = list(point.get("answers", []) or [])
-    while len(answers) < 4:
-        answers.append("")
-    for idx in range(4):
-        answer_fields.append(ft.TextField(label=f"Antwort {ANSWER_LETTERS[idx]}", value=answers[idx], width=300))
-    correct_dropdown = ft.Dropdown(label="Richtige Antwort", value=str(point.get("correct", 0)), width=220, options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)])
-
     page.controls.clear()
     page.add(
         ft.Container(
@@ -20687,7 +20616,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                     ft.Row(
                         [
                             _game_menu_button("Zuruck", back_to_owned, "#64748B", width=130, height=38),
-                            ft.Text("Map-Editor", size=24, weight="bold", color="#20242A"),
+                            ft.Text("Inselmenue", size=24, weight="bold", color="#20242A"),
                             ft.Row(
                                 [
                                     _game_menu_button("Reset", reset_view, "#64748B", width=90, height=38),
@@ -20704,8 +20633,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 expand=True,
                                 height=viewport_h,
                                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                                bgcolor="#EAF4EA",
-                                border=ft.border.Border.all(1.5, "#C8D8C5"),
+                                bgcolor="#FFFFFF",
+                                border=ft.border.Border.all(1.5, "#D7DEE7"),
                                 content=ft.KeyboardListener(
                                     autofocus=True,
                                     on_key_down=editor_key_down,
@@ -20727,21 +20656,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                 padding=14,
                                 content=ft.Column(
                                     [
-                                        ft.Text("Map wechseln", size=18, weight="bold", color="#111827"),
-                                        ft.Container(
-                                            height=130,
-                                            border_radius=14,
-                                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                            border=ft.border.Border.all(1.2, "#D7DEE7"),
-                                            content=ft.Image(src=map_preview_src, fit=ft.BoxFit.COVER, expand=True),
-                                        ),
-                                        ft.Text("Vorgegebene Maps", size=14, weight="bold", color="#111827"),
-                                        _game_menu_button("Waldmap", lambda e: set_world_background("waldpfad", None), "#0F766E", width=min(sidebar_w - 28, 220), height=36),
-                                        _game_menu_button("Genussinsel", lambda e: set_world_background("stadtpfad", None), "#B45309", width=min(sidebar_w - 28, 220), height=36),
-                                        _game_menu_button("Meeresinsel", lambda e: set_world_background("himmelsroute", None), "#7C3AED", width=min(sidebar_w - 28, 220), height=36),
-                                        _game_menu_button("Eigene Map hinzufügen", open_custom_map_dialog, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
-                                        ft.Container(height=8),
                                         ft.Text("Inseln", size=18, weight="bold", color="#111827"),
+                                        ft.Text(world.get("name", "Welt"), size=12, color="#6B7280"),
+                                        ft.Text("Tippe eine Insel an, um den getrennten Map-Editor zu oeffnen.", size=11, color="#6B7280"),
                                         _game_menu_button("Eigene Insel hinzufügen", open_custom_island_dialog, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
                                         ft.Text("Map-Elemente", size=14, weight="bold", color="#111827"),
                                         ft.Container(
@@ -20755,27 +20672,322 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                         selection_text,
                                         island_scale_slider,
                                         ft.Container(height=4),
-                                        ft.Text("Pfade", size=14, weight="bold", color="#111827"),
-                                        ft.Text(f"{len(selected_island_points())} Pfadpunkt(e)", size=12, color="#6B7280"),
-                                        ft.Row(
-                                            [
-                                                _game_menu_button("-", lambda e: select_point(selected_point - 1), "#475569", width=48, height=36),
-                                                ft.Container(width=72, alignment=ft.Alignment(0, 0), content=ft.Text(f"{selected_point + 1}/{len(points)}", size=13, weight="bold", color="#111827")),
-                                                _game_menu_button("+", lambda e: select_point(selected_point + 1), "#475569", width=48, height=36),
-                                            ],
-                                            spacing=8,
-                                        ),
-                                        _game_menu_button("+ Pfadpunkt", add_path_point, theme["accent"], width=min(sidebar_w - 28, 180), height=38),
                                         _game_menu_button("Loschen", delete_selected, "#DC2626", width=150, height=38),
-                                        ft.Container(height=4),
-                                        ft.Text("Frage", size=14, weight="bold", color="#111827"),
-                                        point_name_field,
-                                        question_field,
-                                        ft.Text("Antworten", size=13, weight="bold", color="#111827"),
-                                        *answer_fields,
-                                        correct_dropdown,
-                                        _game_menu_button("Punkt speichern", save_point_fields, theme["success"], width=min(sidebar_w - 28, 180), height=38),
-                                        _game_menu_button("Punkt loeschen", delete_path_point, "#DC2626", width=min(sidebar_w - 28, 180), height=38),
+                                    ],
+                                    spacing=10,
+                                    scroll=ft.ScrollMode.AUTO,
+                                ),
+                            ),
+                        ],
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                        wrap=compact_layout,
+                    ),
+                ],
+                spacing=12,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_id: str | None, island_id: str | None):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    worlds = list(profile.get("worlds", []) or [])
+    world = next((entry for entry in worlds if str(entry.get("id")) == str(world_id)), None)
+    if world is None:
+        _questions_path_render_owned(page, state)
+        return
+
+    islands = _questions_path_editor_normalize_islands(world, profile)
+    world["islands"] = islands
+    island = next((entry for entry in islands if str(entry.get("id")) == str(island_id)), None)
+    if island is None:
+        island = islands[0] if islands else None
+    if island is None:
+        _questions_path_render_world_editor(page, state, world["id"])
+        return
+
+    def normalize_map_src(raw_src: str) -> str:
+        src = str(raw_src or "").strip().replace("\\", "/")
+        lower_src = src.lower()
+        if "/assets/" in lower_src:
+            src = src[lower_src.index("/assets/") + len("/assets/"):]
+        elif lower_src.startswith("assets/"):
+            src = src[7:]
+        if src.startswith(("data:", "http://", "https://")):
+            return src
+        if src and (os.path.exists(src) or os.path.exists(os.path.join("assets", src))):
+            return src
+        return "Fragenpfad/waldmap_1.png"
+
+    state["questions_path_scene"] = "editor_map"
+    state["questions_path_selected_world_id"] = world["id"]
+    state["_questions_path_editor_selected_island_id"] = str(island.get("id"))
+    map_src = normalize_map_src(world.get("background_image") or "Fragenpfad/waldmap_1.png")
+    points = list(island.get("points", []) or [])
+    island["points"] = points
+    world["points"] = [dict(point) for point in points]
+
+    page_w, page_h = _page_size(page)
+    sidebar_w = 320 if page_w >= 960 else max(250, min(320, int(page_w * 0.9)))
+    viewport_h = max(420, int(page_h - 92))
+    canvas_w, canvas_h = QUESTIONS_PATH_EDITOR_CANVAS_W, QUESTIONS_PATH_EDITOR_CANVAS_H
+    compact_layout = page_w < 980
+    drag_key_prefix = f"_qpe_point_drag_{world['id']}_{island['id']}_"
+
+    def persist_points():
+        island["points"] = points
+        world["points"] = [dict(point) for point in points]
+        _questions_path_save_world(state, world)
+
+    def render_again():
+        _questions_path_render_island_map_editor(page, state, world["id"], str(island.get("id")))
+
+    def back_to_islands(e):
+        state["questions_path_scene"] = "editor"
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def show_editor_message(message: str, color: str | None = None):
+        page.snack_bar = ft.SnackBar(content=ft.Text(message), bgcolor=color)
+        page.snack_bar.open = True
+        page.update()
+
+    def point_pixel_bounds(point: dict) -> tuple[float, float, float, float]:
+        size = 28.0
+        left = (canvas_w * float(point.get("x", 50.0)) / 100.0) - size / 2.0
+        top = (canvas_h * float(point.get("y", 50.0)) / 100.0) - size / 2.0
+        return left, top, size, size
+
+    def open_point_dialog(point_index: int):
+        if not (0 <= point_index < len(points)):
+            return
+        point = points[point_index]
+        point_name_field = ft.TextField(label="Punktname", value=str(point.get("name", "")), width=360, autofocus=True)
+        question_field = ft.TextField(label="Frage", value=str(point.get("question", "")), width=360, min_lines=3, max_lines=6, multiline=True)
+        answer_values = _questions_path_normalize_answers(point.get("answers", []))
+        answer_fields = [ft.TextField(label=f"Antwort {ANSWER_LETTERS[idx]}", value=answer_values[idx], width=360) for idx in range(4)]
+        correct_dropdown = ft.Dropdown(
+            label="Richtige Antwort",
+            value=str(point.get("correct", 0)),
+            width=220,
+            options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)],
+        )
+        dialog_ref = [None]
+
+        def close_dialog():
+            dialog = dialog_ref[0]
+            if dialog is not None:
+                close_page_dialog(page, dialog)
+
+        def save_point(e):
+            point["name"] = str(point_name_field.value or "").strip() or f"Punkt {point_index + 1}"
+            point["question"] = str(question_field.value or "").strip()
+            point["answers"] = [str(field.value or "").strip() for field in answer_fields]
+            while len(point["answers"]) < 4:
+                point["answers"].append("")
+            point["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+            persist_points()
+            close_dialog()
+            render_again()
+
+        def delete_point(e):
+            if 0 <= point_index < len(points):
+                points.pop(point_index)
+                state["_questions_path_editor_selected_point"] = max(0, min(point_index - 1, len(points) - 1))
+                persist_points()
+            close_dialog()
+            render_again()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Pfadpunkt {point_index + 1} bearbeiten"),
+            content=ft.Container(
+                width=420,
+                content=ft.Column(
+                    [point_name_field, question_field, ft.Text("Antworten", size=13, weight="bold", color="#111827"), *answer_fields, correct_dropdown],
+                    spacing=10,
+                    tight=True,
+                ),
+            ),
+            actions=[
+                ft.TextButton("Loeschen", on_click=delete_point),
+                ft.TextButton("Abbrechen", on_click=lambda e: close_dialog()),
+                ft.TextButton("Speichern", on_click=save_point),
+            ],
+        )
+        dialog_ref[0] = dialog
+        open_page_dialog(page, dialog)
+
+    def add_path_point(e):
+        new_point = _questions_path_default_point(len(points))
+        if points:
+            new_point["x"] = min(90.0, float(points[-1].get("x", 50.0)) + 8.0)
+            new_point["y"] = float(points[-1].get("y", 50.0))
+        else:
+            new_point["x"] = 12.0
+            new_point["y"] = 52.0
+        points.append(new_point)
+        state["_questions_path_editor_selected_point"] = len(points) - 1
+        persist_points()
+        render_again()
+        show_editor_message("Pfadpunkt hinzugefuegt.", "#166534")
+
+    def point_drag_start(point_index: int, e):
+        state[f"{drag_key_prefix}{point_index}"] = {"position": _gesture_position_xy(e), "delta": _gesture_delta_xy(e)}
+        state["_questions_path_editor_selected_point"] = point_index
+
+    def move_point(point_index: int, e, host: ft.Container):
+        if not (0 <= point_index < len(points)):
+            return
+        drag_key = f"{drag_key_prefix}{point_index}"
+        drag_info = state.get(drag_key)
+        if not isinstance(drag_info, dict):
+            drag_info = {"position": None, "delta": (0.0, 0.0)}
+            state[drag_key] = drag_info
+        position = _gesture_position_xy(e)
+        if position is not None and drag_info.get("position") is not None:
+            previous = drag_info.get("position")
+            dx = float(position[0]) - float(previous[0])
+            dy = float(position[1]) - float(previous[1])
+            drag_info["position"] = position
+        else:
+            delta = _gesture_delta_xy(e)
+            previous_delta = drag_info.get("delta") or (0.0, 0.0)
+            dx = float(delta[0]) - float(previous_delta[0])
+            dy = float(delta[1]) - float(previous_delta[1])
+            drag_info["delta"] = delta
+            if position is not None:
+                drag_info["position"] = position
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+        point = points[point_index]
+        point["x"] = _questions_path_clamp_pct(float(point.get("x", 50.0)) + (dx / canvas_w) * 100.0)
+        point["y"] = _questions_path_clamp_pct(float(point.get("y", 50.0)) + (dy / canvas_h) * 100.0)
+        host.left, host.top, host.width, host.height = point_pixel_bounds(point)
+        host.update()
+
+    def point_drag_end(point_index: int, e):
+        state.pop(f"{drag_key_prefix}{point_index}", None)
+        persist_points()
+
+    def point_control(point_index: int, point: dict) -> ft.Control:
+        left, top, width, height = point_pixel_bounds(point)
+        selected = point_index == int(state.get("_questions_path_editor_selected_point", -1) or -1)
+        host = ft.Container(left=left, top=top, width=width, height=height)
+        host.content = ft.GestureDetector(
+            drag_interval=0,
+            on_tap=lambda e, idx=point_index: open_point_dialog(idx),
+            on_pan_start=lambda e, idx=point_index: point_drag_start(idx, e),
+            on_pan_update=lambda e, idx=point_index, item_host=host: move_point(idx, e, item_host),
+            on_pan_end=lambda e, idx=point_index: point_drag_end(idx, e),
+            content=ft.Container(
+                width=width,
+                height=height,
+                border_radius=999,
+                bgcolor="#2563EB",
+                border=ft.border.Border.all(3 if selected else 2, "#DBEAFE" if selected else "#93C5FD"),
+                alignment=ft.Alignment(0, 0),
+                shadow=ft.BoxShadow(blur_radius=14, color="#332563EB", offset=ft.Offset(0, 3)),
+                content=ft.Text(str(point_index + 1), size=12, weight="bold", color="white"),
+            ),
+        )
+        return host
+
+    point_list_controls = []
+    for idx, point in enumerate(points):
+        point_name = str(point.get("name", f"Punkt {idx + 1}")).strip() or f"Punkt {idx + 1}"
+        point_list_controls.append(
+            ft.Container(
+                border_radius=14,
+                bgcolor="#F8FAFC",
+                border=ft.border.Border.all(1.2, "#D7DEE7"),
+                padding=10,
+                content=ft.Row(
+                    [
+                        ft.Text(point_name, size=13, weight="bold", color="#111827", expand=True),
+                        _game_menu_button("Bearbeiten", lambda e, point_idx=idx: open_point_dialog(point_idx), "#475569", width=110, height=34),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+            )
+        )
+
+    map_stack = ft.Stack(
+        [
+            ft.Container(
+                width=canvas_w,
+                height=canvas_h,
+                border_radius=18,
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                border=ft.border.Border.all(1.5, "#D7DEE7"),
+                content=ft.Image(src=map_src, fit=ft.BoxFit.COVER, expand=True),
+            ),
+            *[point_control(idx, point) for idx, point in enumerate(points)],
+        ],
+        width=canvas_w,
+        height=canvas_h,
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            bgcolor="#F3F5F7",
+            padding=14,
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            _game_menu_button("Zuruck", back_to_islands, "#64748B", width=130, height=38),
+                            ft.Text("Map-Editor", size=24, weight="bold", color="#20242A"),
+                            ft.Row(
+                                [
+                                    _game_menu_button("Pfadpunkt hinzufuegen", add_path_point, theme["accent"], width=180, height=38),
+                                    _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=110, height=38),
+                                ],
+                                spacing=8,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Row(
+                        [
+                            ft.Container(
+                                expand=True,
+                                height=viewport_h,
+                                bgcolor="#FFFFFF",
+                                border_radius=20,
+                                border=ft.border.Border.all(1.5, "#D7DEE7"),
+                                padding=12,
+                                content=map_stack,
+                            ),
+                            ft.Container(
+                                width=sidebar_w,
+                                height=viewport_h if not compact_layout else min(360, viewport_h),
+                                bgcolor="#FFFFFF",
+                                border_radius=20,
+                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                padding=14,
+                                content=ft.Column(
+                                    [
+                                        ft.Text("Maps", size=18, weight="bold", color="#111827"),
+                                        ft.Container(
+                                            height=140,
+                                            border_radius=14,
+                                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                            border=ft.border.Border.all(1.2, "#D7DEE7"),
+                                            content=ft.Image(src=map_src, fit=ft.BoxFit.COVER, expand=True),
+                                        ),
+                                        ft.Text(str(island.get("name", "Insel")), size=13, color="#6B7280"),
+                                        ft.Container(height=6),
+                                        _game_menu_button("Pfadpunkt hinzufuegen", add_path_point, theme["accent"], width=min(sidebar_w - 28, 220), height=38),
+                                        ft.Text("Pfadpunkte", size=16, weight="bold", color="#111827"),
+                                        ft.Text("Klicke einen Kreis auf der Karte oder 'Bearbeiten' in der Liste.", size=11, color="#6B7280"),
+                                        *(point_list_controls or [ft.Text("Noch keine Pfadpunkte vorhanden.", size=12, color="#6B7280")]),
                                     ],
                                     spacing=10,
                                     scroll=ft.ScrollMode.AUTO,
