@@ -19926,7 +19926,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     zoom_key = f"_qpe_zoom_{world['id']}"
     pan_x_key = f"_qpe_pan_x_{world['id']}"
     pan_y_key = f"_qpe_pan_y_{world['id']}"
-    init_key = f"_qpe_ready_{world['id']}"
+    init_key = f"_qpe_ready_centered_{world['id']}"
     ctrl_key = "_qpe_ctrl_down_until"
     ctrl_hold_key = "_qpe_ctrl_held"
     pan_drag_key = f"_qpe_pan_drag_{world['id']}"
@@ -19966,9 +19966,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     def clamp_pan(x: float, y: float) -> tuple[float, float]:
         display_w, display_h = display_size()
-        min_x = min(0.0, viewport_w - display_w)
-        min_y = min(0.0, viewport_h - display_h)
-        return max(min_x, min(0.0, float(x))), max(min_y, min(0.0, float(y)))
+        span_x = max(0.0, (display_w - viewport_w) / 2.0)
+        span_y = max(0.0, (display_h - viewport_h) / 2.0)
+        return max(-span_x, min(span_x, float(x))), max(-span_y, min(span_y, float(y)))
 
     def persist_world():
         _questions_path_save_world(state, world)
@@ -19978,8 +19978,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     if state.get(init_key) != "1":
         state[zoom_key] = 1.0
-        state[pan_x_key] = (viewport_w - canvas_w) / 2.0
-        state[pan_y_key] = (viewport_h - canvas_h) / 2.0
+        state[pan_x_key] = 0.0
+        state[pan_y_key] = 0.0
         state[init_key] = "1"
 
     pan_x, pan_y = clamp_pan(float(state.get(pan_x_key, 0.0) or 0.0), float(state.get(pan_y_key, 0.0) or 0.0))
@@ -20003,9 +20003,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         _questions_path_render_island_map_editor(page, state, world["id"], island_id)
 
     def center_pan_for_zoom(target_zoom: float) -> tuple[float, float]:
-        display_w = canvas_w * target_zoom
-        display_h = canvas_h * target_zoom
-        return clamp_pan((viewport_w - display_w) / 2.0, (viewport_h - display_h) / 2.0)
+        return 0.0, 0.0
 
     def set_zoom(new_zoom: float):
         target_zoom = clamp_zoom(new_zoom)
@@ -20180,7 +20178,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     def reset_view(e):
         state[zoom_key] = fit_zoom
-        state[pan_x_key], state[pan_y_key] = center_pan_for_zoom(fit_zoom)
+        state[pan_x_key], state[pan_y_key] = 0.0, 0.0
         sync_canvas_transform()
 
     def pan_start(e):
@@ -20218,8 +20216,9 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
     def add_island(template_key: str):
         cfg = _questions_path_editor_template_cfg(template_key, profile)
-        center_x = (-float(state.get(pan_x_key, pan_x) or 0.0) + viewport_w / 2.0) / zoom()
-        center_y = (-float(state.get(pan_y_key, pan_y) or 0.0) + viewport_h / 2.0) / zoom()
+        current_zoom = zoom()
+        center_x = (canvas_w / 2.0) - (float(state.get(pan_x_key, pan_x) or 0.0) / current_zoom)
+        center_y = (canvas_h / 2.0) - (float(state.get(pan_y_key, pan_y) or 0.0) / current_zoom)
         island = {
             "id": str(uuid.uuid4()),
             "name": f"Insel {len(islands) + 1}",
@@ -20373,8 +20372,8 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         update_selection_ui()
 
     def sync_canvas_transform():
-        canvas.left = state[pan_x_key]
-        canvas.top = state[pan_y_key]
+        canvas.left = (viewport_w - canvas_w) / 2.0 + float(state.get(pan_x_key, 0.0) or 0.0)
+        canvas.top = (viewport_h - canvas_h) / 2.0 + float(state.get(pan_y_key, 0.0) or 0.0)
         canvas.scale = zoom()
         try:
             canvas.update()
@@ -20679,8 +20678,8 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
 
     def point_pixel_bounds(point: dict) -> tuple[float, float, float, float]:
         size = 28.0
-        left = (canvas_w * float(point.get("x", 50.0)) / 100.0) - size / 2.0
-        top = (canvas_h * float(point.get("y", 50.0)) / 100.0) - size / 2.0
+        left = (map_w * float(point.get("x", 50.0)) / 100.0) - size / 2.0
+        top = (map_h * float(point.get("y", 50.0)) / 100.0) - size / 2.0
         return left, top, size, size
 
     def open_point_dialog(point_index: int):
@@ -20782,8 +20781,8 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
         if abs(dx) < 0.01 and abs(dy) < 0.01:
             return
         point = points[point_index]
-        point["x"] = _questions_path_clamp_pct(float(point.get("x", 50.0)) + (dx / canvas_w) * 100.0)
-        point["y"] = _questions_path_clamp_pct(float(point.get("y", 50.0)) + (dy / canvas_h) * 100.0)
+        point["x"] = _questions_path_clamp_pct(float(point.get("x", 50.0)) + (dx / map_w) * 100.0)
+        point["y"] = _questions_path_clamp_pct(float(point.get("y", 50.0)) + (dy / map_h) * 100.0)
         host.left, host.top, host.width, host.height = point_pixel_bounds(point)
         host.update()
 
@@ -20836,8 +20835,8 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
     map_stack = ft.Stack(
         [
             ft.Container(
-                width=canvas_w,
-                height=canvas_h,
+                width=map_w,
+                height=map_h,
                 border_radius=18,
                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                 border=ft.border.Border.all(1.5, "#D7DEE7"),
@@ -20845,8 +20844,8 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
             ),
             *[point_control(idx, point) for idx, point in enumerate(points)],
         ],
-        width=canvas_w,
-        height=canvas_h,
+        width=map_w,
+        height=map_h,
     )
 
     page.controls.clear()
