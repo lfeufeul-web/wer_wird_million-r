@@ -20295,8 +20295,10 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             zoom_slider.value = zoom()
         except Exception:
             pass
-        selection_text.update()
-        island_scale_label.update()
+        try:
+            page.update()
+        except Exception:
+            pass
 
     def refresh_island_host(island_id: str, update_control: bool = True):
         island = island_by_id.get(island_id)
