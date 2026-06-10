@@ -20654,6 +20654,8 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
 
     page_w, page_h = _page_size(page)
     sidebar_w = 320 if page_w >= 960 else max(250, min(320, int(page_w * 0.9)))
+    map_w = max(520, min(980, int(page_w * 0.62)))
+    map_h = max(420, min(760, int(page_h * 0.72)))
     viewport_h = max(420, int(page_h - 92))
     canvas_w, canvas_h = QUESTIONS_PATH_EDITOR_CANVAS_W, QUESTIONS_PATH_EDITOR_CANVAS_H
     compact_layout = page_w < 980
