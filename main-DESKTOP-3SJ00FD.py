@@ -20073,6 +20073,78 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         state.pop("_questions_path_editor_selected_point", None)
         _questions_path_render_world_editor(e.page, state, world["id"])
 
+    def create_island_dialog(e):
+        theme_local = get_theme(state)
+        name_field = ft.TextField(
+            label="Inselname",
+            width=360,
+            bgcolor=theme_local["question_bg"],
+            color=theme_local["question_text"],
+            border_color=theme_local["border"],
+            autofocus=True,
+        )
+        overlay_ref = [None]
+
+        def close_dialog():
+            overlay = overlay_ref[0]
+            if overlay is not None:
+                try:
+                    while overlay in e.page.overlay:
+                        e.page.overlay.remove(overlay)
+                except Exception:
+                    pass
+            e.page.update()
+
+        def save_island(ev):
+            default_design = QUESTIONS_PATH_WORLD_PRESETS[len(islands) % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"]
+            islands.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "name": (name_field.value or "").strip() or f"Insel {len(islands) + 1}",
+                    "design": default_design,
+                    "x": 18.0 + len(islands) * 14.0,
+                    "y": 42.0 + (len(islands) % 2) * 12.0,
+                    "points": [],
+                }
+            )
+            _questions_path_save_world(state, world)
+            close_dialog()
+            _questions_path_render_world_editor(ev.page, state, world["id"])
+
+        overlay = ft.Container(
+            expand=True,
+            bgcolor="#000000AA",
+            alignment=ft.Alignment(0, 0),
+            content=ft.Container(
+                width=min(520, int((_page_size(e.page)[0]) - 24)),
+                padding=24,
+                border_radius=24,
+                bgcolor="#0A1320F4",
+                border=ft.border.Border.all(2, theme_local["border"]),
+                content=ft.Column(
+                    [
+                        ft.Text("Neue Insel", size=28, weight="bold", color="white", text_align="center"),
+                        ft.Text("Gib deiner Insel einen Namen.", size=13, color=theme_txt(theme_local, "secondary"), text_align="center"),
+                        name_field,
+                        ft.Row(
+                            [
+                                _game_menu_button("Abbrechen", lambda ev: close_dialog(), "#475569", width=180, height=42),
+                                _game_menu_button("Insel erstellen", save_island, theme_local["success"], width=180, height=42),
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            spacing=12,
+                            wrap=True,
+                        ),
+                    ],
+                    spacing=12,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ),
+        )
+        overlay_ref[0] = overlay
+        e.page.overlay.append(overlay)
+        e.page.update()
+
     def set_zoom(new_zoom: float):
         state[zoom_key] = clamp_zoom(new_zoom)
         sync_canvas_transform()
