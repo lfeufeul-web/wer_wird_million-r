@@ -4,10 +4,14 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: sh -c 'flet run main.py --web --host 0.0.0.0 --port "$PORT"'
+    startCommand: sh -c 'flet run main-DESKTOP-3SJ00FD.py --web --host 0.0.0.0 --port "$PORT"'
     envVars:
       - key: APP_NAME
         value: Wer wird Millionär
+      - key: APP_BASE_URL
+        value: https://wer-wird-million-r-eo5q.onrender.com
+      - key: QUESTMAPPER_WEB_URL
+        value: https://questmapper-web.onrender.com
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT
@@ -22,3 +26,16 @@ services:
         value: "true"
       - key: SMTP_SSL
         value: "false"
+      - key: FIREBASE_WEB_API_KEY
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+  - type: web
+    runtime: static
+    name: questmapper-web
+    buildCommand: cd web/questmapper && npm install && npm run build
+    staticPublishPath: web/questmapper/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

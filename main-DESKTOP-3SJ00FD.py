@@ -1,17 +1,23 @@
 import flet as ft
 import asyncio
+import copy
 import inspect
 import json
 import math
 import os
 import random
 import re
+import urllib.request
 import time
 import shutil
+from pathlib import Path
 from datetime import datetime, date, timezone
 import uuid
+import smtplib
+import ssl
 import base64
 import io
+from email.message import EmailMessage
 
 import requests
 import unicodedata
@@ -52,6 +58,7 @@ except ImportError:
 # ---------- Persistent Database ----------
 DB_FILE = "user_data.json"
 ENV_FILE = ".env"
+CODE_REQUEST_COOLDOWN_SECONDS = 10
 FIREBASE_SERVICE_ACCOUNT_FILE = "firebase-service-account.json"
 FIREBASE_WEB_API_KEY_ENV = "FIREBASE_WEB_API_KEY"
 FIREBASE_APP_COLLECTION = "_app"
@@ -128,6 +135,64 @@ QUESTION_HISTORY_LIMIT = 360
 QUESTION_PERFORMANCE_LIMIT = 1500
 
 
+def _pointer_xy(value) -> tuple[float, float] | None:
+    if value is None:
+        return None
+    x = getattr(value, "x", None)
+    y = getattr(value, "y", None)
+    if x is None and y is None:
+        return None
+    return float(x or 0.0), float(y or 0.0)
+
+
+def _gesture_delta_xy(event) -> tuple[float, float]:
+    # Flet drag update events expose offset objects on local/global delta.
+    for attr in ("local_delta", "global_delta"):
+        delta = _pointer_xy(getattr(event, attr, None))
+        if delta is not None:
+            return delta
+    return 0.0, 0.0
+
+
+def _gesture_focal_xy(event) -> tuple[float, float] | None:
+    # Scale updates expose focal points in local/global coordinates.
+    for attr in ("local_focal_point", "global_focal_point"):
+        point = _pointer_xy(getattr(event, attr, None))
+        if point is not None:
+            return point
+    return None
+
+
+def _gesture_position_xy(event) -> tuple[float, float] | None:
+    for attr in ("global_position", "local_position"):
+        point = _pointer_xy(getattr(event, attr, None))
+        if point is not None:
+            return point
+    return None
+
+
+def _scroll_delta_y(event) -> float:
+    for attr in ("scroll_delta_y", "scroll_delta"):
+        value = getattr(event, attr, None)
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
+def _scroll_delta_x(event) -> float:
+    for attr in ("scroll_delta_x",):
+        value = getattr(event, attr, None)
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
 def load_env_file():
     if not os.path.exists(ENV_FILE):
         return
@@ -149,6 +214,88 @@ def load_env_file():
 
 load_env_file()
 
+
+def get_smtp_config():
+    host = os.getenv("SMTP_HOST", "").strip()
+    port_raw = os.getenv("SMTP_PORT", "587").strip() or "587"
+    try:
+        port = int(port_raw)
+    except ValueError:
+        port = 587
+    username = os.getenv("SMTP_USER", "").strip()
+    password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip()
+    sender = os.getenv("SMTP_FROM", username).strip()
+    use_ssl = os.getenv("SMTP_SSL", "false").strip().lower() in ("1", "true", "yes", "on")
+    use_tls = os.getenv("SMTP_TLS", "true").strip().lower() in ("1", "true", "yes", "on")
+    app_name = os.getenv("APP_NAME", "Wer wird Millionär").strip() or "Wer wird Millionär"
+
+    missing = []
+    if not host:
+        missing.append("SMTP_HOST")
+    if not username:
+        missing.append("SMTP_USER")
+    if not password:
+        missing.append("SMTP_PASSWORD")
+    if not sender:
+        missing.append("SMTP_FROM")
+
+    return {
+        "host": host,
+        "port": port,
+        "username": username,
+        "password": password,
+        "sender": sender,
+        "use_ssl": use_ssl,
+        "use_tls": use_tls,
+        "app_name": app_name,
+        "missing": missing,
+    }
+
+
+def send_verification_email(recipient: str, code: str):
+    config = get_smtp_config()
+    if config["missing"]:
+        raise RuntimeError("E-Mail-Versand ist noch nicht eingerichtet. Bitte SMTP-Daten in .env eintragen.")
+
+    msg = EmailMessage()
+    msg["Subject"] = f"Dein Login-Code für {config['app_name']}"
+    msg["From"] = config["sender"]
+    msg["To"] = recipient
+    msg.set_content(
+        f"Hallo,\n\n"
+        f"dein 6-stelliger Bestätigungscode lautet: {code}\n\n"
+        f"Der Code ist 10 Minuten gültig.\n\n"
+        f"Wenn du dich nicht anmelden wolltest, kannst du diese E-Mail ignorieren.\n"
+    )
+    msg.add_alternative(
+        f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; color: #1f1f1f;">
+            <h2>{config['app_name']}</h2>
+            <p>Dein 6-stelliger Bestätigungscode lautet:</p>
+            <p style="font-size: 28px; font-weight: bold; letter-spacing: 4px;">{code}</p>
+            <p>Der Code ist 10 Minuten gültig.</p>
+            <p style="color: #666;">Wenn du dich nicht anmelden wolltest, kannst du diese E-Mail ignorieren.</p>
+          </body>
+        </html>
+        """,
+        subtype="html",
+    )
+
+    context = ssl.create_default_context()
+    if config["use_ssl"]:
+        with smtplib.SMTP_SSL(config["host"], config["port"], context=context, timeout=20) as server:
+            server.login(config["username"], config["password"])
+            server.send_message(msg)
+        return
+
+    with smtplib.SMTP(config["host"], config["port"], timeout=20) as server:
+        server.ehlo()
+        if config["use_tls"]:
+            server.starttls(context=context)
+            server.ehlo()
+        server.login(config["username"], config["password"])
+        server.send_message(msg)
 
 def load_db() -> dict:
     if not os.path.exists(DB_FILE):
@@ -972,24 +1119,8 @@ def ensure_question_profile_defaults(user: dict):
     profile["performance"] = cleaned_performance
 
 
-QUESTIONS_PATH_PROFILE_MIN = 1
-QUESTIONS_PATH_PROFILE_MAX = 10
-QUESTIONS_PATH_PROFILE_COUNT = QUESTIONS_PATH_PROFILE_MAX
-QUESTIONS_PATH_LEVEL_ORDER = [
-    "waldpfad",
-    "stadtpfad",
-    "himmelsroute",
-    "geschichtsinsel",
-    "technikfjord",
-    "sportlagune",
-    "kulturbucht",
-    "matheklippen",
-    "wissenschaftsriff",
-    "wirtschaftshafen",
-    "island_escape",
-    "city_patrol",
-    "school_detective",
-]
+QUESTIONS_PATH_PROFILE_COUNT = 5
+QUESTIONS_PATH_LEVEL_ORDER = ["waldpfad", "stadtpfad", "himmelsroute"]
 QUESTIONS_PATH_DEFAULT_PROFILE_NAME = "Profil"
 
 
@@ -1006,13 +1137,8 @@ def _questions_path_default_profile(index: int) -> dict:
     return {
         "name": f"{QUESTIONS_PATH_DEFAULT_PROFILE_NAME} {index + 1}",
         "selected_age": "mid",
-        "progression_mode": "adventure",
         "active_level_index": 0,
         "active_game": None,
-        "custom_islands": [],
-        "custom_maps": [],
-        "map_overrides": {},
-        "custom_designs": [],
         "level_progress": {
             map_key: _questions_path_default_level_state() for map_key in QUESTIONS_PATH_LEVEL_ORDER
         },
@@ -1024,114 +1150,15 @@ def ensure_questions_path_defaults(user: dict):
     if not isinstance(profiles, list):
         profiles = []
     normalized = []
-    for idx in range(min(len(profiles), QUESTIONS_PATH_PROFILE_MAX)):
+    for idx in range(QUESTIONS_PATH_PROFILE_COUNT):
         raw = profiles[idx] if idx < len(profiles) and isinstance(profiles[idx], dict) else {}
         profile = _questions_path_default_profile(idx)
         profile["name"] = str(raw.get("name", profile["name"])).strip() or profile["name"]
         profile["selected_age"] = str(raw.get("selected_age", profile["selected_age"])).strip() or profile["selected_age"]
-        profile["progression_mode"] = str(raw.get("progression_mode", profile["progression_mode"])).strip() or "adventure"
         profile["active_level_index"] = max(0, min(int(raw.get("active_level_index", 0) or 0), len(QUESTIONS_PATH_LEVEL_ORDER) - 1))
         active_game = raw.get("active_game")
         if isinstance(active_game, dict):
             profile["active_game"] = active_game
-        custom_islands = raw.get("custom_islands", [])
-        if isinstance(custom_islands, list):
-            normalized_islands = []
-            for item_idx, item in enumerate(custom_islands[:10]):
-                if not isinstance(item, dict):
-                    continue
-                island = _questions_path_default_custom_island(item_idx)
-                island.update(dict(item))
-                island["title"] = str(island.get("title", f"Eigene Insel {item_idx + 1}")).strip() or f"Eigene Insel {item_idx + 1}"
-                island["subtitle"] = str(island.get("subtitle", "Hier kannst du eigene Fragen sammeln.")).strip() or "Hier kannst du eigene Fragen sammeln."
-                island["world_name"] = str(island.get("world_name", f"Welt {item_idx + 1}")).strip() or f"Welt {item_idx + 1}"
-                island["world_description"] = str(island.get("world_description", "Gestalte hier deine eigene Fragen-Route.")).strip() or "Gestalte hier deine eigene Fragen-Route."
-                try:
-                    island["map_x"] = float(island.get("map_x", 20) or 20)
-                except Exception:
-                    island["map_x"] = 20.0
-                try:
-                    island["map_y"] = float(island.get("map_y", 20) or 20)
-                except Exception:
-                    island["map_y"] = 20.0
-                try:
-                    island["card_scale"] = max(0.8, min(1.8, float(island.get("card_scale", 1.0) or 1.0)))
-                except Exception:
-                    island["card_scale"] = 1.0
-                custom_points = island.get("custom_points", [])
-                if isinstance(custom_points, list):
-                    cleaned_points = []
-                    for point_idx, raw_point in enumerate(custom_points[:10]):
-                        if not isinstance(raw_point, dict):
-                            continue
-                        cleaned_points.append(
-                            {
-                                "x": max(2, min(96, int(raw_point.get("x", 10) or 10))),
-                                "y": max(2, min(96, int(raw_point.get("y", 10) or 10))),
-                                "label": str(raw_point.get("label", f"Punkt {point_idx + 1}")).strip() or f"Punkt {point_idx + 1}",
-                            }
-                        )
-                    island["custom_points"] = cleaned_points
-                normalized_islands.append(island)
-            profile["custom_islands"] = normalized_islands
-        map_overrides = raw.get("map_overrides", {})
-        if isinstance(map_overrides, dict):
-            cleaned_overrides = {}
-            for map_key, raw_map in list(map_overrides.items()):
-                if not isinstance(raw_map, dict):
-                    continue
-                map_cfg = dict(QUESTIONS_PATH_MAPS.get(str(map_key), _questions_path_default_custom_map(0)))
-                map_cfg.update(raw_map)
-                map_cfg["map_key"] = str(map_key)
-                map_cfg["title"] = str(map_cfg.get("title", f"Map {map_key}")).strip() or f"Map {map_key}"
-                map_cfg["subtitle"] = str(map_cfg.get("subtitle", "Eigener Hintergrund mit frei platzierbaren Punkten.")).strip() or "Eigener Hintergrund mit frei platzierbaren Punkten."
-                map_cfg["image"] = str(map_cfg.get("image", "")).strip()
-                map_cfg["map_image_src"] = str(map_cfg.get("map_image_src", "")).strip()
-                map_cfg["topic"] = str(map_cfg.get("topic", "custom")).strip() or "custom"
-                points = list(map_cfg.get("points", []) or [])
-                cleaned_points = []
-                for point_idx, raw_point in enumerate(points[:20]):
-                    if not isinstance(raw_point, dict):
-                        continue
-                    cleaned_points.append(
-                        {
-                            "x": max(2, min(96, int(raw_point.get("x", 10) or 10))),
-                            "y": max(2, min(96, int(raw_point.get("y", 10) or 10))),
-                            "label": str(raw_point.get("label", f"Punkt {point_idx + 1}")).strip() or f"Punkt {point_idx + 1}",
-                        }
-                    )
-                map_cfg["points"] = cleaned_points or _path_nodes([(50, 55)], ["Start"])
-                questions = list(map_cfg.get("questions", []) or [])
-                map_cfg["questions"] = [_path_question_to_dict(q) for q in questions[:20]] or [_questions_path_default_custom_question(0)]
-                cleaned_overrides[str(map_key)] = map_cfg
-            profile["map_overrides"] = cleaned_overrides
-        else:
-            profile["map_overrides"] = {}
-        custom_maps = raw.get("custom_maps", [])
-        if isinstance(custom_maps, list):
-            normalized_maps = []
-            for map_idx, raw_map in enumerate(custom_maps[:12]):
-                if not isinstance(raw_map, dict):
-                    continue
-                map_cfg = _questions_path_default_custom_map(map_idx)
-                map_cfg.update(dict(raw_map))
-                map_cfg["map_key"] = str(map_cfg.get("map_key", f"custom_map_{map_idx + 1}")).strip() or f"custom_map_{map_idx + 1}"
-                map_cfg["title"] = str(map_cfg.get("title", f"Eigene Map {map_idx + 1}")).strip() or f"Eigene Map {map_idx + 1}"
-                map_cfg["subtitle"] = str(map_cfg.get("subtitle", "Eigener Hintergrund mit frei platzierbaren Punkten.")).strip() or "Eigener Hintergrund mit frei platzierbaren Punkten."
-                map_cfg["image"] = str(map_cfg.get("image", "")).strip()
-                map_cfg["map_image_src"] = str(map_cfg.get("map_image_src", "")).strip()
-                map_cfg["topic"] = "custom"
-                map_cfg["points"] = list(map_cfg.get("points", []) or [])
-                if not map_cfg["points"]:
-                    map_cfg["points"] = _path_nodes([(50, 55)], ["Start"])
-                map_cfg["questions"] = [_path_question_to_dict(q) for q in list(map_cfg.get("questions", []) or [])[:20]] or [_questions_path_default_custom_question(0)]
-                normalized_maps.append(map_cfg)
-            profile["custom_maps"] = normalized_maps
-        else:
-            profile["custom_maps"] = []
-        custom_designs = raw.get("custom_designs", [])
-        if isinstance(custom_designs, list):
-            profile["custom_designs"] = [str(item).strip() for item in custom_designs if str(item).strip()][:12]
         level_progress = raw.get("level_progress", {})
         if not isinstance(level_progress, dict):
             level_progress = {}
@@ -1145,9 +1172,9 @@ def ensure_questions_path_defaults(user: dict):
                 level_state["last_saved_at"] = raw_level.get("last_saved_at")
             profile["level_progress"][map_key] = level_state
         normalized.append(profile)
-    while len(normalized) < QUESTIONS_PATH_PROFILE_MIN:
+    while len(normalized) < QUESTIONS_PATH_PROFILE_COUNT:
         normalized.append(_questions_path_default_profile(len(normalized)))
-    user["questions_path_profiles"] = normalized[:QUESTIONS_PATH_PROFILE_MAX]
+    user["questions_path_profiles"] = normalized[:QUESTIONS_PATH_PROFILE_COUNT]
 
 
 def get_questions_path_profiles(state: dict) -> list[dict]:
@@ -1183,19 +1210,11 @@ def persist_questions_path_profiles(state: dict, profiles: list[dict]):
 
 
 def get_questions_path_profile_index(state: dict) -> int:
-    profiles = state.get("questions_path_profiles")
-    if not isinstance(profiles, list) or not profiles:
-        profiles = get_questions_path_profiles(state)
-    max_index = max(0, len(profiles) - 1) if profiles else 0
-    return max(0, min(int(state.get("questions_path_profile_index", 0) or 0), max_index))
+    return max(0, min(int(state.get("questions_path_profile_index", 0) or 0), QUESTIONS_PATH_PROFILE_COUNT - 1))
 
 
 def set_questions_path_profile_index(state: dict, index: int):
-    profiles = state.get("questions_path_profiles")
-    if not isinstance(profiles, list) or not profiles:
-        profiles = get_questions_path_profiles(state)
-    max_index = max(0, len(profiles) - 1) if profiles else 0
-    state["questions_path_profile_index"] = max(0, min(int(index), max_index))
+    state["questions_path_profile_index"] = max(0, min(int(index), QUESTIONS_PATH_PROFILE_COUNT - 1))
 
 
 def generate_friend_code() -> str:
@@ -1443,6 +1462,14 @@ def avatar_scene(theme_key: str) -> str:
     }.get(theme_key, "🎮 Quiz-Studio")
 
 
+def avatar_base_emoji(gender: str) -> str:
+    return {
+        "male": "🧑‍💼",
+        "female": "👩‍💼",
+        "diverse": "🧑‍🎤",
+    }.get(gender, "🧑")
+
+
 def _resolve_avatar_base_image(gender: str) -> str | None:
     male_tokens = ["avatar_männlich", "avatar_maennlich", "avatarmannlich", "avatar_male", "avatar"]
     female_tokens = ["avatar_weiblich", "avatar_female", "avatar_frau", "avatar_männlich", "avatar_maennlich", "avatar"]
@@ -1569,19 +1596,13 @@ def uses_themed_game(theme: dict) -> bool:
 
 def _page_size(page: ft.Page) -> tuple[float, float]:
     """Viewport size for full-screen game layout (web + desktop)."""
-    w_candidates = [page.width]
-    h_candidates = [page.height]
+    w = page.width
+    h = page.height
     win = getattr(page, "window", None)
-    if win:
-        w_candidates.append(getattr(win, "width", None))
-        h_candidates.append(getattr(win, "height", None))
-    media = getattr(page, "media", None)
-    media_size = getattr(media, "size", None) if media else None
-    if media_size:
-        w_candidates.append(getattr(media_size, "width", None))
-        h_candidates.append(getattr(media_size, "height", None))
-    w = max((float(v) for v in w_candidates if v and v > 0), default=1100.0)
-    h = max((float(v) for v in h_candidates if v and v > 0), default=720.0)
+    if (not w or w <= 0) and win:
+        w = win.width
+    if (not h or h <= 0) and win:
+        h = win.height
     return float(w or 1100), float(h or 720)
 
 
@@ -1609,6 +1630,17 @@ def _sync_page_route(page: ft.Page, route: str):
             page.route = route
     except Exception:
         pass
+
+
+def _settings_button(page: ft.Page, state: dict, size: int = 16) -> ft.Container:
+    return ft.Container(
+        content=ft.Icon(ft.Icons.SETTINGS, size=size, color="white"),
+        bgcolor="#0000008f",
+        border_radius=14,
+        padding=ft.Padding(8, 6, 8, 6),
+        on_click=lambda e: show_settings_view(page, state),
+        tooltip="Einstellungen",
+    )
 
 
 def _go_route_or_render(page: ft.Page, route: str, renderer, state: dict):
@@ -1640,6 +1672,10 @@ def _theme_key_from_theme(theme: dict | None) -> str | None:
         if entry.get("label") == label:
             return key
     return None
+
+
+def _is_themed_video_theme(theme: dict | None) -> bool:
+    return (_theme_key_from_theme(theme) or "") in THEME_BG_CONFIG
 
 
 def _resolve_theme_background(theme_key: str, role: str, allow_video: bool = True) -> str | None:
@@ -1703,8 +1739,8 @@ def _build_looping_background_from_src(page: ft.Page, src: str | None) -> ft.Con
             playlist_mode=PlaylistMode.LOOP,
             autoplay=True,
             muted=True,
-            fill_color="#000000",
-            fit=ft.BoxFit.FILL,
+            fill_color="#120D06",
+            fit=ft.BoxFit.COVER,
             show_controls=False,
             aspect_ratio=None,
         )
@@ -1719,15 +1755,11 @@ def _build_looping_background_from_src(page: ft.Page, src: str | None) -> ft.Con
             )
         return video
 
-    return ft.Container(
-        expand=True,
-        content=ft.Image(
-            src=src,
-            fit=ft.BoxFit.FILL,
-            width=width,
-            height=height,
-            expand=True,
-        ),
+    return ft.Image(
+        src=src,
+        fit=ft.BoxFit.COVER,
+        width=width,
+        height=height,
     )
 
 
@@ -1818,8 +1850,8 @@ def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay
             playlist_mode=PlaylistMode.LOOP,
             autoplay=True,
             muted=True,
-            fill_color="#000000",
-            fit=ft.BoxFit.FILL,
+            fill_color="#120D06",
+            fit=ft.BoxFit.COVER,
             show_controls=False,
             aspect_ratio=None,
         )
@@ -1833,17 +1865,13 @@ def _themed_game_background(bg_image: str, page_w: float, page_h: float, overlay
             height=h,
         )
     else:
-        media = ft.Container(
-            expand=True,
-            content=ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h, expand=True),
-        )
+        media = ft.Image(src=bg_image, fit=ft.BoxFit.FILL, width=w, height=h)
 
     return ft.Stack(
         [
             media,
-            ft.Container(expand=True, width=w, height=h, bgcolor=overlay_color),
+            ft.Container(width=w, height=h, bgcolor=overlay_color),
         ],
-        expand=True,
         width=w,
         height=h,
     )
@@ -2084,7 +2112,6 @@ def save_questions_path_game(state: dict):
     profile_index = get_questions_path_profile_index(state)
     profile = profiles[profile_index]
     map_key = game.get("map_key", "waldpfad")
-    map_cfg = _questions_path_map_lookup_for_profile(profile, map_key)
 
     level_progress = profile.setdefault("level_progress", {})
     level_state = level_progress.setdefault(map_key, _questions_path_default_level_state())
@@ -2096,7 +2123,7 @@ def save_questions_path_game(state: dict):
     profile["selected_age"] = str(game.get("age", profile.get("selected_age", "mid"))).strip() or "mid"
     profile["active_game"] = {
         "map_key": map_key,
-        "map_title": game.get("map_title", map_cfg.get("title", QUESTIONS_PATH_MAPS["waldpfad"]["title"])),
+        "map_title": game.get("map_title", QUESTIONS_PATH_MAPS["waldpfad"]["title"]),
         "age": profile["selected_age"],
         "node_index": int(game.get("node_index", 0)),
         "completed_nodes": list(game.get("completed_nodes", [])),
@@ -2106,11 +2133,7 @@ def save_questions_path_game(state: dict):
         "current_hint": game.get("current_hint"),
         "current_level_index": int(game.get("current_level_index", profile.get("active_level_index", 0))),
     }
-    if (
-        bool(game.get("game_finished", False))
-        and _questions_path_profile_mode(profile) == "adventure"
-        and map_key in QUESTIONS_PATH_LEVEL_ORDER
-    ):
+    if bool(game.get("game_finished", False)) and map_key in QUESTIONS_PATH_LEVEL_ORDER:
         lvl_index = QUESTIONS_PATH_LEVEL_ORDER.index(map_key)
         profile["active_level_index"] = min(lvl_index + 1, len(QUESTIONS_PATH_LEVEL_ORDER) - 1)
         profile["active_game"] = None
@@ -2293,6 +2316,57 @@ def render_questions_path_complete(page: ft.Page, state: dict):
     clear_questions_path_game(state)
     state.pop("_questions_path_active_node", None)
     state["questions_path_scene"] = "islands"
+    points = list(selected_island_points() or [])
+    if not points:
+        points = [_questions_path_default_point(0)]
+    selected_point = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+    if selected_point >= len(points):
+        selected_point = max(0, len(points) - 1)
+    state["_questions_path_editor_selected_point"] = selected_point
+    point = points[selected_point]
+    while len(point.get("answers", [])) < 4:
+        point.setdefault("answers", []).append("")
+
+    def select_point(index: int):
+        state["_questions_path_editor_selected_point"] = max(0, min(index, len(points) - 1))
+        render_again()
+
+    def delete_point(e):
+        if len(points) <= 1:
+            return
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if 0 <= idx < len(points):
+            points.pop(idx)
+            world["points"] = points
+            persist_world()
+            state["_questions_path_editor_selected_point"] = max(0, min(idx - 1, len(points) - 1))
+            render_again()
+
+    def save_point_fields(e):
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if not (0 <= idx < len(points)):
+            return
+        current = points[idx]
+        current["name"] = str(point_name_field.value or "").strip() or current.get("name", f"Punkt {idx + 1}")
+        current["question"] = str(question_field.value or "").strip()
+        current["answers"] = [str(field.value or "").strip() for field in answer_fields]
+        while len(current["answers"]) < 4:
+            current["answers"].append("")
+        current["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+        world["points"] = points
+        persist_world()
+        render_again()
+
+    point_name_field = ft.TextField(label="Punktname", value=point.get("name", ""), width=300)
+    question_field = ft.TextField(label="Frage", value=point.get("question", ""), width=300, min_lines=3, max_lines=6, multiline=True)
+    answer_fields = []
+    answers = list(point.get("answers", []) or [])
+    while len(answers) < 4:
+        answers.append("")
+    for idx in range(4):
+        answer_fields.append(ft.TextField(label=f"Antwort {ANSWER_LETTERS[idx]}", value=answers[idx], width=300))
+    correct_dropdown = ft.Dropdown(label="Richtige Antwort", value=str(point.get("correct", 0)), width=220, options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)])
+
     page.controls.clear()
     page.add(
         ft.Container(
@@ -2577,6 +2651,500 @@ def render_questions_path_game(page: ft.Page, state: dict):
                                 spacing=10,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: str | None):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    worlds = list(profile.get("worlds", []) or [])
+    world = next((entry for entry in worlds if str(entry.get("id")) == str(world_id)), None)
+    if world is None:
+        world = _questions_path_default_world(0)
+        worlds.append(world)
+        profile["worlds"] = worlds
+        profiles = list(get_questions_path_profiles(state))
+        idx = get_questions_path_profile_index(state)
+        if idx < len(profiles):
+            profiles[idx] = profile
+            state["questions_path_profiles"] = profiles
+            persist_questions_path_profiles(state, profiles)
+
+    state["questions_path_selected_world_id"] = world["id"]
+    state["questions_path_scene"] = "editor"
+    state.setdefault("_questions_path_editor_selected_point", 0)
+
+    page_w, page_h = _page_size(page)
+    map_w = max(540, min(980, int(page_w * 0.64)))
+    map_h = max(420, min(760, int(page_h * 0.70)))
+
+    islands = _questions_path_world_islands(world)
+    selected_island_id = state.get("_questions_path_selected_island_id")
+    selected_island = next((item for item in islands if str(item.get("id")) == str(selected_island_id)), None)
+
+    def persist_world():
+        _questions_path_save_world(state, world)
+
+    def back_to_owned(e):
+        state.pop("_questions_path_selected_island_id", None)
+        state["questions_path_scene"] = "own"
+        _questions_path_render_owned(e.page, state)
+
+    def move_island(index: int, dx: float, dy: float):
+        if 0 <= index < len(islands):
+            islands[index]["x"] = _questions_path_clamp_pct(float(islands[index].get("x", 50.0)) + dx * 0.08)
+            islands[index]["y"] = _questions_path_clamp_pct(float(islands[index].get("y", 50.0)) + dy * 0.08)
+            persist_world()
+            _questions_path_render_world_editor(page, state, world["id"])
+
+    def open_island(island_id: str):
+        def _handler(ev):
+            state["_questions_path_selected_island_id"] = island_id
+            state["questions_path_scene"] = "editor"
+            _questions_path_render_world_editor(ev.page, state, world["id"])
+
+        return _handler
+
+    def create_island_dialog(e):
+        theme_local = get_theme(state)
+        name_field = ft.TextField(
+            label="Inselname",
+            width=360,
+            bgcolor=theme_local["question_bg"],
+            color=theme_local["question_text"],
+            border_color=theme_local["border"],
+            autofocus=True,
+        )
+        design_dropdown = ft.Dropdown(
+            label="Design",
+            width=360,
+            value=QUESTIONS_PATH_WORLD_PRESETS[len(islands) % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"],
+            options=[ft.dropdown.Option(p["key"], p["label"]) for p in QUESTIONS_PATH_WORLD_PRESETS],
+            bgcolor=theme_local["question_bg"],
+            color=theme_local["question_text"],
+            border_color=theme_local["border"],
+        )
+        overlay_ref = [None]
+
+        def close_dialog():
+            overlay = overlay_ref[0]
+            if overlay is not None:
+                try:
+                    while overlay in e.page.overlay:
+                        e.page.overlay.remove(overlay)
+                except Exception:
+                    pass
+            e.page.update()
+
+        def save_island(ev):
+            islands.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "name": (name_field.value or "").strip() or f"Insel {len(islands) + 1}",
+                    "design": design_dropdown.value or QUESTIONS_PATH_WORLD_PRESETS[0]["key"],
+                    "x": 18.0 + len(islands) * 14.0,
+                    "y": 42.0 + (len(islands) % 2) * 12.0,
+                    "points": [],
+                }
+            )
+            persist_world()
+            close_dialog()
+            _questions_path_render_world_editor(ev.page, state, world["id"])
+
+        overlay = ft.Container(
+            expand=True,
+            bgcolor="#000000AA",
+            alignment=ft.Alignment(0, 0),
+            content=ft.Container(
+                width=min(520, int(_page_size(e.page)[0] - 24)),
+                padding=24,
+                border_radius=24,
+                bgcolor="#0A1320F4",
+                border=ft.border.Border.all(2, theme_local["border"]),
+                content=ft.Column(
+                    [
+                        ft.Text("Neue Insel", size=28, weight="bold", color="white", text_align="center"),
+                        ft.Text("Name und Design auswählen.", size=13, color=theme_txt(theme_local, "secondary"), text_align="center"),
+                        name_field,
+                        design_dropdown,
+                        ft.Row(
+                            [
+                                _game_menu_button("Abbrechen", lambda ev: close_dialog(), "#475569", width=180, height=42),
+                                _game_menu_button("Insel erstellen", save_island, theme_local["success"], width=180, height=42),
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            spacing=12,
+                            wrap=True,
+                        ),
+                    ],
+                    spacing=12,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ),
+        )
+        overlay_ref[0] = overlay
+        e.page.overlay.append(overlay)
+        e.page.update()
+
+    def island_layers() -> list[ft.Control]:
+        layers: list[ft.Control] = [ft.Container(expand=True, bgcolor="#D1D5DB")]
+        for idx, island in enumerate(islands):
+            preset = _questions_path_preset_cfg(island.get("design", QUESTIONS_PATH_WORLD_PRESETS[0]["key"]))
+            size = 76
+            layers.append(
+                ft.Container(
+                    left=(map_w * float(island.get("x", 50.0)) / 100.0) - (size / 2),
+                    top=(map_h * float(island.get("y", 50.0)) / 100.0) - (size / 2),
+                    width=size,
+                    height=size,
+                    content=ft.GestureDetector(
+                        on_tap=open_island(island["id"]),
+                        on_pan_update=lambda ev, p=idx: move_island(p, *_gesture_delta_xy(ev)),
+                        content=ft.Container(
+                            expand=True,
+                            shape=ft.BoxShape.CIRCLE,
+                            bgcolor=preset["colors"][1],
+                            border=ft.border.Border.all(3, "#FFFFFF"),
+                            alignment=ft.Alignment(0, 0),
+                            content=ft.Column(
+                                [
+                                    ft.Icon(ft.Icons.LANDSCAPE, size=18, color="white"),
+                                    ft.Text(str(island.get("name", f"Insel {idx + 1}"))[:10], size=10, color="white", weight="bold", text_align="center"),
+                                ],
+                                spacing=0,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                )
+            )
+        if not islands:
+            layers.append(
+                ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Text("Noch keine Inseln vorhanden", size=14, color="#6B7280", weight="bold"),
+                )
+            )
+        return layers
+
+    if selected_island is None:
+        state.pop("_questions_path_selected_island_id", None)
+        page.controls.clear()
+        page.add(
+            ft.Container(
+                expand=True,
+                bgcolor="#F3F5F7",
+                content=ft.Stack(
+                    [
+                        ft.Container(expand=True, bgcolor="#F3F5F7"),
+                        ft.Container(
+                            expand=True,
+                            alignment=ft.Alignment(0, 0),
+                            padding=16,
+                            content=ft.Container(
+                                width=min(1280, max(320, int(page_w - 24))),
+                                padding=ft.Padding(22, 20, 22, 20),
+                                border_radius=30,
+                                bgcolor="#FFFFFF",
+                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                content=ft.Column(
+                                    [
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("← Eigenes Spiel", back_to_owned, "#64748B", width=170, height=40),
+                                                ft.Text("Inselmenü", size=28, weight="bold", color="#2B2F36"),
+                                                _game_menu_button("+ Insel hinzufügen", create_island_dialog, theme["accent"], width=170, height=40),
+                                            ],
+                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        ),
+                                        ft.Container(height=8),
+                                        ft.Row(
+                                            [
+                                                ft.Container(
+                                                    expand=True,
+                                                    border_radius=24,
+                                                    padding=16,
+                                                    bgcolor="#FFFFFF",
+                                                    border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                    content=ft.Column(
+                                                        [
+                                                            ft.Text("Leere Map", size=16, weight="bold", color="#111827", text_align="center"),
+                                                            ft.Text("Klicke eine Insel an oder füge oben rechts eine neue Insel hinzu.", size=12, color="#6B7280", text_align="center"),
+                                                            ft.Container(height=8),
+                                                            ft.Container(
+                                                                width=map_w,
+                                                                height=map_h,
+                                                                border_radius=28,
+                                                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                                border=ft.border.Border.all(1.5, "#D1D5DB"),
+                                                                content=ft.Stack(controls=island_layers()),
+                                                            ),
+                                                        ],
+                                                        spacing=10,
+                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                    ),
+                                                ),
+                                                ft.Container(
+                                                    width=min(360, max(280, int(page_w * 0.28))),
+                                                    border_radius=24,
+                                                    padding=16,
+                                                    bgcolor="#FFFFFF",
+                                                    border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                    content=ft.Column(
+                                                        [
+                                                            ft.Text("Inseln", size=18, weight="bold", color="#111827", text_align="center"),
+                                                            ft.Text(f"Vorhanden: {len(islands)}", size=12, color="#6B7280", text_align="center"),
+                                                            ft.Text("Ziehe Inseln, um sie zu verschieben. Tippe eine Insel an, um in den Punkt-Editor zu wechseln.", size=12, color="#6B7280", text_align="center"),
+                                                        ],
+                                                        spacing=8,
+                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                    ),
+                                                ),
+                                            ],
+                                            spacing=14,
+                                            wrap=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.START,
+                                        ),
+                                    ],
+                                    spacing=12,
+                                    scroll=ft.ScrollMode.AUTO,
+                                ),
+                            ),
+                        ),
+                    ],
+                    expand=True,
+                ),
+            )
+        )
+        page.update()
+        page.run_task(_sync_bg_music_async, page, state)
+        return
+
+    if not selected_island.get("points"):
+        selected_island["points"] = [_questions_path_default_point(0)]
+    world["points"] = list(selected_island.get("points", []) or [])
+    world["background_preset"] = str(selected_island.get("design", QUESTIONS_PATH_WORLD_PRESETS[0]["key"]))
+
+    def select_point(index: int):
+        state["_questions_path_editor_selected_point"] = max(0, min(index, len(_questions_path_world_points(world)) - 1))
+        _questions_path_render_world_editor(page, state, world["id"])
+
+    def move_point(index: int, dx: float, dy: float):
+        points = _questions_path_world_points(world)
+        if 0 <= index < len(points):
+            points[index]["x"] = _questions_path_clamp_pct(float(points[index]["x"]) + dx * 0.08)
+            points[index]["y"] = _questions_path_clamp_pct(float(points[index]["y"]) + dy * 0.08)
+            persist_world()
+            _questions_path_render_world_editor(page, state, world["id"])
+
+    def add_point(e):
+        points = _questions_path_world_points(world)
+        points.append(_questions_path_default_point(len(points)))
+        state["_questions_path_editor_selected_point"] = len(points) - 1
+        persist_world()
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def delete_point(e):
+        points = _questions_path_world_points(world)
+        if len(points) <= 1:
+            return
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if 0 <= idx < len(points):
+            points.pop(idx)
+            state["_questions_path_editor_selected_point"] = max(0, idx - 1)
+            persist_world()
+            _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def save_fields(e):
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        points = _questions_path_world_points(world)
+        if not (0 <= idx < len(points)):
+            return
+        point = points[idx]
+        point["name"] = str(name_field.value or "").strip() or point["name"]
+        point["question"] = str(question_field.value or "").strip()
+        point["answers"] = [str(field.value or "").strip() for field in answer_fields]
+        while len(point["answers"]) < 4:
+            point["answers"].append("")
+        point["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+        world["name"] = str(world_name_field.value or "").strip() or world["name"]
+        persist_world()
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def back_to_islands(e):
+        selected_island["points"] = list(world.get("points", []) or [])
+        persist_world()
+        state.pop("_questions_path_selected_island_id", None)
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    selected_point = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+    points = _questions_path_world_points(world)
+    if selected_point >= len(points):
+        selected_point = max(0, len(points) - 1)
+        state["_questions_path_editor_selected_point"] = selected_point
+    point = points[selected_point]
+
+    name_field = ft.TextField(
+        label="Punktname",
+        value=point.get("name", ""),
+        width=320,
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+    question_field = ft.TextField(
+        label="Frage",
+        value=point.get("question", ""),
+        width=320,
+        min_lines=3,
+        max_lines=6,
+        multiline=True,
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+    answers = list(point.get("answers", []))
+    while len(answers) < 4:
+        answers.append("")
+    answer_fields = [
+        ft.TextField(
+            label=f"Antwort {ANSWER_LETTERS[i]}",
+            value=answers[i],
+            width=320,
+            bgcolor="#FFFFFF",
+            color="#111827",
+            border_color="#D1D5DB",
+        )
+        for i in range(4)
+    ]
+    correct_dropdown = ft.Dropdown(
+        label="Richtige Antwort",
+        value=str(point.get("correct", 0)),
+        width=200,
+        options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)],
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+    world_name_field = ft.TextField(
+        label="Weltname",
+        value=world.get("name", ""),
+        width=320,
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+
+    map_layers = [
+        ft.Container(expand=True, bgcolor="#D1D5DB"),
+        *_questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
+    ]
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            bgcolor="#F3F5F7",
+            content=ft.Stack(
+                [
+                    ft.Container(expand=True, bgcolor="#F3F5F7"),
+                    ft.Container(
+                        expand=True,
+                        padding=16,
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        _game_menu_button("← Inseln", back_to_islands, "#64748B", width=150, height=40),
+                                        ft.Text("Inselmenü", size=28, weight="bold", color="#2B2F36"),
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
+                                                _game_menu_button("▶ Spielen", lambda ev: start_questions_path_game(ev.page, state, world["id"]), theme["success"], width=120, height=38),
+                                            ],
+                                            spacing=10,
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
+                                ft.Row(
+                                    [
+                                        ft.Container(
+                                            expand=True,
+                                            border_radius=24,
+                                            padding=16,
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Row(
+                                                        [
+                                                            ft.Text("Leere Karte", size=16, weight="bold", color="#111827"),
+                                                            ft.Text("Standard", size=11, color="#6B7280"),
+                                                        ],
+                                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                    ),
+                                                    ft.Container(height=8),
+                                                    ft.Container(
+                                                        width=map_w,
+                                                        height=map_h,
+                                                        border_radius=28,
+                                                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                        border=ft.border.Border.all(1.5, "#D1D5DB"),
+                                                        content=ft.Stack(controls=map_layers),
+                                                    ),
+                                                    ft.Text("Hinweis: Ziehe Punkte mit der Maus oder per Touch.", size=11, color="#6B7280", text_align="center"),
+                                                ],
+                                                spacing=10,
+                                            ),
+                                        ),
+                                        ft.Container(
+                                            width=min(420, max(320, int(page_w * 0.34))),
+                                            border_radius=24,
+                                            padding=16,
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Text("Quiz Editor", size=18, weight="bold", color="#111827", text_align="center"),
+                                                    ft.Text(f"Ausgewählt: {point.get('name', 'Punkt')}", size=12, color="#6B7280", text_align="center"),
+                                                    world_name_field,
+                                                    name_field,
+                                                    question_field,
+                                                    *answer_fields,
+                                                    correct_dropdown,
+                                                    ft.Row(
+                                                        [
+                                                            _game_menu_button("Speichern", save_fields, theme["success"], width=120, height=38),
+                                                            _game_menu_button("Löschen", delete_point, theme["danger"], width=120, height=38),
+                                                        ],
+                                                        spacing=10,
+                                                        wrap=True,
+                                                    ),
+                                                    ft.Text("Wähle einen Punkt auf der Karte an und bearbeite ihn hier.", size=11, color="#6B7280", text_align="center"),
+                                                ],
+                                                spacing=8,
+                                                scroll=ft.ScrollMode.AUTO,
+                                            ),
+                                        ),
+                                    ],
+                                    spacing=14,
+                                    wrap=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                ),
+                            ],
+                            spacing=12,
+                            scroll=ft.ScrollMode.AUTO,
                         ),
                     ),
                 ],
@@ -5238,13 +5806,36 @@ def _DraggableModal(panel: ft.Control, page: ft.Page | None = None) -> ft.Stack:
             ensure_position(page)
             pw, ph = _page_size(page)
             max_w = float(panel_host.width or panel_w)
-            pos["left"] = max(10, min((pos["left"] or 10) + e.delta_x, max(10, pw - max_w - 10)))
-            pos["top"] = max(10, min((pos["top"] or 10) + e.delta_y, max(10, ph - 140)))
+            current = getattr(e, "global_position", None)
+            if current is not None and hasattr(current, "x") and hasattr(current, "y"):
+                last_x = pos.get("_drag_last_x")
+                last_y = pos.get("_drag_last_y")
+                pos["_drag_last_x"] = float(current.x or 0.0)
+                pos["_drag_last_y"] = float(current.y or 0.0)
+                if last_x is not None and last_y is not None:
+                    dx = float(current.x or 0.0) - float(last_x)
+                    dy = float(current.y or 0.0) - float(last_y)
+                else:
+                    dx = dy = 0.0
+            else:
+                dx, dy = _gesture_delta_xy(e)
+            pos["left"] = max(10, min((pos["left"] or 10) + dx, max(10, pw - max_w - 10)))
+            pos["top"] = max(10, min((pos["top"] or 10) + dy, max(10, ph - 140)))
             floating.left = pos["left"]
             floating.top = pos["top"]
             floating.update()
         except Exception:
             pass
+
+    def on_pan_start(e):
+        current = getattr(e, "global_position", None)
+        if current is not None and hasattr(current, "x") and hasattr(current, "y"):
+            pos["_drag_last_x"] = float(current.x or 0.0)
+            pos["_drag_last_y"] = float(current.y or 0.0)
+
+    def on_pan_end(e):
+        pos.pop("_drag_last_x", None)
+        pos.pop("_drag_last_y", None)
 
     drag_handle = ft.GestureDetector(
         content=ft.Container(
@@ -5255,7 +5846,9 @@ def _DraggableModal(panel: ft.Control, page: ft.Page | None = None) -> ft.Stack:
             alignment=ft.Alignment(0, 0),
             width=panel_w,
         ),
+        on_pan_start=on_pan_start,
         on_pan_update=on_pan_update,
+        on_pan_end=on_pan_end,
         mouse_cursor=ft.MouseCursor.MOVE,
         drag_interval=12,
     )
@@ -5725,6 +6318,45 @@ def build_joker_tile(
     tile.on_hover = on_hover
     tile.ink = True
     return tile
+
+
+def build_joker_slot_row(
+    picked_ids: list[str],
+    theme: dict,
+    *,
+    slot_size: int = 58,
+    empty_label: str = "?",
+    on_joker_click=None,
+) -> ft.Row:
+    slots = []
+    for i in range(JOKER_SELECT_COUNT):
+        if i < len(picked_ids):
+            jid = picked_ids[i]
+            joker = get_joker(jid)
+            if joker:
+                slots.append(
+                    build_joker_tile(
+                        joker,
+                        theme,
+                        selected=True,
+                        size=slot_size,
+                        show_name=True,
+                        on_click=(lambda e, j=jid: on_joker_click(j)) if on_joker_click else None,
+                    )
+                )
+                continue
+        slots.append(
+            ft.Container(
+                content=ft.Text(empty_label, size=18, color=theme_txt(theme, "muted"), weight="bold"),
+                width=slot_size,
+                height=slot_size,
+                border_radius=12,
+                bgcolor=theme.get("question_bg", "#FFFFFF"),
+                border=ft.border.Border.all(2, theme["border"]),
+                alignment=ft.Alignment(0, 0),
+            )
+        )
+    return ft.Row(slots, spacing=10, alignment=ft.MainAxisAlignment.CENTER)
 
 
 def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | None = None) -> ft.Control:
@@ -6821,12 +7453,11 @@ QUESTIONS_PATH_MAPS = {
         "title": "Naturinsel",
         "subtitle": "Wald, Tiere und ruhige Pfade.",
         "topic": "natur",
-        "icon": "🌿",
+        "icon": "Natur",
         "accent": "#34D399",
         "panel": "#0A1712E8",
         "border": "#38BDF8",
         "line": "#86EFAC",
-        "map_image_src": "Fragenpfad/weg_wald.png",
         "image": _questions_path_map_art_asset(),
         "points": _path_nodes(
             [(10, 39), (20, 32), (32, 28), (45, 24), (58, 26), (71, 31), (82, 39), (86, 52), (76, 67), (60, 75)],
@@ -6837,11 +7468,11 @@ QUESTIONS_PATH_MAPS = {
         "title": "Genussinsel",
         "subtitle": "Ernährung, Alltag und Energie.",
         "topic": "ernährung",
-        "icon": "🥗",
-        "accent": "#22C55E",
-        "panel": "#101B16E8",
-        "border": "#6EE7B7",
-        "line": "#34D399",
+        "icon": "Ern",
+        "accent": "#F59E0B",
+        "panel": "#171006E8",
+        "border": "#FDE68A",
+        "line": "#FDBA74",
         "image": _questions_path_map_art_asset(),
         "points": _path_nodes(
             [(10, 36), (21, 29), (33, 24), (46, 24), (58, 27), (70, 31), (81, 39), (86, 50), (79, 65), (63, 76)],
@@ -6852,7 +7483,7 @@ QUESTIONS_PATH_MAPS = {
         "title": "Meeresinsel",
         "subtitle": "Fische, Wellen und Riffe.",
         "topic": "meer",
-        "icon": "🐠",
+        "icon": "Meer",
         "accent": "#A78BFA",
         "panel": "#120A1EE8",
         "border": "#C4B5FD",
@@ -6863,161 +7494,6 @@ QUESTIONS_PATH_MAPS = {
             ["Ufer", "Bucht", "Riff", "Algen", "Fische", "Strömung", "Mole", "Leuchtturm", "Tiefsee", "Ziel"],
         ),
     },
-    "geschichtsinsel": {
-        "title": "Geschichtsinsel",
-        "subtitle": "Zeitreisen durch Epochen und Entdeckungen.",
-        "topic": "geschichte",
-        "icon": "🏛️",
-        "accent": "#F59E0B",
-        "panel": "#191105E8",
-        "border": "#FCD34D",
-        "line": "#FBBF24",
-        "image": _questions_path_map_art_asset(),
-        "points": _path_nodes(
-            [(9, 62), (18, 51), (27, 42), (36, 35), (46, 31), (57, 33), (68, 39), (77, 49), (84, 62), (76, 75)],
-            ["Archiv", "Tor", "Antike", "Forum", "Mittelalter", "Werkstatt", "Reise", "Krone", "Bibliothek", "Ziel"],
-        ),
-    },
-    "technikfjord": {
-        "title": "Technikfjord",
-        "subtitle": "Codes, Computer und digitale Wege.",
-        "topic": "technik",
-        "icon": "💻",
-        "accent": "#06B6D4",
-        "panel": "#07161BE8",
-        "border": "#67E8F9",
-        "line": "#22D3EE",
-        "image": _questions_path_map_art_asset(),
-        "points": _path_nodes(
-            [(10, 28), (19, 34), (30, 31), (41, 25), (52, 29), (63, 38), (73, 47), (81, 58), (86, 69), (78, 79)],
-            ["Boot", "Signal", "Pixel", "Router", "Code", "Server", "Cloud", "Chip", "Labor", "Ziel"],
-        ),
-    },
-    "sportlagune": {
-        "title": "Sportlagune",
-        "subtitle": "Bewegung, Rekorde und faire Spiele.",
-        "topic": "sport",
-        "icon": "⚽",
-        "accent": "#EF4444",
-        "panel": "#1D0B0BE8",
-        "border": "#FCA5A5",
-        "line": "#F87171",
-        "image": _questions_path_map_art_asset(),
-        "points": _path_nodes(
-            [(10, 68), (18, 58), (29, 52), (40, 46), (51, 43), (62, 45), (71, 51), (80, 58), (87, 66), (78, 78)],
-            ["Arena", "Sprint", "Team", "Pass", "Finale", "Tribüne", "Pokal", "Lauf", "Rekord", "Ziel"],
-        ),
-    },
-    "kulturbucht": {
-        "title": "Kulturbucht",
-        "subtitle": "Kunst, Musik und große Geschichten.",
-        "topic": "kultur",
-        "icon": "🎭",
-        "accent": "#EC4899",
-        "panel": "#1A0A15E8",
-        "border": "#F9A8D4",
-        "line": "#F472B6",
-        "image": _questions_path_map_art_asset(),
-        "points": _path_nodes(
-            [(9, 33), (18, 28), (29, 31), (40, 40), (49, 50), (58, 58), (68, 62), (78, 59), (87, 50), (79, 38)],
-            ["Bühne", "Atelier", "Roman", "Oper", "Galerie", "Film", "Poesie", "Museum", "Finale", "Ziel"],
-        ),
-    },
-    "matheklippen": {
-        "title": "Matheklippen",
-        "subtitle": "Zahlen, Muster und clevere Sprünge.",
-        "topic": "mathematik",
-        "icon": "📐",
-        "accent": "#8B5CF6",
-        "panel": "#110A1EE8",
-        "border": "#C4B5FD",
-        "line": "#A78BFA",
-        "image": _questions_path_map_art_asset(),
-        "points": _path_nodes(
-            [(10, 72), (20, 67), (31, 61), (42, 54), (53, 47), (64, 41), (74, 37), (82, 43), (87, 55), (78, 69)],
-            ["Null", "Summe", "Bruch", "Prozent", "Formel", "Winkel", "Kurve", "Prim", "Beweis", "Ziel"],
-        ),
-    },
-    "wissenschaftsriff": {
-        "title": "Wissensriff",
-        "subtitle": "Experimente, Naturgesetze und Ideen.",
-        "topic": "wissenschaft",
-        "icon": "🔬",
-        "accent": "#14B8A6",
-        "panel": "#081816E8",
-        "border": "#5EEAD4",
-        "line": "#2DD4BF",
-        "image": _questions_path_map_art_asset(),
-        "points": _path_nodes(
-            [(10, 24), (21, 29), (31, 36), (41, 45), (52, 52), (63, 57), (73, 60), (81, 54), (87, 43), (78, 30)],
-            ["Funke", "Zelle", "Atom", "Licht", "Labor", "Reaktion", "Formel", "Messung", "Hypothese", "Ziel"],
-        ),
-    },
-    "wirtschaftshafen": {
-        "title": "Wirtschaftshafen",
-        "subtitle": "Preise, Geld und gute Entscheidungen.",
-        "topic": "wirtschaft",
-        "icon": "💼",
-        "accent": "#F97316",
-        "panel": "#1A1208E8",
-        "border": "#FDBA74",
-        "line": "#FB923C",
-        "image": _questions_path_map_art_asset(),
-        "points": _path_nodes(
-            [(10, 55), (19, 49), (29, 43), (40, 39), (52, 38), (63, 42), (73, 49), (82, 58), (87, 68), (79, 77)],
-            ["Markt", "Budget", "Preis", "Rabatt", "Kasse", "Währung", "Handel", "Lager", "Chance", "Ziel"],
-        ),
-    },
-    "island_escape": {
-        "title": "Island Escape",
-        "subtitle": "Level 1: The Beach",
-        "topic": "custom",
-        "icon": "🌴",
-        "accent": "#34D399",
-        "panel": "#0A1712E8",
-        "border": "#38BDF8",
-        "line": "#86EFAC",
-        "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuDujYeVOIbjHkAOgwaWo1l43M9PdBhcp_Tz6uDLFmu1NLafK-PLEkC0vDKCFYzUpw17iVPc1y1fNeT3T4pAgWo36rp32MPs9EyRZ6vq0AGXhjdiu8UNMtjLz-iHYZSbjaJmYlcLOYLxuNBeaFNRs71Owjo0nU-EsMadqASfgzM9aAA80sQBA43I2uUuuKNx-GjueU5h1sMIU3JZeBVLChZmMcCBmVjAMS5svthvFwu5w1sGbNcCkcUezc_YJQIDcqTxCc-tocuH8GzV",
-        "points": [{"x": 38.3, "y": 41.5, "label": "Punkt 1"}, {"x": 54.0, "y": 53.0, "label": "Punkt 2"}, {"x": 73.5, "y": 59.5, "label": "Punkt 3"}, {"x": 82.0, "y": 47.0, "label": "Punkt 4"}],
-        "questions": [
-            {"question": "Was ist das Hauptmerkmal dieser mystischen Waldregion?", "answers": ["Kakaobäume", "Fruchtbare Vulkanerde", "Dichte Nadelwälder & Teiche", "Unterseeische Riffe"], "correct_idx": 2},
-            {"question": "Welches magische Reittier haust der Legende nach am Ufer des glitzernden Teichs?", "answers": ["Der Smaragdfrosch", "Der Moos-Hirsch", "Die Nebel-Schildkröte", "Das Silberfischchen"], "correct_idx": 0},
-            {"question": "Wer hat das rote Abenteurerzelt im östlichen Außenposten aufgeschlagen?", "answers": ["Die QuestMapper Gilde", "Eine Gruppe Naturforscher", "Verlorene Holzfäller", "Ein mürrischer Einsiedler"], "correct_idx": 1},
-            {"question": "Durch welches Element ist der Teich gegenüber dem Pfad an der Ostgrenze gesichert?", "answers": ["Ein massives Holztor", "Einen antiken Steinkreis", "Eine charmante Bogenbrücke", "Einen tiefen Graben"], "correct_idx": 2}
-        ]
-    },
-    "city_patrol": {
-        "title": "Metropolis Mission",
-        "subtitle": "Level 2: City Streets",
-        "topic": "custom",
-        "icon": "🏙️",
-        "accent": "#38BDF8",
-        "panel": "#0A1712E8",
-        "border": "#38BDF8",
-        "line": "#86EFAC",
-        "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuDfspSd7Wwcnu0lQLSC2lVPDEYSdC4-GTaDqJlMm6PMNBKbcRWouRydApMgIvd7l0m1xYRC7grM44qJTuz5xjKZ-Itgc-eSBQYIMc0uNzD9HXlqRsmDkUUjw_DRjsiNDcq0_NkBeTBbjheWT4uV5DQp4CYtDc1EpASZr12rH5kRYNqFj2LiuwDYfknWs3GVHnEpMFzkNNxyxbb_pEI4zM3Jj7xbIWlgxNhaGzDEyhTeO0i4Ho9njkOXRkf6HQmvVt4PWvh3E2FwmV96",
-        "points": [{"x": 30.0, "y": 45.0, "label": "Punkt 1"}, {"x": 65.0, "y": 35.0, "label": "Punkt 2"}],
-        "questions": [
-            {"question": "Welcher Architekturstil prägt die isometrischen Hochhäuser im Stadtzentrum?", "answers": ["Klassizismus", "Brutalistisch-Modern", "Retro-Futuristisch", "Gotisch"], "correct_idx": 2},
-            {"question": "Wie viele Grünstreifen säumen die Hauptverkehrsstraßen dieser Miniaturstadt?", "answers": ["Keine, alles ist asphaltiert", "Jede Straße ist doppelspurig begrünt", "Einige ausgewählte Alleenhälften", "Nur der zentrale Stadtpark"], "correct_idx": 1}
-        ]
-    },
-    "school_detective": {
-        "title": "Akademie Rätsel",
-        "subtitle": "Level 1: Flurgang",
-        "topic": "custom",
-        "icon": "🏫",
-        "accent": "#F59E0B",
-        "panel": "#0A1712E8",
-        "border": "#38BDF8",
-        "line": "#86EFAC",
-        "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuCj9Z2m4Wtvdm5wtPsCQhSh9WHcLV1H1Jp6u78BHSaDfPJMeRhAgQ47gUl0_k38dR7BhUe2MFs8wvzOK7zfMC9GhuoIR2MI-ckFINWZ8QF7n1qtSYSt8BJuPXpykiH3xYZXETYRvNZVlhtgLIJSzneLMFiAviPxwta5y8kjXQS9UdVkt8bf90MgL-gk1MJ-oRp-m4DEyJAVKKLY8cpFebn5uNiSzvxKG4CvMRAwNlVpJchuZP1zD-0e1lM1oXE7uD0rr0I05mJJaQKp",
-        "points": [{"x": 40.0, "y": 50.0, "label": "Punkt 1"}, {"x": 72.0, "y": 60.0, "label": "Punkt 2"}],
-        "questions": [
-            {"question": "Welche Farbe hat das geöffnete Spind, in dem die Questnotiz versteckt ist?", "answers": ["Signalgelb", "Himmelblau", "Türkis", "Pastellrosa"], "correct_idx": 2},
-            {"question": "Welches Fachgebiet wird auf dem Hauptplakat neben dem Trinkbrunnen beworben?", "answers": ["Astronomie-AG", "Chemie-Laborversuche", "Mathematik-Zirkel", "Kunst & Freihandzeichnen"], "correct_idx": 0}
-        ]
-    }
 }
 
 
@@ -7044,290 +7520,12 @@ def _questions_path_map_topic(map_key: str) -> str:
     return str(map_cfg.get("topic") or "natur")
 
 
-QUESTIONS_PATH_CREATIVE_THEMES = [
-    {"accent": "#34D399", "panel": "#0A1712E8", "border": "#38BDF8", "line": "#86EFAC", "icon": "🏝️"},
-    {"accent": "#A78BFA", "panel": "#120A1EE8", "border": "#C4B5FD", "line": "#DDD6FE", "icon": "🌌"},
-    {"accent": "#F97316", "panel": "#1A1208E8", "border": "#FDBA74", "line": "#FB923C", "icon": "🌋"},
-    {"accent": "#06B6D4", "panel": "#07161BE8", "border": "#67E8F9", "line": "#22D3EE", "icon": "🏖️"},
-    {"accent": "#EC4899", "panel": "#1A0A15E8", "border": "#F9A8D4", "line": "#F472B6", "icon": "🎡"},
-]
-
-
-def _questions_path_default_custom_question(index: int = 0) -> dict:
-    return {
-        "question": f"Eigene Frage {index + 1}",
-        "answers": [f"Antwort {letter}" for letter in ANSWER_LETTERS[:4]],
-        "correct_idx": 0,
-    }
-
-
-def _questions_path_default_custom_island(index: int = 0) -> dict:
-    theme = QUESTIONS_PATH_CREATIVE_THEMES[index % len(QUESTIONS_PATH_CREATIVE_THEMES)]
-    return {
-        "map_key": f"custom_{index + 1}",
-        "title": f"Eigene Insel {index + 1}",
-        "subtitle": "Hier kannst du eigene Fragen sammeln.",
-        "topic": "custom",
-        "icon": theme["icon"],
-        "image_src": "",
-        "map_image_src": "",
-        "accent": theme["accent"],
-        "panel": theme["panel"],
-        "border": theme["border"],
-        "line": theme["line"],
-        "design_id": f"theme_{index % len(QUESTIONS_PATH_CREATIVE_THEMES)}",
-        "world_layout": "classic",
-        "world_name": f"Welt {index + 1}",
-        "world_description": "Gestalte hier deine eigene Fragen-Route.",
-        "map_x": 6 + (index % 3) * 29,
-        "map_y": 8 + (index // 3) * 24,
-        "card_scale": 1.0,
-        "custom_points": [],
-        "questions": [_questions_path_default_custom_question(0)],
-    }
-
-
-def _questions_path_default_custom_map(index: int = 0) -> dict:
-    theme = QUESTIONS_PATH_CREATIVE_THEMES[index % len(QUESTIONS_PATH_CREATIVE_THEMES)]
-    return {
-        "map_key": f"custom_map_{index + 1}",
-        "title": f"Eigene Map {index + 1}",
-        "subtitle": "Eigener Hintergrund mit frei platzierbaren Punkten.",
-        "topic": "custom",
-        "icon": "🗺️",
-        "image": "",
-        "map_image_src": "",
-        "accent": theme["accent"],
-        "panel": theme["panel"],
-        "border": theme["border"],
-        "line": theme["line"],
-        "points": [_path_nodes([(50, 55)], ["Start"])[0]],
-        "questions": [_questions_path_default_custom_question(0)],
-    }
-
-
-QUESTIONS_PATH_WORLD_LAYOUTS = {
-    "classic": {"label": "Klassischer Pfad", "points": _path_nodes([(10, 62), (20, 48), (31, 32), (42, 22), (55, 28), (67, 44), (77, 60), (69, 76), (51, 82), (32, 74)], ["Start", "Tor", "Pfad", "Brücke", "Hain", "Lichtung", "Bucht", "Gipfel", "Finale", "Ziel"])},
-    "spiral": {"label": "Spiralroute", "points": _path_nodes([(18, 18), (34, 18), (50, 26), (62, 40), (65, 56), (58, 69), (45, 76), (31, 72), (22, 60), (24, 42)], ["Start", "Tor", "Kurve", "Bogen", "Mitte", "Schleife", "Wende", "Rückweg", "Finale", "Ziel"])},
-    "coast": {"label": "Küstenweg", "points": _path_nodes([(10, 70), (18, 60), (30, 54), (43, 48), (56, 44), (69, 40), (79, 33), (84, 24), (74, 18), (58, 16)], ["Hafen", "Steg", "Bucht", "Düne", "Pfad", "Klippe", "Leuchtturm", "Welle", "Finale", "Ziel"])},
-}
-
-
-def _questions_path_custom_map(raw_island: dict, index: int) -> dict:
-    theme = QUESTIONS_PATH_CREATIVE_THEMES[index % len(QUESTIONS_PATH_CREATIVE_THEMES)]
-    questions = [_path_question_to_dict(q) for q in list(raw_island.get("questions", []) or [])]
-    if not questions:
-        questions = [_questions_path_default_custom_question(0)]
-    layout_key = str(raw_island.get("world_layout", "classic")).strip() or "classic"
-    layout = QUESTIONS_PATH_WORLD_LAYOUTS.get(layout_key, QUESTIONS_PATH_WORLD_LAYOUTS["classic"])
-    custom_points = list(raw_island.get("custom_points", []) or [])
-    if custom_points:
-        point_list = []
-        labels = [f"Punkt {i + 1}" for i in range(len(custom_points))]
-        for i, raw_point in enumerate(custom_points):
-            if isinstance(raw_point, dict):
-                point_list.append(
-                    {
-                        "x": max(2, min(96, int(raw_point.get("x", 10) or 10))),
-                        "y": max(2, min(96, int(raw_point.get("y", 10) or 10))),
-                        "label": str(raw_point.get("label", labels[i])).strip() or labels[i],
-                    }
-                )
-    else:
-        point_list = layout["points"]
-    return {
-        "title": str(raw_island.get("title", f"Eigene Insel {index + 1}")).strip() or f"Eigene Insel {index + 1}",
-        "subtitle": str(raw_island.get("subtitle", "Hier kannst du eigene Fragen sammeln.")).strip() or "Hier kannst du eigene Fragen sammeln.",
-        "world_name": str(raw_island.get("world_name", raw_island.get("title", f"Welt {index + 1}"))).strip() or f"Welt {index + 1}",
-        "world_description": str(raw_island.get("world_description", raw_island.get("subtitle", "Gestalte hier deine eigene Fragen-Route."))).strip() or "Gestalte hier deine eigene Fragen-Route.",
-        "topic": "custom",
-        "icon": str(raw_island.get("icon", theme["icon"])).strip() or theme["icon"],
-        "image_src": str(raw_island.get("image_src", "")).strip(),
-        "map_image_src": str(raw_island.get("map_image_src", "")).strip(),
-        "accent": str(raw_island.get("accent", theme["accent"])).strip() or theme["accent"],
-        "panel": str(raw_island.get("panel", theme["panel"])).strip() or theme["panel"],
-        "border": str(raw_island.get("border", theme["border"])).strip() or theme["border"],
-        "line": str(raw_island.get("line", theme["line"])).strip() or theme["line"],
-        "map_x": max(2.0, min(88.0, float(raw_island.get("map_x", 20) or 20))),
-        "map_y": max(2.0, min(82.0, float(raw_island.get("map_y", 20) or 20))),
-        "card_scale": max(0.8, min(1.8, float(raw_island.get("card_scale", 1.0) or 1.0))),
-        "questions": questions,
-        "world_layout": layout_key,
-        "custom_points": custom_points,
-        "points": point_list[: max(1, min(len(point_list), len(questions)))],
-    }
-
-
-def _questions_path_custom_assets_dir() -> tuple[str, str]:
-    abs_dir = os.path.join("assets", "questions_path_custom")
-    rel_dir = "questions_path_custom"
-    os.makedirs(abs_dir, exist_ok=True)
-    return abs_dir, rel_dir
-
-
-async def _questions_path_pick_and_store_image(page: ft.Page, prefix: str = "island") -> str | None:
-    picker = ft.FilePicker()
-    try:
-        pick_call = picker.pick_files(
-            dialog_title="Bild auswählen",
-            allow_multiple=False,
-            with_data=True,
-            file_type=ft.FilePickerFileType.CUSTOM,
-            allowed_extensions=["png", "jpg", "jpeg", "webp"],
-        )
-    except TypeError:
-        pick_call = picker.pick_files(
-            allow_multiple=False,
-            file_type=ft.FilePickerFileType.CUSTOM,
-            allowed_extensions=["png", "jpg", "jpeg", "webp"],
-        )
-    picked_files = await pick_call if inspect.isawaitable(pick_call) else pick_call
-    picked_files = list(picked_files or [])
-    if not picked_files:
-        return None
-    picked = picked_files[0]
-    original_name = str(getattr(picked, "name", "") or "").strip()
-    if not original_name:
-        return None
-    ext = os.path.splitext(original_name)[1].lower() or ".png"
-    if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
-        return None
-    abs_dir, rel_dir = _questions_path_custom_assets_dir()
-    safe_base = _sanitize_filename_part(os.path.splitext(original_name)[0] or prefix)
-    unique_name = f"{prefix}_{safe_base}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}{ext}"
-    abs_path = os.path.join(abs_dir, unique_name)
-    rel_path = f"{rel_dir}/{unique_name}"
-    picked_bytes = getattr(picked, "bytes", None)
-    if picked_bytes:
-        with open(abs_path, "wb") as file_obj:
-            file_obj.write(picked_bytes)
-        return rel_path
-    try:
-        upload_jobs = []
-        try:
-            upload_jobs.append(
-                ft.FilePickerUploadFile(
-                    id=getattr(picked, "id", None),
-                    name=original_name,
-                    upload_url=page.get_upload_url(rel_path, 600),
-                )
-            )
-        except TypeError:
-            upload_jobs.append(
-                ft.FilePickerUploadFile(
-                    name=original_name,
-                    upload_url=page.get_upload_url(rel_path, 600),
-                )
-            )
-        upload_call = picker.upload(files=upload_jobs)
-        if inspect.isawaitable(upload_call):
-            await upload_call
-        return rel_path
-    except Exception:
-        return None
-
-
-def _questions_path_maps_for_profile(profile: dict) -> list[tuple[str, dict]]:
-    mode = str(profile.get("progression_mode", "adventure")).strip().lower()
-    if mode == "creative":
-        custom_islands = list(profile.get("custom_islands", []) or [])
-        return [
-            (str(item.get("map_key", f"custom_{idx + 1}")), _questions_path_custom_map(item, idx))
-            for idx, item in enumerate(custom_islands)
-            if isinstance(item, dict)
-        ]
-    return [(map_key, QUESTIONS_PATH_MAPS[map_key]) for map_key in QUESTIONS_PATH_LEVEL_ORDER]
-
-
-def _questions_path_map_lookup_for_profile(profile: dict, map_key: str) -> dict:
-    for visible_key, map_cfg in _questions_path_maps_for_profile(profile):
-        if visible_key == map_key:
-            return map_cfg
-    return QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"])
-
-
-def _questions_path_editor_map_lookup(profile: dict, map_key: str) -> dict:
-    map_overrides = profile.get("map_overrides", {})
-    if isinstance(map_overrides, dict) and map_key in map_overrides and isinstance(map_overrides[map_key], dict):
-        return dict(map_overrides[map_key])
-    custom_maps = list(profile.get("custom_maps", []) or [])
-    for item in custom_maps:
-        if isinstance(item, dict) and str(item.get("map_key", "")).strip() == map_key:
-            return dict(item)
-    return dict(QUESTIONS_PATH_MAPS.get(map_key, QUESTIONS_PATH_MAPS["waldpfad"]))
-
-
-def _questions_path_editor_maps_for_profile(profile: dict) -> list[tuple[str, dict, bool]]:
-    maps: list[tuple[str, dict, bool]] = []
-    for map_key in QUESTIONS_PATH_LEVEL_ORDER:
-        maps.append((map_key, _questions_path_editor_map_lookup(profile, map_key), False))
-    for item in list(profile.get("custom_maps", []) or []):
-        if isinstance(item, dict):
-            map_key = str(item.get("map_key", "")).strip()
-            if map_key:
-                maps.append((map_key, _questions_path_editor_map_lookup(profile, map_key), True))
-    return maps
-
-
-def _questions_path_editor_save_map(profile: dict, map_key: str, map_cfg: dict):
-    map_cfg = dict(map_cfg)
-    map_cfg["map_key"] = map_key
-    if map_key in QUESTIONS_PATH_MAPS:
-        overrides = dict(profile.get("map_overrides", {}) or {})
-        overrides[map_key] = map_cfg
-        profile["map_overrides"] = overrides
-        return
-    custom_maps = list(profile.get("custom_maps", []) or [])
-    for idx, item in enumerate(custom_maps):
-        if isinstance(item, dict) and str(item.get("map_key", "")).strip() == map_key:
-            custom_maps[idx] = map_cfg
-            profile["custom_maps"] = custom_maps
-            return
-    custom_maps.append(map_cfg)
-    profile["custom_maps"] = custom_maps[-12:]
-
-
-def _questions_path_copy_points(points: list[dict] | None) -> list[dict]:
-    cleaned: list[dict] = []
-    for idx, point in enumerate(list(points or [])[:20]):
-        if not isinstance(point, dict):
-            continue
-        cleaned.append(
-            {
-                "x": max(2, min(96, int(point.get("x", 10) or 10))),
-                "y": max(2, min(96, int(point.get("y", 10) or 10))),
-                "label": str(point.get("label", f"Punkt {idx + 1}")).strip() or f"Punkt {idx + 1}",
-            }
-        )
-    return cleaned
-
-
-def _questions_path_copy_questions(questions: list[dict] | None) -> list[dict]:
-    return [_path_question_to_dict(question) for question in list(questions or [])[:20]]
-
-
-def _questions_path_profile_mode(profile: dict) -> str:
-    mode = str(profile.get("progression_mode", "adventure")).strip().lower()
-    return "creative" if mode == "creative" else "adventure"
-
-
 def build_questions_path_questions(age: str, map_key: str, state: dict | None = None) -> list[dict]:
-    profile = _get_question_profile(state)
-    if profile:
-        mode = _questions_path_profile_mode(profile)
-        if mode == "creative":
-            map_cfg = _questions_path_map_lookup_for_profile(profile, map_key)
-            if str(map_cfg.get("topic", "")) == "custom":
-                return [_path_question_to_dict(q) for q in list(map_cfg.get("questions", []) or [])]
-
     bank = build_level_question_bank(age)
     map_cfg = QUESTIONS_PATH_MAPS.get(map_key) or QUESTIONS_PATH_MAPS["waldpfad"]
-    
-    if map_cfg.get("questions"):
-        return [_path_question_to_dict(q) for q in map_cfg["questions"]]
-        
     total_nodes = len(map_cfg["points"])
     target_topic = _questions_path_map_topic(map_key)
+    profile = _get_question_profile(state)
     recent_prompts = []
     performance = {}
     if profile:
@@ -7814,6 +8012,14 @@ def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
 
 
 # ---------- Avatar ----------
+def _avatar_piece_icon(user: dict, slot: str) -> str:
+    catalog = _avatar_catalog_by_id()
+    ensure_avatar_defaults(user)
+    item_id = user["avatar"]["equipped"].get(slot, AVATAR_BASE_EQUIPPED[slot])
+    item = catalog.get(item_id) or catalog.get(AVATAR_BASE_EQUIPPED[slot]) or {}
+    return str(item.get("icon", "•"))
+
+
 def _avatar_preview_text(user: dict, theme: dict) -> str:
     ensure_avatar_defaults(user)
     gender = user["avatar"].get("gender", "diverse")
@@ -7821,6 +8027,20 @@ def _avatar_preview_text(user: dict, theme: dict) -> str:
     scene = avatar_scene(theme_key)
     gender_label = {"male": "Männlich", "female": "Weiblich", "diverse": "Divers"}.get(gender, "Divers")
     return f"Avatar bald verfügbar\n{scene}\nTyp: {gender_label}"
+
+
+def _avatar_piece_color(item_id: str, theme: dict, fallback: str) -> str:
+    item_id = str(item_id or "")
+    item_id_l = item_id.lower()
+    if "royal" in item_id_l or "crown" in item_id_l or "chain" in item_id_l:
+        return "#F2C94C"
+    if "neon" in item_id_l or "glasses" in item_id_l:
+        return "#22D3EE"
+    if "ocean" in item_id_l or "diver" in item_id_l:
+        return "#38BDF8"
+    if "dark" in item_id_l:
+        return "#334155"
+    return fallback
 
 
 def _avatar_outfit_style(user: dict, theme: dict) -> dict:
@@ -8785,6 +9005,17 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
     )
 
 
+def _menu_button(label: str, on_click, color: str) -> ft.Control:
+    return ft.Container(
+        content=ft.Text(label, size=18, weight="bold", color="white"),
+        on_click=on_click,
+        bgcolor=color,
+        border_radius=50,
+        padding=ft.Padding(40, 14, 40, 14),
+        shadow=ft.BoxShadow(blur_radius=12, color="#40000000"),
+    )
+
+
 CUSTOM_QUIZ_BTN_WIDTH = 200
 CUSTOM_QUIZ_BTN_HEIGHT = 44
 
@@ -9396,25 +9627,55 @@ def show_custom_question_editor(page: ft.Page, state: dict, question_index: int 
     page.update()
 
 
-def _questions_path_map_line(start: dict, end: dict, map_w: float, map_h: float, color: str) -> ft.Container:
+def _questions_path_map_line(start: dict, end: dict, map_w: float, map_h: float, color: str) -> list[ft.Control]:
     sx = map_w * start["x"] / 100.0
     sy = map_h * start["y"] / 100.0
     ex = map_w * end["x"] / 100.0
     ey = map_h * end["y"] / 100.0
     dx = ex - sx
     dy = ey - sy
-    length = max(18.0, math.hypot(dx, dy))
-    angle = math.atan2(dy, dx)
-    return ft.Container(
-        left=sx + 18,
-        top=sy + 18 - 2,
-        width=length,
-        height=4,
-        bgcolor=color,
-        opacity=0.65,
-        rotate=ft.Rotate(angle=angle),
-        border_radius=999,
-    )
+    distance = max(18.0, math.hypot(dx, dy))
+    if distance <= 0.1:
+        return []
+
+    mid_x = (sx + ex) / 2.0
+    mid_y = (sy + ey) / 2.0
+    perp_x = -dy / distance
+    perp_y = dx / distance
+    control_offset = min(42.0, distance * 0.18)
+    cx = mid_x + perp_x * control_offset
+    cy = mid_y + perp_y * control_offset
+
+    def _bezier(t: float) -> tuple[float, float]:
+        omt = 1.0 - t
+        x = (omt * omt * sx) + (2.0 * omt * t * cx) + (t * t * ex)
+        y = (omt * omt * sy) + (2.0 * omt * t * cy) + (t * t * ey)
+        return x, y
+
+    samples = [_bezier(i / 10.0) for i in range(11)]
+    line_controls: list[ft.Control] = []
+    for a, b in zip(samples, samples[1:]):
+        ax, ay = a
+        bx, by = b
+        seg_dx = bx - ax
+        seg_dy = by - ay
+        seg_len = max(8.0, math.hypot(seg_dx, seg_dy))
+        seg_angle = math.atan2(seg_dy, seg_dx)
+        mid_seg_x = (ax + bx) / 2.0
+        mid_seg_y = (ay + by) / 2.0
+        line_controls.append(
+            ft.Container(
+                left=mid_seg_x - (seg_len / 2.0),
+                top=mid_seg_y - 2,
+                width=seg_len,
+                height=4,
+                bgcolor=color,
+                opacity=0.72,
+                rotate=ft.Rotate(angle=seg_angle),
+                border_radius=999,
+            )
+        )
+    return line_controls
 
 
 def _questions_path_map_node(
@@ -9427,20 +9688,27 @@ def _questions_path_map_node(
     idx: int,
 ) -> ft.Container:
     point = map_cfg["points"][idx]
-    current = int(game.get("node_index", 0))
-    completed = set(int(x) for x in game.get("completed_nodes", []))
-    unlocked = idx == current
-    is_completed = idx in completed
     accent = map_cfg.get("accent", "#FACC15")
-    node_color = accent if unlocked else ("#22C55E" if is_completed else "#475569")
-    border_color = "#FFFFFF" if unlocked else ("#A7F3D0" if is_completed else "#94A3B8")
+    node_states = dict(game.get("node_states", {}) or {})
+    node_state = dict(node_states.get(str(idx), {}) or {})
+    status = str(node_state.get("status", "idle"))
+    active_node = state.get("_questions_path_active_node")
+    if status == "correct":
+        node_color = "#22C55E"
+        border_color = "#D1FAE5"
+        label_text = "✓"
+    elif status == "wrong":
+        node_color = "#EF4444"
+        border_color = "#FECACA"
+        label_text = "×"
+    else:
+        node_color = "#64748B"
+        border_color = accent if idx == active_node else "#94A3B8"
+        label_text = str(idx + 1)
     label_color = "white"
-    label = point.get("label", f"Etappe {idx + 1}")
     r = 22
 
     def open_node(e):
-        if int(game.get("node_index", 0)) != idx:
-            return
         state["_questions_path_active_node"] = idx
         render_questions_path_game(page, state)
 
@@ -9452,11 +9720,11 @@ def _questions_path_map_node(
         shape=ft.BoxShape.CIRCLE,
         bgcolor=node_color,
         border=ft.border.Border.all(2, border_color),
-        shadow=ft.BoxShadow(blur_radius=18 if unlocked else 8, color=f"#99{node_color[1:]}" if len(node_color) == 7 else "#66000000"),
+        shadow=ft.BoxShadow(blur_radius=18 if status == "correct" else 8, color=f"#99{node_color[1:]}" if len(node_color) == 7 else "#66000000"),
         alignment=ft.Alignment(0, 0),
         on_click=open_node,
-        tooltip=label,
-        content=ft.Text(str(idx + 1), size=14, weight="bold", color=label_color),
+        tooltip=point.get("label", f"Frage {idx + 1}"),
+        content=ft.Text(label_text, size=14, weight="bold", color=label_color),
         animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
     )
 
@@ -9465,7 +9733,7 @@ def _questions_path_build_map_stack(page: ft.Page, state: dict, game: dict, map_
     points = map_cfg["points"]
     stack_items: list[ft.Control] = []
     for idx in range(len(points) - 1):
-        stack_items.append(_questions_path_map_line(points[idx], points[idx + 1], map_w, map_h, map_cfg.get("line", "#FFFFFF")))
+        stack_items.extend(_questions_path_map_line(points[idx], points[idx + 1], map_w, map_h, map_cfg.get("line", "#FFFFFF")))
     for idx in range(len(points)):
         stack_items.append(_questions_path_map_node(page, state, game, map_cfg, map_w, map_h, idx))
     return stack_items
@@ -9474,44 +9742,56 @@ def _questions_path_build_map_stack(page: ft.Page, state: dict, game: dict, map_
 def _questions_path_answer_buttons(page: ft.Page, state: dict, node_idx: int, question: dict, map_cfg: dict) -> ft.Control:
     answers = list(question.get("answers", []))
     correct_idx = int(question.get("correct_idx", 0))
-    accent = map_cfg.get("accent", "#FACC15")
     buttons = []
+    game = state.get("questions_path_game") or {}
+    node_states = dict(game.get("node_states", {}) or {})
+    node_state = dict(node_states.get(str(node_idx), {}) or {})
+    selected_idx = node_state.get("selected_idx")
+    node_status = str(node_state.get("status", "idle"))
 
     def choose(idx: int):
         def _handler(e):
             game = state.get("questions_path_game")
-            if not game or int(game.get("node_index", 0)) != node_idx:
+            if not game:
                 return
+            node_states = dict(game.get("node_states", {}) or {})
+            node_state = dict(node_states.get(str(node_idx), {}) or {})
             if idx == correct_idx:
-                completed = list(game.get("completed_nodes", []))
-                if node_idx not in completed:
-                    completed.append(node_idx)
-                game["completed_nodes"] = completed
-                game["node_index"] = node_idx + 1
-                game["current_hint"] = None
-                if node_idx + 1 >= len(game.get("questions", [])):
+                node_state["status"] = "correct"
+                node_state["selected_idx"] = idx
+                node_states[str(node_idx)] = node_state
+                game["node_states"] = node_states
+                game["node_index"] = max(int(game.get("node_index", 0)), node_idx + 1)
+                if sum(1 for item in node_states.values() if str(item.get("status")) == "correct") >= len(game.get("questions", [])):
                     game["game_finished"] = True
-                    save_questions_path_game(state)
-                    state.pop("_questions_path_active_node", None)
-                    render_questions_path_complete(page, state)
-                    return
-                game["checkpoint_index"] = max(game.get("checkpoint_index", 0), node_idx + 1 if (node_idx + 1) % 4 == 0 else game.get("checkpoint_index", 0))
                 save_questions_path_game(state)
                 state.pop("_questions_path_active_node", None)
-                render_questions_path_game(page, state)
+                if game.get("game_finished"):
+                    render_questions_path_complete(e.page, state)
+                else:
+                    render_questions_path_game(e.page, state)
             else:
-                game["current_hint"] = "Noch nicht ganz. Versuch diese Station nochmal."
+                node_state["status"] = "wrong"
+                node_state["selected_idx"] = idx
+                node_states[str(node_idx)] = node_state
+                game["node_states"] = node_states
                 save_questions_path_game(state)
-                state.pop("_questions_path_active_node", None)
+                e.page.snack_bar = ft.SnackBar(content=ft.Text("Noch nicht ganz - probier es nochmal."), open=True)
+                e.page.update()
                 render_questions_path_game(page, state)
         return _handler
 
     for idx, answer in enumerate(answers):
+        button_color = "#334155"
+        if node_status == "correct" and idx == correct_idx:
+            button_color = "#22C55E"
+        elif node_status == "wrong" and selected_idx == idx:
+            button_color = "#EF4444"
         buttons.append(
             _game_menu_button(
                 f"{ANSWER_LETTERS[idx]}. {answer}",
                 choose(idx),
-                "#16A34A" if idx == correct_idx else "#334155",
+                button_color,
                 width=280,
                 height=42,
             )
@@ -10652,7 +10932,7 @@ def _game_portal_back_overlay(page: ft.Page, state: dict) -> ft.Container:
                 ft.Container(
                     content=ft.TextButton(
                         "← Spielauswahl",
-                        on_click=lambda e: e.page.go("/"),
+                        on_click=lambda e: open_main_menu(e.page, state),
                         style=ft.ButtonStyle(color="white"),
                     ),
                     bgcolor="#0000008f",
@@ -10902,7 +11182,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         [
             portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: _go_route_or_render(e.page, "/wwm", open_wwm_main_menu, state)),
             portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: _go_route_or_render(e.page, "/points", show_points_quiz_hub, state)),
-            portal_card("Fragen-Pfad", "Eine lange Karte mit vielen Stationen, die du Stück für Stück freischaltest.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: _go_route_or_render(e.page, "/path", show_questions_path_hub, state)),
+            portal_card("Fragen-Pfad", "Karten, Inseln und Fragen direkt in der App starten.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: show_questions_path_hub(e.page, state)),
         ],
         spacing=16,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -10910,7 +11190,7 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
         [
             portal_card("Wer wird Millionär", "Das bisherige Solo-Spiel mit Jokern, Daily Challenge und eigenem Quiz-Modus.", theme.get("accent", "#10B981"), "💰", lambda e: _go_route_or_render(e.page, "/wwm", open_wwm_main_menu, state)),
             portal_card("Punkte-Quiz", "Team gegen Team auf einer Punktetafel mit Kategorien, Bewertung durch dich und freiem Spielende.", theme.get("gold", "#FACC15"), "🏟️", lambda e: _go_route_or_render(e.page, "/points", show_points_quiz_hub, state)),
-            portal_card("Fragen-Pfad", "Eine lange Karte mit vielen Stationen, die du Stück für Stück freischaltest.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: _go_route_or_render(e.page, "/path", show_questions_path_hub, state)),
+            portal_card("Fragen-Pfad", "Karten, Inseln und Fragen direkt in der App starten.", theme.get("accent_2", "#A78BFA"), "🗺️", lambda e: show_questions_path_hub(e.page, state)),
         ],
         spacing=18 if not compact else 14,
         run_spacing=18,
@@ -11085,7 +11365,6 @@ def show_points_quiz_hub(page: ft.Page, state: dict):
                                 ft.Text("Punkte-Quiz", size=30, weight="w900", color=ui["text"]),
                                 ft.Text("Teams, Kategorien, Punktebrett und freie Spielleitung.", size=14, color=theme_txt(theme, "secondary")),
                                 ft.Row([random_card, own_card], spacing=18, wrap=True, alignment=ft.MainAxisAlignment.CENTER),
-                                ft.TextButton("← Zurück", on_click=lambda e: e.page.go("/"), style=ft.ButtonStyle(color="white")),
                             ],
                             spacing=16,
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -11382,7 +11661,7 @@ def show_points_quiz_board(page: ft.Page, state: dict):
                                         ),
                                         ft.Row(
                                             [
-                                                _game_menu_button("Spielauswahl", lambda e: e.page.go("/"), "#4B5563", width=150 if is_mobile else 170, height=40),
+                                                _game_menu_button("Spielauswahl", lambda e: open_main_menu(e.page, state), "#4B5563", width=150 if is_mobile else 170, height=40),
                                                 _game_menu_button("Spiel beenden", lambda e: show_points_quiz_summary(e.page, state, finished_early=True), theme["danger"], width=170 if is_mobile else 180, height=40),
                                                 _game_menu_button("Zurück", lambda e: show_points_quiz_hub(e.page, state), "#4B5563", width=130 if is_mobile else 140, height=40),
                                             ],
@@ -12609,7 +12888,7 @@ def _neon_solid_panel(content: ft.Control, theme: dict, expand: bool = True, com
     pad = 6 if compact else 10
     return ft.Container(
         content=content,
-        bgcolor="#08120df2" if is_nexus else theme.get("panel", "#0c1814"),
+        bgcolor="#08120de0" if (is_nexus and has_video_bg) else ("#00000000" if is_nexus else theme.get("panel", "#0c1814")),
         border_radius=6,
         padding=ft.Padding(pad, pad - 2, pad, pad - 2),
         border=None if is_nexus else _neon_panel_border(theme),
@@ -12664,7 +12943,7 @@ def _game_panel(
     return ft.Container(
         content=content,
         width=width,
-        bgcolor="#08120df2" if is_nexus else theme.get("question_bg", "#FFFFFF"),
+        bgcolor="#08120de0" if (is_nexus and has_video_bg) else ("#00000000" if is_nexus else theme.get("question_bg", "#FFFFFF")),
         border_radius=10,
         padding=ft.Padding(12, 10, 12, 10),
         border=None if is_nexus else ft.border.Border.all(2, theme["border"]),
@@ -12785,11 +13064,6 @@ def render_game_screen(page: ft.Page, state: dict):
     answer_bg = theme_value(theme, "answer_bg", "#FFFFFF")
     question_bg_color = theme_value(theme, "question_bg", "#FFFFFF")
     question, options, correct_idx = state["questions"][state["question_index"]]
-    display_key = f"{state.get('custom_quiz_id') or 'standard'}:{state['question_index']}:{question}"
-    display_order = list(range(len(options)))
-    random.Random(display_key).shuffle(display_order)
-    display_options = [options[i] for i in display_order]
-    display_correct_idx = display_order.index(correct_idx)
     q_num = state["question_index"] + 1
     total_q = len(state["questions"])
     page_w, page_h = _page_size(page)
@@ -12805,19 +13079,6 @@ def render_game_screen(page: ft.Page, state: dict):
     theme_key = _theme_key_from_theme(theme)
     themed_bg_preview = _resolve_theme_background(theme_key, "game", allow_video=bool(FletVideo and VideoMedia and PlaylistMode)) if theme_key else None
     has_themed_video_bg = themed and _is_video_background(themed_bg_preview if themed_bg_preview else theme.get("game_bg"))
-    themed_bg = themed_bg_preview
-    bg_image = themed_bg if themed_bg else (theme.get("game_bg") if themed else None)
-    has_video_bg = _is_video_background(bg_image)
-    if bg_image:
-        overlay_color = "#000000e2" if has_video_bg else "#000000b8"
-        question_text_color = "#F8FAFC"
-        answer_text_color = "#F8FAFC"
-        question_bg_color = "#08120df8" if is_nexus else "#08121df6"
-        answer_bg = "#08120df8" if is_nexus else "#08121df6"
-    else:
-        overlay_color = "#00000000" if is_nexus else (
-            "#00000099" if not theme.get("is_light") else "#00000055"
-        )
     answer_border_default = ft.border.Border.all(
         2,
         (theme.get("border", "#60A5FA") if not has_themed_video_bg else theme.get("gold", "#93C5FD")),
@@ -12836,8 +13097,8 @@ def render_game_screen(page: ft.Page, state: dict):
 
         async def _next():
             await asyncio.sleep(1.5)
-            if chosen == display_correct_idx:
-                record_question_result(state, (question, display_options, display_correct_idx), was_correct=True)
+            if chosen == correct_idx:
+                record_question_result(state, (question, options, correct_idx), was_correct=True)
                 state["correct"] += 1
                 levels = money_levels_for_state(state)
                 state["money"] = levels[min(state["correct"] - 1, len(levels) - 1)]
@@ -12850,7 +13111,7 @@ def render_game_screen(page: ft.Page, state: dict):
                     save_current_game(state)
                     _show_correct_screen(page, state)
             else:
-                record_question_result(state, (question, display_options, display_correct_idx), was_correct=False)
+                record_question_result(state, (question, options, correct_idx), was_correct=False)
                 state["questions_answered"] += 1
                 state["game_finished"] = True
                 clear_saved_game(state)
@@ -12869,7 +13130,7 @@ def render_game_screen(page: ft.Page, state: dict):
         chosen = e.control.data
         if state.get("truefalse_mode"):
             answers_disabled[0] = True
-            is_correct = chosen == display_correct_idx
+            is_correct = chosen == correct_idx
             for idx, btn in enumerate(answer_buttons):
                 if idx == chosen:
                     btn.border = ft.border.Border.all(3, "#2ECC71" if is_correct else "#E74C3C")
@@ -12891,10 +13152,10 @@ def render_game_screen(page: ft.Page, state: dict):
             return
         answers_disabled[0] = True
         for idx, btn_container in enumerate(answer_buttons):
-            if idx == display_correct_idx:
+            if idx == correct_idx:
                 btn_container.bgcolor = "#00C853" if themed else "#2ECC71"
                 btn_container.border = ft.border.Border.all(3, "#76FF03" if themed else "#27AE60")
-            elif idx == chosen and idx != display_correct_idx:
+            elif idx == chosen and idx != correct_idx:
                 btn_container.bgcolor = "#B71C1C" if themed else "#E74C3C"
                 btn_container.border = ft.border.Border.all(3, "#FF1744" if themed else "#C0392B")
         page.update()
@@ -12946,12 +13207,12 @@ def render_game_screen(page: ft.Page, state: dict):
         answer_buttons.append(box)
         return box
 
-    answer_boxes = [make_answer_box(i, option) for i, option in enumerate(display_options)]
+    answer_boxes = [make_answer_box(i, option) for i, option in enumerate(options)]
     ctx = {
         "theme": theme,
         "question": question,
-        "options": display_options,
-        "correct_idx": display_correct_idx,
+        "options": options,
+        "correct_idx": correct_idx,
         "answer_buttons": answer_buttons,
     }
 
@@ -12980,6 +13241,19 @@ def render_game_screen(page: ft.Page, state: dict):
     state["_timer_ui"] = {"text": timer_text, "bar": timer_bar}
 
     # ── background ─────────────────────────────────────────────────────────────
+    themed_bg = themed_bg_preview
+    bg_image = themed_bg if themed_bg else (theme.get("game_bg") if themed else None)
+    has_video_bg = _is_video_background(bg_image)
+    if themed and has_video_bg:
+        overlay_color = "#000000d6"
+        question_text_color = "#F8FAFC"
+        answer_text_color = "#F8FAFC"
+        answer_bg = "#08121cee"
+        question_bg_color = "#08121cee"
+    else:
+        overlay_color = "#00000000" if is_nexus else (
+            "#00000099" if not theme.get("is_light") else "#00000055"
+        )
     if bg_image:
         bg_layer = _themed_game_background(bg_image, page_w, page_h, overlay_color)
     else:
@@ -13043,10 +13317,10 @@ def render_game_screen(page: ft.Page, state: dict):
         )
         nexus_pause_btn = ft.Container(
             content=ft.Row([
-                ft.Text("🗺️", size=14, color=theme.get("accent", theme["danger"])),
-                ft.Text("Inselkarte", size=13, weight="bold", color=theme.get("accent", theme["danger"])),
+                ft.Text("🚪", size=14, color=theme.get("accent", theme["danger"])),
+                ft.Text("Pause", size=13, weight="bold", color=theme.get("accent", theme["danger"])),
             ], spacing=6, alignment=ft.MainAxisAlignment.CENTER),
-            on_click=lambda e: (stop_game_timer(state), save_current_game(state), e.page.go("/wwm")),
+            on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
             bgcolor=pause_btn_bg, border_radius=8,
             border=pause_btn_border,
             padding=ft.Padding(10, 6, 10, 6), alignment=ft.Alignment(0, 0),
@@ -13116,10 +13390,10 @@ def render_game_screen(page: ft.Page, state: dict):
     )
     exit_btn = ft.Container(
         content=ft.Row([
-            ft.Text("🗺️", size=sc(12, 10), color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
-            ft.Text("Inselkarte", size=sc(12, 10), weight="bold", color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
+            ft.Text("🚪", size=sc(12, 10), color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
+            ft.Text("Pause", size=sc(12, 10), weight="bold", color=theme.get("accent", "#FFFFFF") if has_video_bg else "white"),
         ], spacing=sc(5, 4), tight=True),
-        on_click=lambda e: (stop_game_timer(state), save_current_game(state), e.page.go("/wwm")),
+        on_click=lambda e: (stop_game_timer(state), save_current_game(state), show_exit_confirmation(page, state)),
         bgcolor=pause_btn_bg,
         border_radius=6,
         padding=ft.Padding(sc(12, 9), sc(7, 6), sc(12, 9), sc(7, 6)),
@@ -13239,6 +13513,12 @@ def render_game_screen(page: ft.Page, state: dict):
     page.add(ft.Container(expand=True, content=ft.Stack(layers, expand=True)))
     _start_question_timer(page, state)
     page.update()
+
+
+def show_next_question_themed(page: ft.Page, state: dict):
+    render_game_screen(page, state)
+
+
 def show_next_question(page: ft.Page, state: dict):
     """Display active question with timer and jokers."""
     if state["question_index"] >= len(state["questions"]):
@@ -13257,6 +13537,85 @@ def show_next_question(page: ft.Page, state: dict):
 
     render_game_screen(page, state)
     page.run_task(_sync_bg_music_async, page, state)
+
+
+def show_exit_confirmation(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    db = load_db()
+    email = state.get("current_user_email")
+    logged_in = email and email in db["users"]
+
+    if logged_in:
+        info_text = "Möchtest du das aktuelle Spiel wirklich beenden? Dein Fortschritt wird gespeichert und du kannst das Spiel jederzeit im Hauptmenü fortsetzen."
+    else:
+        info_text = "Möchtest du das aktuelle Spiel wirklich beenden?\n\n⚠️ Da du als Gast spielst, wird dein Spielstand nicht gespeichert und dein Fortschritt geht verloren!"
+
+    def on_confirm_exit(e):
+        if logged_in:
+            save_current_game(state)
+            db_current = load_db()
+            if email in db_current["users"]:
+                db_current["users"][email]["saved_game"] = {
+                    "money": state.get("money", "0 €"),
+                    "questions_answered": state.get("questions_answered", 0),
+                    "correct": state.get("correct", 0),
+                    "jokers_used": state.get("jokers_used", 0),
+                    "question_index": state.get("question_index", 0),
+                    "questions": state.get("questions", []),
+                    "is_custom_game": state.get("is_custom_game", False),
+                    "custom_quiz_id": state.get("custom_quiz_id"),
+                    "custom_quiz_title": state.get("custom_quiz_title"),
+                    "selected_jokers": state.get("selected_jokers", []),
+                    "jokers_used_ids": state.get("jokers_used_ids", []),
+                    "time_left": max(0, int(state.get("time_left", QUESTION_TIME_SEC))),
+                    "hidden_answers": state.get("hidden_answers", []),
+                    "time_pressure_enabled": bool(state.get("time_pressure_enabled", True)),
+                    "question_time_sec": int(state.get("question_time_sec", QUESTION_TIME_SEC)),
+                    "phone_until": state.get("phone_until"),
+                    "friend_until": state.get("friend_until"),
+                }
+                save_db(db_current)
+        _go_home(e.page, state)
+
+    def on_resume_game(e):
+        show_next_question(e.page, state)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000096"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text("Spiel unterbrechen?", size=24, weight="bold", color="white", text_align="center"),
+                                    ft.Container(height=10),
+                                    ft.Text(info_text, size=16, color=theme_txt(theme, "secondary"), text_align="center"),
+                                    ft.Container(height=20),
+                                    ft.Row([
+                                        _theme_action_button("Ja, beenden", theme, on_confirm_exit, width=170, bg=theme.get("danger", "#C0392B")),
+                                        _theme_action_button("Nein, weiter", theme, on_resume_game, width=170, bg=theme.get("success", "#2ECC71")),
+                                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=16),
+                                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                                bgcolor=theme.get("panel", "#1A0A30"),
+                                border_radius=20,
+                                padding=30,
+                                border=ft.border.Border.all(2, theme.get("border", "#9B59B6")),
+                                width=420,
+                            )
+                        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
 
 
 # ---------- Result Screens ----------
@@ -13500,6 +13859,215 @@ def _show_win_screen(page: ft.Page, state: dict):
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                spacing=12),
+        )
+    )
+    page.update()
+
+
+# ---------- Authentication & Profile Views ----------
+def show_legacy_email_code_login_view(page: ft.Page, state: dict):
+    db = load_db()
+    
+    email_input = ft.TextField(
+        label="E-Mail-Adresse",
+        width=300,
+        bgcolor="#1A0A30",
+        border_color="#9B59B6",
+        color="white",
+    )
+    
+    code_input = ft.TextField(
+        label="6-stelliger Bestätigungscode",
+        width=300,
+        bgcolor="#1A0A30",
+        border_color="#9B59B6",
+        color="white",
+        visible=False,
+    )
+    
+    cooldown_text = ft.Text("", color="#FF4D4D", size=13, text_align="center", visible=False)
+    status_text = ft.Text("", color="red", size=14, text_align="center")
+    code_display_box = ft.Container(visible=False)
+    
+    verification_data = {"email": "", "code": "", "time": 0.0}
+    request_state = {"last_request_time": 0.0}
+
+    def show_cooldown_message(seconds_left: int):
+        message = f"Bitte warte noch {seconds_left} Sekunden."
+        cooldown_text.value = message
+        cooldown_text.visible = True
+        page.update()
+
+        async def hide_message():
+            await asyncio.sleep(2.0)
+            if cooldown_text.value == message:
+                cooldown_text.value = ""
+                cooldown_text.visible = False
+                page.update()
+
+        page.run_task(hide_message)
+    
+    def on_request_code(e):
+        email = email_input.value.strip()
+        if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
+            status_text.value = "⚠️ Bitte eine gültige E-Mail eingeben."
+            status_text.color = "red"
+            page.update()
+            return
+
+        elapsed = time.time() - request_state["last_request_time"]
+        if elapsed < CODE_REQUEST_COOLDOWN_SECONDS:
+            remaining = int(CODE_REQUEST_COOLDOWN_SECONDS - elapsed + 0.999)
+            show_cooldown_message(remaining)
+            return
+            
+        code = f"{random.randint(100000, 999999)}"
+        request_state["last_request_time"] = time.time()
+        request_btn.disabled = True
+        status_text.value = "Code wird per E-Mail gesendet..."
+        status_text.color = "#FFD700"
+        cooldown_text.value = ""
+        cooldown_text.visible = False
+        code_display_box.visible = False
+        page.update()
+
+        try:
+            send_verification_email(email, code)
+        except Exception as ex:
+            verification_data["email"] = ""
+            verification_data["code"] = ""
+            verification_data["time"] = 0.0
+            code_input.visible = False
+            submit_btn.visible = False
+            code_display_box.visible = False
+            request_btn.disabled = False
+            status_text.value = f"E-Mail konnte nicht gesendet werden: {ex}"
+            status_text.color = "red"
+            page.update()
+            return
+        
+        code_display_box.content = ft.Container(
+            content=ft.Column([
+                ft.Text("E-Mail gesendet!", weight="bold", color="#FFD700"),
+                ft.Text("Bitte pruefe dein Postfach und gib den 6-stelligen Code ein.", size=14, color="white", text_align="center"),
+                ft.Text("(Code ist 10 Minuten gültig)", size=12, color="#E0D0F0"),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=16,
+            bgcolor="#2C1654",
+            border_radius=12,
+            border=ft.border.Border.all(1, "#9B59B6"),
+        )
+        verification_data["email"] = email
+        verification_data["code"] = code
+        verification_data["time"] = time.time()
+        code_display_box.visible = True
+        code_input.visible = True
+        submit_btn.visible = True
+        request_btn.disabled = False
+        request_btn.content.value = "Neuen Code anfordern"
+        status_text.value = "✓ Code gesendet! Bitte unten eingeben."
+        status_text.color = "#2ECC71"
+        page.update()
+        
+    def on_login(e):
+        entered_code = code_input.value.strip()
+        if not entered_code:
+            status_text.value = "⚠️ Bitte gib den Code ein."
+            status_text.color = "red"
+            page.update()
+            return
+            
+        if time.time() - verification_data["time"] > 600:
+            status_text.value = "❌ Code abgelaufen! Bitte neuen anfordern."
+            status_text.color = "red"
+            page.update()
+            return
+            
+        if entered_code != verification_data["code"]:
+            status_text.value = "❌ Falscher Code. Bitte erneut eingeben."
+            status_text.color = "red"
+            page.update()
+            return
+            
+        email = verification_data["email"]
+        db = load_db()
+        state["current_user_email"] = email
+        if email not in db["users"]:
+            default_name = email.split("@")[0].capitalize()
+            db["users"][email] = {
+                "name": default_name,
+                "settings": DEFAULT_USER_SETTINGS.copy(),
+                "stats": {
+                    "games_played": 0,
+                    "correct_answers": 0,
+                    "questions_answered": 0,
+                    "highest_money": "0 €",
+                    "highest_money_level": -1
+                }
+            }
+        ensure_user_settings(db, email)
+        save_db(db)
+        show_stats(page, state)
+        
+    request_btn = ft.Container(
+        content=ft.Text("Code anfordern", size=16, weight="bold", color="white"),
+        on_click=on_request_code,
+        bgcolor="#9B59B6",
+        border_radius=30,
+        padding=ft.Padding(30, 12, 30, 12),
+        alignment=ft.Alignment(0, 0),
+        width=220,
+    )
+    
+    submit_btn = ft.Container(
+        content=ft.Text("Einloggen", size=16, weight="bold", color="white"),
+        on_click=on_login,
+        visible=False,
+        bgcolor="#2ECC71",
+        border_radius=30,
+        padding=ft.Padding(30, 12, 30, 12),
+        alignment=ft.Alignment(0, 0),
+        width=220,
+    )
+    
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=["#2C1654", "#6B2FA0", "#C2185B"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("🔑 Anmelden", size=30, weight="bold", color="white"),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Column([
+                        email_input,
+                        request_btn,
+                        code_display_box,
+                        code_input,
+                        submit_btn,
+                        cooldown_text,
+                        status_text,
+                    ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor="#1A0A30",
+                    border_radius=16,
+                    padding=24,
+                    border=ft.border.Border.all(2, "#9B59B6"),
+                    width=360,
+                ),
+                ft.Container(height=10),
+                ft.TextButton(
+                    "← Zurück",
+                    on_click=lambda e: show_stats(e.page, state),
+                    style=ft.ButtonStyle(color="white"),
+                )
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14)
         )
     )
     page.update()
@@ -13985,6 +14553,37 @@ def force_close_all_dialogs(page: ft.Page):
         page.update()
     except Exception:
         pass
+
+
+def _close_overlay(page: ft.Page, overlay):
+    if isinstance(overlay, ft.AlertDialog):
+        close_page_dialog(page, overlay)
+        return
+    if hasattr(page, "close"):
+        try:
+            page.close(overlay)
+            page.update()
+            return
+        except Exception:
+            pass
+    overlay.open = False
+    page.update()
+
+
+def close_all_dialogs(page: ft.Page):
+    """Close all open dialogs on the page."""
+    # Close dialog if set
+    if hasattr(page, "dialog") and page.dialog:
+        close_page_dialog(page, page.dialog)
+    
+    # Close all AlertDialog overlays
+    overlays_to_remove = []
+    for overlay in page.overlay:
+        if isinstance(overlay, ft.AlertDialog):
+            overlays_to_remove.append(overlay)
+    
+    for overlay in overlays_to_remove:
+        close_page_dialog(page, overlay)
 
 
 def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
@@ -15153,6 +15752,135 @@ def show_edit_profile_view(page: ft.Page, state: dict):
 
 
 # ---------- Statistics Screen ----------
+def show_stats_legacy(page: ft.Page, state: dict):
+    db = load_db()
+    theme = get_theme(state)
+    page_width = page.width or page.window.width or 1100
+    is_mobile = page_width < 720
+    card_width = None if is_mobile else 320
+    
+    g_stats = db.get("global_stats", {})
+    g_games = g_stats.get("games_played", 0)
+    g_correct = g_stats.get("correct_answers", 0)
+    g_answered = g_stats.get("questions_answered", 0)
+    g_money = g_stats.get("highest_money", "0 €")
+    g_rate = f"{int(g_correct / g_answered * 100)}%" if g_answered > 0 else "0%"
+    
+    global_card = ft.Container(
+        content=ft.Column([
+            ft.Text("🌍 Globale Statistik", size=18, weight="bold", color=theme["gold"]),
+            ft.Divider(color=theme["border"], thickness=1),
+            _stat_row("🎮 Spiele gesamt", str(g_games)),
+            _stat_row("📝 Beantwortete Fragen", str(g_answered)),
+            _stat_row("✅ Richtige Antworten", f"{g_correct} ({g_rate})"),
+            _stat_row("🏆 Höchster Gewinn", g_money),
+        ], spacing=12),
+        bgcolor=theme["panel"],
+        border_radius=16,
+        padding=20,
+        border=ft.border.Border.all(2, theme["border"]),
+        width=card_width,
+    )
+    
+    email = state.get("current_user_email")
+    if email and email in db["users"]:
+        u_info = db["users"][email]
+        u_name = u_info.get("name", email)
+        u_stats = u_info.get("stats", {})
+        u_games = u_stats.get("games_played", 0)
+        u_correct = u_stats.get("correct_answers", 0)
+        u_answered = u_stats.get("questions_answered", 0)
+        u_money = u_stats.get("highest_money", "0 €")
+        u_rate = f"{int(u_correct / u_answered * 100)}%" if u_answered > 0 else "0%"
+        
+        personal_card = ft.Container(
+            content=ft.Column([
+                ft.Text(f"👤 Statistik: {u_name}", size=18, weight="bold", color="#2ECC71"),
+                ft.Text(email, size=11, color="#E0D0F0"),
+                ft.Divider(color="#2ECC71", thickness=1),
+                _stat_row("🎮 Deine Spiele", str(u_games)),
+                _stat_row("📝 Beantwortete Fragen", str(u_answered)),
+                _stat_row("✅ Richtige Antworten", f"{u_correct} ({u_rate})"),
+                _stat_row("🏆 Dein Rekord", u_money),
+            ], spacing=12),
+            bgcolor=theme["panel"],
+            border_radius=16,
+            padding=20,
+            border=ft.border.Border.all(2, theme["success"]),
+            width=card_width,
+        )
+    else:
+        personal_card = ft.Container(
+            content=ft.Column([
+                ft.Text("👤 Persönliche Statistik", size=18, weight="bold", color="#CCCCCC"),
+                ft.Divider(color="#CCCCCC", thickness=1),
+                ft.Text(
+                    "Melde dich im Hauptmenü an, um deine persönlichen Statistiken dauerhaft zu sichern!",
+                    size=13,
+                    color="#CCCCCC",
+                    text_align="center",
+                ),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Text("🔑 Anmelden", size=16, weight="bold", color="white"),
+                    on_click=lambda e: show_login_view(e.page, state),
+                    bgcolor=theme["accent"],
+                    visible=False,
+                    border_radius=30,
+                    padding=ft.Padding(30, 12, 30, 12),
+                    alignment=ft.Alignment(0, 0),
+                    width=200,
+                ),
+            ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor=theme["panel"],
+            border_radius=16,
+            padding=20,
+            border=ft.border.Border.all(2, "#CCCCCC"),
+            width=card_width,
+        )
+        
+    stats_cards = ft.Column(
+        [global_card, personal_card],
+        spacing=14,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+    ) if is_mobile else ft.Row([
+        global_card,
+        ft.Container(width=16),
+        personal_card,
+    ], alignment=ft.MainAxisAlignment.CENTER)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("📊 Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
+                ft.Container(height=10),
+                stats_cards,
+                ft.Container(height=20),
+                ft.Container(
+                    content=ft.Text("← Zurück", size=16, weight="bold", color="white"),
+                    on_click=lambda e: open_main_menu(e.page, state),
+                    bgcolor=theme["accent"],
+                    border_radius=50,
+                    padding=ft.Padding(30, 12, 30, 12),
+                ),
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14,
+               scroll=ft.ScrollMode.AUTO),
+            padding=ft.Padding(12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20),
+        )
+    )
+    page.update()
+
+
 def _pct(part: int, total: int) -> str:
     return f"{int(part / total * 100)}%" if total else "0%"
 
@@ -15819,48 +16547,53 @@ def _questions_path_island_hub_asset() -> str:
     return os.path.join("Fragenpfad", "Inseln.png")
 
 
+_QUESTIONS_PATH_ASSET_BYTES_CACHE: dict[str, str | None] = {}
+
+
+def _questions_path_asset_bytes(rel_path: str) -> str | None:
+    cached = _QUESTIONS_PATH_ASSET_BYTES_CACHE.get(rel_path)
+    if rel_path in _QUESTIONS_PATH_ASSET_BYTES_CACHE:
+        return cached
+    abs_path = os.path.join("assets", rel_path)
+    try:
+        with open(abs_path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+    except OSError:
+        data = None
+    _QUESTIONS_PATH_ASSET_BYTES_CACHE[rel_path] = data
+    return data
+
+
 def _questions_path_level_background_asset() -> str:
     return os.path.join("Fragenpfad", "level_insel_1.png")
+
+
+def _questions_path_level_start_asset() -> str:
+    return os.path.join("Fragenpfad", "level_start.png")
 
 
 def _questions_path_profile_cards(page: ft.Page, state: dict, profiles: list[dict]):
     theme = get_theme(state)
     cards = []
-    active_index = get_questions_path_profile_index(state)
+    active_index = int(state.get("questions_path_profile_index", 0) or 0)
 
     def choose_profile(index: int):
         def _handler(e):
             set_questions_path_profile_index(state, index)
-            _questions_path_render_profiles(e.page, state)
-
-        return _handler
-
-    def remove_specific(index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            if len(current_profiles) <= QUESTIONS_PATH_PROFILE_MIN:
-                e.page.snack_bar = ft.SnackBar(content=ft.Text("Mindestens ein Profil muss bleiben."), open=True)
-                e.page.update()
-                return
-            current_profiles.pop(index)
-            for idx, profile in enumerate(current_profiles):
-                if isinstance(profile, dict) and str(profile.get("name", "")).startswith(QUESTIONS_PATH_DEFAULT_PROFILE_NAME):
-                    profile["name"] = f"{QUESTIONS_PATH_DEFAULT_PROFILE_NAME} {idx + 1}"
-            persist_questions_path_profiles(state, current_profiles)
-            state["questions_path_profiles"] = current_profiles
-            set_questions_path_profile_index(state, min(get_questions_path_profile_index(state), len(current_profiles) - 1))
-            _questions_path_render_profiles(e.page, state)
+            state["questions_path_scene"] = "islands"
+            state["_questions_path_level_progress"] = 0
+            state["_questions_path_level_complete"] = False
+            show_questions_path_hub(e.page, state)
 
         return _handler
 
     for index, profile in enumerate(profiles):
         active = index == active_index
-        mode = "Kreativ" if _questions_path_profile_mode(profile) == "creative" else "Abenteuer"
         cards.append(
             ft.Container(
-                width=180,
-                padding=18,
-                border_radius=22,
+                width=150,
+                padding=16,
+                border_radius=18,
                 bgcolor="#0B1620" if active else "#07110D",
                 border=ft.border.Border.all(2.4 if active else 1.2, theme.get("accent_2", "#38BDF8") if active else "#334155"),
                 shadow=ft.BoxShadow(blur_radius=10, color="#22000000"),
@@ -15868,9 +16601,7 @@ def _questions_path_profile_cards(page: ft.Page, state: dict, profiles: list[dic
                 content=ft.Column(
                     [
                         ft.Text(f"P{index + 1}", size=20, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                        ft.Text(profile.get("name", f"Profil {index + 1}"), size=14, color="white", text_align=ft.TextAlign.CENTER, weight="bold"),
-                        ft.Text(mode, size=11, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
-                        _game_menu_button("Profil löschen", remove_specific(index), "#7C2D12", width=130, height=34),
+                        ft.Text(profile.get("name", f"Profil {index + 1}"), size=12, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
                     ],
                     spacing=5,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -15884,84 +16615,15 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
     theme = get_theme(state)
     profiles = get_questions_path_profiles(state)
     if not profiles:
-        profiles = [_questions_path_default_profile(0)]
-        persist_questions_path_profiles(state, profiles)
+        profiles = [_questions_path_default_profile(i) for i in range(QUESTIONS_PATH_PROFILE_COUNT)]
         state["questions_path_profiles"] = profiles
 
     page_w, page_h = _page_size(page)
-    panel_w = max(320, int(page_w - 28))
-    panel_h = max(520, int(page_h - 28))
+    panel_w = min(1180, max(320, int(page_w - 24)))
+    panel_h = max(500, min(620, int(page_h * 0.88)))
     cards = _questions_path_profile_cards(page, state, profiles)
-    state["questions_path_profiles"] = profiles
-    active_index = get_questions_path_profile_index(state)
+    active_index = int(state.get("questions_path_profile_index", 0) or 0)
     active_profile = profiles[active_index] if active_index < len(profiles) else profiles[0]
-    active_mode = _questions_path_profile_mode(active_profile)
-
-    def save_active_profile(updated_profile: dict):
-        current_profiles = get_questions_path_profiles(state)
-        if not current_profiles:
-            current_profiles = [_questions_path_default_profile(0)]
-        while active_index >= len(current_profiles):
-            current_profiles.append(_questions_path_default_profile(len(current_profiles)))
-        current_profiles[active_index] = updated_profile
-        persist_questions_path_profiles(state, current_profiles)
-        state["questions_path_profiles"] = current_profiles
-
-    def set_mode(mode: str):
-        def _handler(e):
-            refreshed = get_questions_path_profiles(state)
-            profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
-            profile["progression_mode"] = mode
-            if mode == "creative" and not list(profile.get("custom_islands", []) or []):
-                profile["custom_islands"] = [_questions_path_default_custom_island(0)]
-            save_active_profile(profile)
-            _questions_path_render_profiles(e.page, state)
-
-        return _handler
-
-    def play_selected(e):
-        refreshed = get_questions_path_profiles(state)
-        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
-        profile["progression_mode"] = "adventure"
-        save_active_profile(profile)
-        state["questions_path_scene"] = "islands"
-        state["_questions_path_level_progress"] = 0
-        state["_questions_path_level_complete"] = False
-        show_questions_path_hub(e.page, state)
-
-    def open_custom_menu(e):
-        refreshed = get_questions_path_profiles(state)
-        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
-        profile["progression_mode"] = "creative"
-        if not list(profile.get("custom_islands", []) or []):
-            profile["custom_islands"] = [_questions_path_default_custom_island(0)]
-        save_active_profile(profile)
-        state["questions_path_creative_action"] = "play"
-        state["questions_path_scene"] = "islands"
-        show_questions_path_hub(e.page, state)
-
-    def edit_custom_game(e):
-        refreshed = get_questions_path_profiles(state)
-        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
-        profile["progression_mode"] = "creative"
-        if not list(profile.get("custom_islands", []) or []):
-            profile["custom_islands"] = [_questions_path_default_custom_island(0)]
-        save_active_profile(profile)
-        state["questions_path_creative_action"] = "edit"
-        state["questions_path_scene"] = "islands"
-        show_questions_path_hub(e.page, state)
-
-    def add_profile(e):
-        current_profiles = get_questions_path_profiles(state)
-        if len(current_profiles) >= QUESTIONS_PATH_PROFILE_MAX:
-            e.page.snack_bar = ft.SnackBar(content=ft.Text("Maximal 10 Profile sind moeglich."), open=True)
-            e.page.update()
-            return
-        current_profiles.append(_questions_path_default_profile(len(current_profiles)))
-        persist_questions_path_profiles(state, current_profiles)
-        state["questions_path_profiles"] = current_profiles
-        set_questions_path_profile_index(state, len(current_profiles) - 1)
-        _questions_path_render_profiles(e.page, state)
 
     page.controls.clear()
     page.add(
@@ -15970,106 +16632,142 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
             content=ft.Stack(
                 [
                     ft.Container(expand=True, bgcolor="#07130F"),
-                    ft.Container(expand=True, bgcolor="#071B24E0"),
+                    ft.Container(expand=True, bgcolor="#0A1712D8"),
                     ft.Container(
                         expand=True,
                         alignment=ft.Alignment(0, 0),
-                        padding=14,
+                        padding=16,
                         content=ft.Container(
                             width=panel_w,
                             height=panel_h,
-                            padding=ft.Padding(24, 20, 24, 20),
-                            border_radius=24,
-                            bgcolor="#071019F2",
+                            padding=ft.Padding(22, 20, 22, 20),
+                            border_radius=28,
+                            bgcolor="#0A1320EE",
+                            border=ft.border.Border.all(2, "#49D6C8"),
                             content=ft.Column(
                                 [
                                     ft.Row(
                                         [
                                             _game_menu_button("← Spielauswahl", lambda e: open_main_menu(e.page, state), "#475569", width=180, height=40),
                                             ft.Text("Fragen-Pfad", size=30, weight="bold", color="white"),
-                                            ft.Row(
-                                                [
-                                                    _game_menu_button("+ Profil", add_profile, "#0F766E", width=130, height=40),
-                                                ],
-                                                spacing=10,
-                                            ),
+                                            ft.Container(width=180),
                                         ],
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
                                     ft.Text("Wähle ein Profil.", size=13, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
-                                    ft.Text(f"{len(profiles)}/{QUESTIONS_PATH_PROFILE_MAX} Profile", size=12, color="#8FB7C9", text_align=ft.TextAlign.CENTER),
                                     ft.Container(height=8),
                                     ft.Text("Profile", size=16, weight="bold", color=theme["gold"], text_align=ft.TextAlign.CENTER),
+                                    ft.Row(cards, spacing=12, wrap=True, alignment=ft.MainAxisAlignment.CENTER),
+                                ],
+                                spacing=10,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_render_islands(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    profiles = get_questions_path_profiles(state)
+    if not profiles:
+        profiles = [_questions_path_default_profile(i) for i in range(QUESTIONS_PATH_PROFILE_COUNT)]
+        state["questions_path_profiles"] = profiles
+    active_index = int(state.get("questions_path_profile_index", 0) or 0)
+    active_profile = profiles[active_index] if active_index < len(profiles) else profiles[0]
+    unlocked_islands = max(1, int(state.get("_questions_path_unlocked_islands", 1) or 1))
+    page_w, page_h = _page_size(page)
+    card_w = min(1240, max(320, int(page_w - 24)))
+    map_h = max(420, min(660, int(page_h * 0.76)))
+    island_positions = [
+        (0.08, 0.14, 0.31, 0.30),
+        (0.49, 0.16, 0.26, 0.22),
+        (0.74, 0.40, 0.20, 0.22),
+        (0.22, 0.58, 0.20, 0.20),
+        (0.55, 0.67, 0.19, 0.18),
+    ]
+
+    def open_level(level_index: int):
+        def _handler(e):
+            if level_index >= unlocked_islands:
+                e.page.snack_bar = ft.SnackBar(content=ft.Text("Schließe zuerst das vorherige Level ab."), open=True)
+                e.page.update()
+                return
+            state["questions_path_scene"] = "level"
+            state["questions_path_level"] = f"level_{level_index + 1}"
+            state["_questions_path_level_progress"] = 0
+            state["_questions_path_level_complete"] = False
+            state["_questions_path_level_started"] = False
+            show_questions_path_hub(e.page, state)
+
+        return _handler
+
+    def invisible_hotspot(left: int, top: int, width: int, height: int, level_index: int):
+        return ft.Container(
+            left=left,
+            top=top,
+            width=width,
+            height=height,
+            bgcolor="#00000001",
+            on_click=open_level(level_index),
+        )
+
+    stage_layers = [
+        ft.Image(src=_questions_path_island_hub_asset(), fit=ft.BoxFit.COVER, expand=True),
+        ft.Container(expand=True, bgcolor="#071B12A8"),
+    ]
+    for idx, (left_pct, top_pct, width_pct, height_pct) in enumerate(island_positions):
+        left = int(card_w * left_pct)
+        top = int(map_h * top_pct)
+        width = int(card_w * width_pct)
+        height = int(map_h * height_pct)
+        stage_layers.append(
+            invisible_hotspot(left, top, width, height, idx)
+        )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    ft.Container(expand=True, bgcolor="#08150F"),
+                    ft.Container(expand=True, bgcolor="#071B12AA"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=16,
+                        content=ft.Container(
+                            width=card_w,
+                            padding=ft.Padding(22, 18, 22, 18),
+                            border_radius=28,
+                            bgcolor="#0A1320EE",
+                            border=ft.border.Border.all(2, "#49D6C8"),
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("← Profile", lambda e: _questions_path_render_profiles(e.page, state), "#475569", width=170, height=40),
+                                            ft.Text("Fragen-Pfad", size=30, weight="bold", color="white"),
+                                            ft.Container(width=170),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Text(f"Aktives Profil: {active_profile.get('name', f'Profil {active_index + 1}')}", size=13, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                                    ft.Container(height=8),
                                     ft.Container(
-                                        expand=True,
-                                        content=ft.Column(
-                                            [
-                                                ft.Row(cards, spacing=12, wrap=True, alignment=ft.MainAxisAlignment.CENTER),
-                                                ft.Container(height=10),
-                                                ft.Text(
-                                                    f"Aktives Profil: {active_profile.get('name', f'Profil {active_index + 1}')}",
-                                                    size=13,
-                                                    color="#D7E6F5",
-                                                    text_align=ft.TextAlign.CENTER,
-                                                ),
-                                                ft.Row(
-                                                    [
-                                                        _game_menu_button("Schnelles Spiel", play_selected, "#0F766E", width=220, height=42),
-                                                        _game_menu_button(
-                                                            "Eigenes Spiel",
-                                                            open_custom_menu,
-                                                            "#1D4ED8",
-                                                            width=220,
-                                                            height=42,
-                                                        ),
-                                                        _game_menu_button(
-                                                            "Spiel bearbeiten",
-                                                            edit_custom_game,
-                                                            "#475569",
-                                                            width=220,
-                                                            height=42,
-                                                        ),
-                                                    ],
-                                                    alignment=ft.MainAxisAlignment.CENTER,
-                                                    spacing=12,
-                                                ),
-                                                ft.Row(
-                                                    [
-                                                        ft.Container(
-                                                            tooltip="Abenteuer: Inseln werden nach und nach freigeschaltet.",
-                                                            content=_game_menu_button(
-                                                                "Abenteuer Modus",
-                                                                set_mode("adventure"),
-                                                                "#0F766E" if active_mode == "adventure" else "#334155",
-                                                                width=220,
-                                                                height=42,
-                                                            ),
-                                                        ),
-                                                        ft.Container(
-                                                            tooltip="Kreativ: Eigene Inseln sind direkt verfügbar und frei bearbeitbar.",
-                                                            content=_game_menu_button(
-                                                                "Kreativ Modus",
-                                                                set_mode("creative"),
-                                                                "#0F766E" if active_mode == "creative" else "#334155",
-                                                                width=220,
-                                                                height=42,
-                                                            ),
-                                                        ),
-                                                    ],
-                                                    alignment=ft.MainAxisAlignment.CENTER,
-                                                    spacing=12,
-                                                ),
-                                                ft.Text(
-                                                    "Abenteuer schaltet Inseln nach und nach frei. Kreativ zeigt alle selbstgebauten Inseln direkt an.",
-                                                    size=12,
-                                                    color="#A8C0D2",
-                                                    text_align=ft.TextAlign.CENTER,
-                                                ),
-                                            ],
-                                            spacing=10,
-                                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                            scroll=ft.ScrollMode.AUTO,
-                                        ),
+                                        width=card_w - 80,
+                                        height=map_h,
+                                        border_radius=30,
+                                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                        border=ft.border.Border.all(2, "#7DD3FC"),
+                                        content=ft.Stack(stage_layers, expand=True),
                                     ),
                                 ],
                                 spacing=10,
@@ -16086,891 +16784,86 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
     page.run_task(_sync_bg_music_async, page, state)
 
 
-def _questions_path_render_creator(page: ft.Page, state: dict):
-    profiles = get_questions_path_profiles(state)
-    if not profiles:
-        profiles = [_questions_path_default_profile(0)]
-        persist_questions_path_profiles(state, profiles)
-    state["questions_path_profiles"] = profiles
-    active_index = get_questions_path_profile_index(state)
-    profile = dict(profiles[active_index] if active_index < len(profiles) else profiles[0])
-    custom_islands = list(profile.get("custom_islands", []) or [])
-    custom_designs = list(profile.get("custom_designs", []) or [])
-    selected_index = max(0, min(int(state.get("_questions_path_creator_index", 0) or 0), max(0, len(custom_islands) - 1)))
-    selected_exists = bool(custom_islands)
-    state["_questions_path_creator_index"] = selected_index if selected_exists else 0
-    selected = dict(custom_islands[selected_index]) if selected_exists else _questions_path_default_custom_island(0)
-    selected_cfg = _questions_path_custom_map(selected, selected_index if selected_exists else 0)
-    add_mode = state.get("_questions_path_add_island_mode")
-    choose_custom_design = bool(state.get("_questions_path_choose_custom_design", False))
-    creator_world_open = bool(state.get("_questions_path_creator_world_open", False))
-    creator_zoom = max(0.5, min(1.8, float(state.get("questions_path_creator_zoom", 1.0) or 1.0)))
-    state["questions_path_creator_zoom"] = creator_zoom
-    creator_canvas_w = 1600
-    creator_canvas_h = 1000
-
-    island_name_ref = ft.Ref[ft.TextField]()
-    island_icon_ref = ft.Ref[ft.TextField]()
-    island_subtitle_ref = ft.Ref[ft.TextField]()
-    world_name_ref = ft.Ref[ft.TextField]()
-    world_description_ref = ft.Ref[ft.TextField]()
-    custom_design_ref = ft.Ref[ft.TextField]()
-    world_layout_ref = ft.Ref[ft.Dropdown]()
-    drag_points = state.setdefault("_questions_path_drag_points", {})
-    drag_positions = state.setdefault("_questions_path_drag_positions", {})
-    resize_positions = state.setdefault("_questions_path_resize_positions", {})
-    point_drag_positions = state.setdefault("_questions_path_drag_point_positions", {})
-    island_marker_refs: dict[int, ft.Ref[ft.Container]] = {}
-    point_marker_refs: dict[int, ft.Ref[ft.Container]] = {}
-    active_point_index = max(0, int(state.get("_questions_path_active_point_index", 0) or 0))
-    question_dialog_open = bool(state.get("_questions_path_question_dialog_open", False))
-    choose_world_map = bool(state.get("_questions_path_choose_world_map", False))
-
-    def island_card_scale(island: dict) -> float:
-        try:
-            return max(0.8, min(1.8, float(island.get("card_scale", 1.0) or 1.0)))
-        except Exception:
-            return 1.0
-
-    def island_card_size(island: dict) -> tuple[int, int]:
-        scale = island_card_scale(island)
-        return max(180, int(240 * scale)), max(132, int(176 * scale))
-
-    def island_left_from_percent(percent_x: float, card_w: int) -> int:
-        return max(24, min(int(creator_canvas_w - card_w - 24), int((float(percent_x) / 100.0) * (creator_canvas_w - card_w))))
-
-    def island_top_from_percent(percent_y: float, card_h: int) -> int:
-        return max(24, min(int(creator_canvas_h - card_h - 24), int((float(percent_y) / 100.0) * (creator_canvas_h - card_h))))
-
-    def point_left_from_percent(percent_x: float) -> int:
-        point_size = 54
-        return max(8, min(int(creator_canvas_w - point_size - 8), int((float(percent_x) / 100.0) * (creator_canvas_w - point_size))))
-
-    def point_top_from_percent(percent_y: float) -> int:
-        point_size = 54
-        return max(8, min(int(creator_canvas_h - point_size - 8), int((float(percent_y) / 100.0) * (creator_canvas_h - point_size))))
-
-    def persist(current_profile: dict):
-        current_profiles = get_questions_path_profiles(state)
-        if not current_profiles:
-            current_profiles = [_questions_path_default_profile(0)]
-        while active_index >= len(current_profiles):
-            current_profiles.append(_questions_path_default_profile(len(current_profiles)))
-        current_profiles[active_index] = current_profile
-        persist_questions_path_profiles(state, current_profiles)
-        state["questions_path_profiles"] = current_profiles
-
-    def update_selected(mutator, rerender_page=None):
-        current_profiles = get_questions_path_profiles(state)
-        current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-        islands = list(current_profile.get("custom_islands", []) or [])
-        if not islands:
-            return
-        idx = max(0, min(int(state.get("_questions_path_creator_index", 0) or 0), len(islands) - 1))
-        island = dict(islands[idx])
-        mutator(island)
-        islands[idx] = island
-        for island_idx, item in enumerate(islands):
-            item["map_key"] = f"custom_{island_idx + 1}"
-        current_profile["custom_islands"] = islands
-        current_profile["progression_mode"] = "creative"
-        persist(current_profile)
-        _questions_path_render_creator(rerender_page or page, state)
-
-    def select_island(index: int):
-        def _handler(e):
-            state["_questions_path_creator_index"] = index
-            _questions_path_render_creator(e.page, state)
-
-        return _handler
-
-    def open_add_menu(e):
-        state["_questions_path_add_island_mode"] = "preset"
-        _questions_path_render_creator(e.page, state)
-
-    def close_add_menu(e):
-        state.pop("_questions_path_add_island_mode", None)
-        state.pop("_questions_path_choose_custom_design", None)
-        _questions_path_render_creator(e.page, state)
-
-    def choose_preset(design_idx: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if len(islands) >= 10:
-                e.page.snack_bar = ft.SnackBar(content=ft.Text("Maximal 10 eigene Inseln sind möglich."), open=True)
-                e.page.update()
-                return
-            island = _questions_path_default_custom_island(len(islands))
-            theme = QUESTIONS_PATH_CREATIVE_THEMES[design_idx % len(QUESTIONS_PATH_CREATIVE_THEMES)]
-            island["icon"] = theme["icon"]
-            island["accent"] = theme["accent"]
-            island["panel"] = theme["panel"]
-            island["border"] = theme["border"]
-            island["line"] = theme["line"]
-            island["design_id"] = f"theme_{design_idx}"
-            islands.append(island)
-            current_profile["custom_islands"] = islands
-            current_profile["progression_mode"] = "creative"
-            persist(current_profile)
-            state["_questions_path_creator_index"] = len(islands) - 1
-            state.pop("_questions_path_add_island_mode", None)
-            _questions_path_render_creator(e.page, state)
-
-        return _handler
-
-    def open_custom_design(e):
-        state["_questions_path_choose_custom_design"] = True
-        _questions_path_render_creator(e.page, state)
-
-    async def pick_custom_design_task(page_obj: ft.Page):
-        rel_path = await _questions_path_pick_and_store_image(page_obj, "island_design")
-        if not rel_path:
-            return
-        current_profiles = get_questions_path_profiles(state)
-        current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-        designs = list(current_profile.get("custom_designs", []) or [])
-        if rel_path not in designs:
-            designs.append(rel_path)
-        current_profile["custom_designs"] = designs[-12:]
-        persist(current_profile)
-        state["_questions_path_choose_custom_design"] = False
-        state.pop("_questions_path_add_island_mode", None)
-        _questions_path_render_creator(page_obj, state)
-
-    def pick_custom_design(e):
-        e.page.run_task(pick_custom_design_task, e.page)
-
-    def add_custom_design(e):
-        raw_value = str(custom_design_ref.current.value or "").strip() if custom_design_ref.current else ""
-        if not raw_value:
-            return
-        current_profiles = get_questions_path_profiles(state)
-        current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-        designs = list(current_profile.get("custom_designs", []) or [])
-        if raw_value not in designs:
-            designs.append(raw_value)
-        current_profile["custom_designs"] = designs[-12:]
-        persist(current_profile)
-        state["_questions_path_choose_custom_design"] = False
-        state.pop("_questions_path_add_island_mode", None)
-        _questions_path_render_creator(e.page, state)
-
-    def choose_saved_design(design_value: str):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if len(islands) >= 10:
-                e.page.snack_bar = ft.SnackBar(content=ft.Text("Maximal 10 eigene Inseln sind möglich."), open=True)
-                e.page.update()
-                return
-            island = _questions_path_default_custom_island(len(islands))
-            island["image_src"] = design_value
-            island["icon"] = "🖼️"
-            island["design_id"] = "custom_image"
-            islands.append(island)
-            current_profile["custom_islands"] = islands
-            current_profile["progression_mode"] = "creative"
-            persist(current_profile)
-            state["_questions_path_creator_index"] = len(islands) - 1
-            state.pop("_questions_path_add_island_mode", None)
-            state["_questions_path_choose_custom_design"] = False
-            _questions_path_render_creator(e.page, state)
-
-        return _handler
-
-    def remove_island(e):
-        current_profiles = get_questions_path_profiles(state)
-        current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-        islands = list(current_profile.get("custom_islands", []) or [])
-        if not islands:
-            e.page.snack_bar = ft.SnackBar(content=ft.Text("Es gibt noch keine Insel zum Löschen."), open=True)
-            e.page.update()
-            return
-        if len(islands) <= 1:
-            islands = []
-            current_profile["custom_islands"] = islands
-            persist(current_profile)
-            state["_questions_path_creator_index"] = 0
-            state["_questions_path_creator_world_open"] = False
-            _questions_path_render_creator(e.page, state)
-            e.page.update()
-            return
-        islands.pop(selected_index)
-        for island_idx, item in enumerate(islands):
-            item["map_key"] = f"custom_{island_idx + 1}"
-        current_profile["custom_islands"] = islands
-        persist(current_profile)
-        state["_questions_path_creator_index"] = min(selected_index, len(islands) - 1)
-        _questions_path_render_creator(e.page, state)
-
-    def toggle_world_editor(e):
-        if not custom_islands:
-            e.page.snack_bar = ft.SnackBar(content=ft.Text("Füge zuerst eine Insel hinzu."), open=True)
-            e.page.update()
-            return
-        state["_questions_path_creator_world_open"] = not creator_world_open
-        _questions_path_render_creator(e.page, state)
-
-    def save_island_details(e):
-        def _mutate(island):
-            island["title"] = str(island_name_ref.current.value or island.get("title", "")).strip() or island.get("title", "Eigene Insel")
-            island["icon"] = str(island_icon_ref.current.value or island.get("icon", "")).strip() or island.get("icon", "🏝️")
-            island["subtitle"] = str(island_subtitle_ref.current.value or island.get("subtitle", "")).strip() or island.get("subtitle", "")
-            island["world_name"] = str(world_name_ref.current.value or island.get("world_name", "")).strip() or island.get("world_name", "Eigene Welt")
-            island["world_description"] = str(world_description_ref.current.value or island.get("world_description", "")).strip() or island.get("world_description", "")
-            if world_layout_ref.current:
-                island["world_layout"] = str(world_layout_ref.current.value or island.get("world_layout", "classic"))
-
-        update_selected(_mutate, e.page)
-
-    async def pick_selected_island_image_task(page_obj: ft.Page):
-        rel_path = await _questions_path_pick_and_store_image(page_obj, "island_card")
-        if not rel_path:
-            return
-        def _mutate(island):
-            island["image_src"] = rel_path
-            island["design_id"] = "custom_image"
-        update_selected(_mutate, page_obj)
-
-    async def pick_selected_map_image_task(page_obj: ft.Page):
-        rel_path = await _questions_path_pick_and_store_image(page_obj, "world_map")
-        if not rel_path:
-            return
-        def _mutate(island):
-            island["map_image_src"] = rel_path
-        update_selected(_mutate, page_obj)
-
-    def pick_selected_island_image(e):
-        e.page.run_task(pick_selected_island_image_task, e.page)
-
-    def pick_selected_map_image(e):
-        e.page.run_task(pick_selected_map_image_task, e.page)
-
-    def open_world_map_menu(e):
-        state["_questions_path_choose_world_map"] = True
-        _questions_path_render_creator(e.page, state)
-
-    def close_world_map_menu(e):
-        state["_questions_path_choose_world_map"] = False
-        _questions_path_render_creator(e.page, state)
-
-    def choose_world_layout(layout_key: str):
-        def _handler(e):
-            def _mutate(island):
-                island["world_layout"] = layout_key
-                if not list(island.get("custom_points", []) or []):
-                    island["custom_points"] = [
-                        {"x": int(p["x"]), "y": int(p["y"]), "label": str(p.get("label", f"Punkt {idx + 1}"))}
-                        for idx, p in enumerate(QUESTIONS_PATH_WORLD_LAYOUTS.get(layout_key, QUESTIONS_PATH_WORLD_LAYOUTS["classic"])["points"][: max(1, len(list(island.get("questions", []) or [])) )])
-                    ]
-
-            state["_questions_path_choose_world_map"] = False
-            update_selected(_mutate, e.page)
-
-        return _handler
-
-    def set_active_point(index: int):
-        def _handler(e):
-            state["_questions_path_active_point_index"] = index
-            _questions_path_render_creator(e.page, state)
-
-        return _handler
-
-    def open_question_dialog_for(index: int):
-        def _handler(e):
-            state["_questions_path_active_point_index"] = index
-            state["_questions_path_question_dialog_open"] = True
-            _questions_path_render_creator(e.page, state)
-
-        return _handler
-
-    def close_question_dialog(e):
-        state["_questions_path_question_dialog_open"] = False
-        _questions_path_render_creator(e.page, state)
-
-    def move_selected_island(dx: float, dy: float):
-        def _handler(e):
-            def _mutate(island):
-                island["map_x"] = max(2, min(88, float(island.get("map_x", 20)) + dx))
-                island["map_y"] = max(2, min(82, float(island.get("map_y", 20)) + dy))
-
-            update_selected(_mutate, e.page)
-
-        return _handler
-
-    def nudge_point(point_index: int, dx: float, dy: float):
-        def _handler(e):
-            def _mutate(island):
-                custom_points = ensure_custom_points(island)
-                if point_index < len(custom_points):
-                    custom_points[point_index]["x"] = int(max(4, min(96, float(custom_points[point_index].get("x", 10)) + dx)))
-                    custom_points[point_index]["y"] = int(max(4, min(96, float(custom_points[point_index].get("y", 10)) + dy)))
-                    island["custom_points"] = custom_points
-
-            update_selected(_mutate, e.page)
-
-        return _handler
-
-    def add_point(e):
-        def _mutate(island):
-            questions = list(island.get("questions", []) or [])
-            if len(questions) < 10:
-                questions.append(_questions_path_default_custom_question(len(questions)))
-                custom_points = ensure_custom_points(island)
-                custom_points.append(
-                    {
-                        "x": max(8, min(90, 18 + len(custom_points) * 7)),
-                        "y": max(10, min(86, 18 + (len(custom_points) % 4) * 10)),
-                        "label": f"Punkt {len(custom_points) + 1}",
-                    }
-                )
-                island["custom_points"] = custom_points[: len(questions)]
-            island["questions"] = questions
-
-        update_selected(_mutate, e.page)
-        refreshed_profiles = get_questions_path_profiles(state)
-        refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else profile)
-        refreshed_islands = list(refreshed_profile.get("custom_islands", []) or [])
-        if selected_index < len(refreshed_islands):
-            refreshed_selected = dict(refreshed_islands[selected_index])
-            state["_questions_path_active_point_index"] = max(0, len(list(refreshed_selected.get("questions", []) or [])) - 1)
-        state["_questions_path_question_dialog_open"] = True
-        _questions_path_render_creator(e.page, state)
-
-    def remove_active_point(e):
-        def _mutate(island):
-            questions = list(island.get("questions", []) or [])
-            custom_points = ensure_custom_points(island)
-            point_idx = max(0, min(int(state.get("_questions_path_active_point_index", 0) or 0), len(custom_points) - 1))
-            if len(custom_points) <= 1 or len(questions) <= 1:
-                return
-            custom_points.pop(point_idx)
-            questions.pop(point_idx)
-            island["custom_points"] = custom_points
-            island["questions"] = questions
-
-        new_index = max(0, active_point_index - 1)
-        state["_questions_path_active_point_index"] = new_index
-        state["_questions_path_question_dialog_open"] = False
-        update_selected(_mutate, e.page)
-
-    def save_question(question_index: int, question_ref, answer_refs, correct_ref):
-        def _handler(e):
-            def _mutate(island):
-                questions = list(island.get("questions", []) or [])
-                if question_index >= len(questions):
-                    return
-                question = dict(questions[question_index])
-                question["question"] = str(question_ref.current.value or question.get("question", "")).strip() or question.get("question", "Frage")
-                answers = []
-                existing_answers = list(question.get("answers", []) or [])
-                while len(existing_answers) < 4:
-                    existing_answers.append("")
-                for idx, ref in enumerate(answer_refs):
-                    answer_text = str(ref.current.value or "").strip() if ref.current else ""
-                    answers.append(answer_text or existing_answers[idx] or f"Antwort {ANSWER_LETTERS[idx]}")
-                question["answers"] = answers[:4]
-                question["correct_idx"] = int(correct_ref.current.value or question.get("correct_idx", 0)) if correct_ref.current else int(question.get("correct_idx", 0))
-                questions[question_index] = question
-                island["questions"] = questions
-
-            state["_questions_path_question_dialog_open"] = False
-            update_selected(_mutate, e.page)
-
-        return _handler
-
-    def drag_start_island(index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if index < len(islands):
-                island = dict(islands[index])
-                drag_positions[index] = {
-                    "map_x": float(island.get("map_x", 20)),
-                    "map_y": float(island.get("map_y", 20)),
-                }
-
-        return _handler
-
-    def drag_island(index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if index >= len(islands):
-                return
-            delta_x = float(getattr(e, "delta_x", 0.0) or 0.0)
-            delta_y = float(getattr(e, "delta_y", 0.0) or 0.0)
-            if delta_x == 0.0 and delta_y == 0.0:
-                current_x = float(getattr(e, "global_x", getattr(e, "local_x", 0.0)) or 0.0)
-                current_y = float(getattr(e, "global_y", getattr(e, "local_y", 0.0)) or 0.0)
-                last_x, last_y = drag_points.get(index, (current_x, current_y))
-                delta_x = current_x - last_x
-                delta_y = current_y - last_y
-                drag_points[index] = (current_x, current_y)
-            current_drag = drag_positions.get(index, {"map_x": float(islands[index].get("map_x", 20)), "map_y": float(islands[index].get("map_y", 20))})
-            current_drag["map_x"] = max(2, min(88, float(current_drag.get("map_x", 20)) + (delta_x / max(1, creator_canvas_w * creator_zoom)) * 100))
-            current_drag["map_y"] = max(2, min(82, float(current_drag.get("map_y", 20)) + (delta_y / max(1, creator_canvas_h * creator_zoom)) * 100))
-            drag_positions[index] = current_drag
-            marker_ref = island_marker_refs.get(index)
-            if marker_ref and marker_ref.current:
-                current_card_w, current_card_h = island_card_size(islands[index])
-                marker_ref.current.left = island_left_from_percent(current_drag["map_x"], current_card_w)
-                marker_ref.current.top = island_top_from_percent(current_drag["map_y"], current_card_h)
-                e.page.update()
-
-        return _handler
-
-    def drag_end_island(index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if index < len(islands) and index in drag_positions:
-                island = dict(islands[index])
-                island["map_x"] = float(drag_positions[index].get("map_x", island.get("map_x", 20)))
-                island["map_y"] = float(drag_positions[index].get("map_y", island.get("map_y", 20)))
-                islands[index] = island
-                current_profile["custom_islands"] = islands
-                persist(current_profile)
-            drag_points.pop(index, None)
-            drag_positions.pop(index, None)
-            _questions_path_render_creator(e.page, state)
-
-        return _handler
-
-    def resize_start_island(index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if index < len(islands):
-                island = dict(islands[index])
-                card_w, card_h = island_card_size(island)
-                left_px = island_left_from_percent(float(island.get("map_x", 20) or 20), card_w)
-                top_px = island_top_from_percent(float(island.get("map_y", 20) or 20), card_h)
-                resize_positions[index] = {
-                    "card_scale": island_card_scale(island),
-                    "card_w": card_w,
-                    "card_h": card_h,
-                    "left_px": left_px,
-                    "top_px": top_px,
-                    "anchor_x": float(card_w),
-                    "anchor_y": float(card_h),
-                }
-
-        return _handler
-
-    def resize_island(index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if index >= len(islands):
-                return
-            island = dict(islands[index])
-            start_data = resize_positions.get(index)
-            if not start_data:
-                card_w, card_h = island_card_size(island)
-                start_data = {
-                    "card_scale": island_card_scale(island),
-                    "card_w": card_w,
-                    "card_h": card_h,
-                    "left_px": island_left_from_percent(float(island.get("map_x", 20) or 20), card_w),
-                    "top_px": island_top_from_percent(float(island.get("map_y", 20) or 20), card_h),
-                    "anchor_x": float(card_w),
-                    "anchor_y": float(card_h),
-                }
-                resize_positions[index] = dict(start_data)
-            delta_x = float(getattr(e, "delta_x", 0.0) or 0.0)
-            delta_y = float(getattr(e, "delta_y", 0.0) or 0.0)
-            delta = (delta_x + delta_y) / 2.0
-            current_drag = dict(start_data)
-            new_scale = max(0.8, min(1.8, float(current_drag.get("card_scale", 1.0)) + (delta / 220.0)))
-            new_w = max(180, int(240 * new_scale))
-            new_h = max(132, int(176 * new_scale))
-            left_px = int(current_drag.get("left_px", 0))
-            top_px = int(current_drag.get("top_px", 0))
-            anchor_x = float(current_drag.get("anchor_x", current_drag.get("card_w", new_w)))
-            anchor_y = float(current_drag.get("anchor_y", current_drag.get("card_h", new_h)))
-            map_x = max(2, min(96, (left_px / max(1, creator_canvas_w - new_w)) * 100))
-            map_y = max(2, min(96, (top_px / max(1, creator_canvas_h - new_h)) * 100))
-            current_drag["card_scale"] = new_scale
-            current_drag["card_w"] = new_w
-            current_drag["card_h"] = new_h
-            current_drag["map_x"] = map_x
-            current_drag["map_y"] = map_y
-            resize_positions[index] = current_drag
-            island["card_scale"] = new_scale
-            island["map_x"] = map_x
-            island["map_y"] = map_y
-            islands[index] = island
-            current_profile["custom_islands"] = islands
-            persist(current_profile)
-            marker_ref = island_marker_refs.get(index)
-            if marker_ref and marker_ref.current:
-                marker_ref.current.width = new_w
-                marker_ref.current.height = new_h
-                marker_ref.current.left = left_px
-                marker_ref.current.top = top_px
-                e.page.update()
-
-        return _handler
-
-    def resize_end_island(index: int):
-        def _handler(e):
-            resize_positions.pop(index, None)
-            _questions_path_render_creator(e.page, state)
-
-        return _handler
-
-    def scale_start_island(index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if index < len(islands):
-                island = dict(islands[index])
-                card_w, card_h = island_card_size(island)
-                left_px = island_left_from_percent(float(island.get("map_x", 20) or 20), card_w)
-                top_px = island_top_from_percent(float(island.get("map_y", 20) or 20), card_h)
-                focal = getattr(e, "local_focal_point", None)
-                focal_x = float(getattr(focal, "x", card_w / 2) or (card_w / 2))
-                focal_y = float(getattr(focal, "y", card_h / 2) or (card_h / 2))
-                resize_positions[index] = {
-                    "card_scale": island_card_scale(island),
-                    "card_w": card_w,
-                    "card_h": card_h,
-                    "left_px": left_px,
-                    "top_px": top_px,
-                    "anchor_x": focal_x,
-                    "anchor_y": focal_y,
-                }
-
-        return _handler
-
-    def scale_island(index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if index >= len(islands):
-                return
-            island = dict(islands[index])
-            start_data = resize_positions.get(index)
-            if not start_data:
-                card_w, card_h = island_card_size(island)
-                start_data = {
-                    "card_scale": island_card_scale(island),
-                    "card_w": card_w,
-                    "card_h": card_h,
-                    "left_px": island_left_from_percent(float(island.get("map_x", 20) or 20), card_w),
-                    "top_px": island_top_from_percent(float(island.get("map_y", 20) or 20), card_h),
-                    "anchor_x": card_w / 2,
-                    "anchor_y": card_h / 2,
-                }
-                resize_positions[index] = dict(start_data)
-            start_scale = float(start_data.get("card_scale", island_card_scale(island)) or 1.0)
-            try:
-                gesture_scale = max(0.05, float(getattr(e, "scale", 1.0) or 1.0))
-            except Exception:
-                gesture_scale = 1.0
-            new_scale = max(0.8, min(1.8, start_scale * gesture_scale))
-            start_w = int(start_data.get("card_w", 240))
-            start_h = int(start_data.get("card_h", 176))
-            new_w = max(180, int(240 * new_scale))
-            new_h = max(132, int(176 * new_scale))
-            left_px = int(start_data.get("left_px", 0) + float(start_data.get("anchor_x", start_w / 2)) * (1 - (new_w / max(1, start_w))))
-            top_px = int(start_data.get("top_px", 0) + float(start_data.get("anchor_y", start_h / 2)) * (1 - (new_h / max(1, start_h))))
-            map_x = max(2, min(96, (left_px / max(1, creator_canvas_w - new_w)) * 100))
-            map_y = max(2, min(96, (top_px / max(1, creator_canvas_h - new_h)) * 100))
-            island["card_scale"] = new_scale
-            island["map_x"] = map_x
-            island["map_y"] = map_y
-            islands[index] = island
-            current_profile["custom_islands"] = islands
-            persist(current_profile)
-            marker_ref = island_marker_refs.get(index)
-            if marker_ref and marker_ref.current:
-                marker_ref.current.width = new_w
-                marker_ref.current.height = new_h
-                marker_ref.current.left = left_px
-                marker_ref.current.top = top_px
-                marker_ref.current.update()
-
-        return _handler
-
-    def scale_end_island(index: int):
-        def _handler(e):
-            resize_positions.pop(index, None)
-            _questions_path_render_creator(e.page, state)
-
-        return _handler
-
-    def ensure_custom_points(island: dict) -> list[dict]:
-        custom_points = list(island.get("custom_points", []) or [])
-        desired_count = max(1, min(10, len(list(island.get("questions", []) or []))))
-        if not custom_points:
-            base_points = QUESTIONS_PATH_WORLD_LAYOUTS.get(str(island.get("world_layout", "classic")), QUESTIONS_PATH_WORLD_LAYOUTS["classic"])["points"]
-            custom_points = [{"x": int(p["x"]), "y": int(p["y"]), "label": str(p.get("label", f"Punkt {idx + 1}"))} for idx, p in enumerate(base_points[:desired_count])]
-        while len(custom_points) < desired_count:
-            custom_points.append({"x": 20 + len(custom_points) * 6, "y": 20 + len(custom_points) * 5, "label": f"Punkt {len(custom_points) + 1}"})
-        return custom_points[:desired_count]
-
-    def point_drag_start(index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if selected_index < len(islands):
-                island = dict(islands[selected_index])
-                custom_points = ensure_custom_points(island)
-                if index < len(custom_points):
-                    point_drag_positions[index] = {
-                        "x": float(custom_points[index].get("x", 10)),
-                        "y": float(custom_points[index].get("y", 10)),
-                    }
-
-        return _handler
-
-    def point_drag_update(index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-            islands = list(current_profile.get("custom_islands", []) or [])
-            if selected_index >= len(islands):
-                return
-            island = dict(islands[selected_index])
-            custom_points = ensure_custom_points(island)
-            delta_x = float(getattr(e, "delta_x", 0.0) or 0.0)
-            delta_y = float(getattr(e, "delta_y", 0.0) or 0.0)
-            if delta_x == 0.0 and delta_y == 0.0:
-                current_x = float(getattr(e, "global_x", getattr(e, "local_x", 0.0)) or 0.0)
-                current_y = float(getattr(e, "global_y", getattr(e, "local_y", 0.0)) or 0.0)
-                last_x, last_y = drag_points.get(f"point_{index}", (current_x, current_y))
-                delta_x = current_x - last_x
-                delta_y = current_y - last_y
-                drag_points[f"point_{index}"] = (current_x, current_y)
-            if index < len(custom_points):
-                current_drag = point_drag_positions.get(index, {"x": float(custom_points[index].get("x", 10)), "y": float(custom_points[index].get("y", 10))})
-                current_drag["x"] = max(4, min(96, float(current_drag.get("x", 10)) + (delta_x / max(1, creator_canvas_w * creator_zoom)) * 100))
-                current_drag["y"] = max(4, min(96, float(current_drag.get("y", 10)) + (delta_y / max(1, creator_canvas_h * creator_zoom)) * 100))
-                point_drag_positions[index] = current_drag
-                custom_points[index]["x"] = int(current_drag["x"])
-                custom_points[index]["y"] = int(current_drag["y"])
-                island["custom_points"] = custom_points
-                islands[selected_index] = island
-                current_profile["custom_islands"] = islands
-                persist(current_profile)
-                point_ref = point_marker_refs.get(index)
-                if point_ref and point_ref.current:
-                    point_ref.current.left = point_left_from_percent(current_drag["x"])
-                    point_ref.current.top = point_top_from_percent(current_drag["y"])
-                    e.page.update()
-
-        return _handler
-
-    def point_drag_end(index: int):
-        def _handler(e):
-            drag_points.pop(f"point_{index}", None)
-            point_drag_positions.pop(index, None)
-            _questions_path_render_creator(e.page, state)
-
-        return _handler
-
-    island_markers = []
-    for idx, island in enumerate(custom_islands):
-        cfg = _questions_path_custom_map(island, idx)
-        active = idx == selected_index
-        preview_position = drag_positions.get(idx, {})
-        marker_x = float(preview_position.get("map_x", island.get("map_x", 20)))
-        marker_y = float(preview_position.get("map_y", island.get("map_y", 20)))
-        card_w, card_h = island_card_size(island)
-        marker_ref = ft.Ref[ft.Container]()
-        island_marker_refs[idx] = marker_ref
-        marker_content = ft.Container(
-            width=card_w,
-            height=card_h,
-            padding=18,
-            border_radius=24,
-            bgcolor="#09131DE8",
-            border=ft.border.Border.all(2, cfg.get("accent", "#34D399") if active else "#334155"),
-            shadow=ft.BoxShadow(blur_radius=22, color=f"#33{cfg.get('accent', '#34D399')[1:]}", spread_radius=0),
-            content=ft.Stack(
-                [
-                    ft.Container(
-                        expand=True,
-                        padding=ft.Padding(0, 0, 28, 0),
-                        content=ft.Column(
-                            [
-                                ft.Row(
-                                    [
-                                        ft.Container(
-                                            width=58,
-                                            height=58,
-                                            border_radius=999,
-                                            alignment=ft.Alignment(0, 0),
-                                            gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#14304A", "#1D4F73", "#17365A"]),
-                                            content=ft.Image(src=cfg.get("image_src", ""), fit=ft.BoxFit.COVER, border_radius=999, error_content=ft.Text(cfg.get("icon", "🏝️"), size=26, color="white")) if cfg.get("image_src") else ft.Text(cfg.get("icon", "🏝️"), size=28, color="white"),
-                                        ),
-                                        ft.Column(
-                                            [
-                                                ft.Text(cfg.get("title", f"Insel {idx + 1}"), size=16, weight="bold", color="white", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                                                ft.Text(QUESTIONS_PATH_WORLD_LAYOUTS.get(cfg.get("world_layout", "classic"), QUESTIONS_PATH_WORLD_LAYOUTS["classic"])["label"], size=11, color="#A8C0D2"),
-                                            ],
-                                            spacing=4,
-                                            expand=True,
-                                        ),
-                                    ],
-                                    spacing=10,
-                                ),
-                                ft.Text(cfg.get("subtitle", ""), size=12, color="#D5E3EE", max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
-                                ft.Text(f"{len(cfg.get('questions', []))} Fragen", size=12, color=cfg.get("accent", "#34D399"), weight="bold"),
-                            ],
-                            spacing=10,
-                        ),
-                    ),
-                    ft.Container(
-                        right=4,
-                        bottom=4,
-                        width=28,
-                        height=28,
-                        border_radius=9,
-                        bgcolor="#0F172AEE",
-                        border=ft.border.Border.all(1.2, "#D1D5DB"),
-                        alignment=ft.Alignment(0, 0),
-                        content=ft.GestureDetector(
-                            on_pan_start=resize_start_island(idx),
-                            on_pan_update=resize_island(idx),
-                            on_pan_end=resize_end_island(idx),
-                            mouse_cursor=ft.MouseCursor.RESIZE_DOWN_RIGHT,
-                            drag_interval=6,
-                            content=ft.Text("↘", size=14, color="white", weight="bold"),
-                        ),
-                    ),
-                ],
-            ),
-        )
-        island_markers.append(
-            ft.Container(
-                ref=marker_ref,
-                left=island_left_from_percent(marker_x, card_w),
-                top=island_top_from_percent(marker_y, card_h),
-                width=card_w,
-                height=card_h,
-                content=ft.GestureDetector(
-                    on_pan_start=drag_start_island(idx),
-                    on_pan_update=drag_island(idx),
-                    on_pan_end=drag_end_island(idx),
-                    on_scale_start=scale_start_island(idx),
-                    on_scale_update=scale_island(idx),
-                    on_scale_end=scale_end_island(idx),
-                    on_tap=select_island(idx),
-                    drag_interval=6,
-                    mouse_cursor=ft.MouseCursor.MOVE,
-                    content=marker_content,
-                ),
-            )
-        )
-
-    preset_cards = []
-    for idx, theme in enumerate(QUESTIONS_PATH_CREATIVE_THEMES):
-        preset_cards.append(
-            ft.Container(
-                width=180,
-                height=120,
-                border_radius=22,
-                padding=16,
-                bgcolor="#0B1620",
-                border=ft.border.Border.all(1.5, theme["accent"]),
-                on_click=choose_preset(idx),
-                content=ft.Column(
-                    [
-                        ft.Text(theme["icon"], size=28, text_align=ft.TextAlign.CENTER),
-                        ft.Text(f"Vorlage {idx + 1}", size=16, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                        ft.Text("Design übernehmen", size=12, color="#A8C0D2", text_align=ft.TextAlign.CENTER),
-                    ],
-                    spacing=8,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-            )
-        )
-
-    selected_questions = list(selected.get("questions", []) or [])
-    if not selected_questions:
-        selected_questions = [_questions_path_default_custom_question(0)]
-    active_point_index = max(0, min(active_point_index, len(selected_questions) - 1))
-    state["_questions_path_active_point_index"] = active_point_index
-    active_question = dict(selected_questions[active_point_index])
-    active_answers = list(active_question.get("answers", []) or [])
-    while len(active_answers) < 4:
-        active_answers.append("")
-    question_ref = ft.Ref[ft.TextField]()
-    answer_refs = [ft.Ref[ft.TextField]() for _ in range(4)]
-    correct_ref = ft.Ref[ft.Dropdown]()
-
-    world_dropdown = ft.Dropdown(
-        ref=world_layout_ref,
-        value=str(selected.get("world_layout", "classic") or "classic"),
-        label="Weltdesign",
-        bgcolor="#111827",
-        color="white",
-        border_color="#334155",
-        options=[ft.dropdown.Option(key, text=value["label"]) for key, value in QUESTIONS_PATH_WORLD_LAYOUTS.items()],
+def _questions_path_render_level(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    page_w, page_h = _page_size(page)
+    card_w = min(1240, max(320, int(page_w - 24)))
+    card_h = max(420, min(660, int(page_h * 0.78)))
+    q_index = int(state.get("_questions_path_level_progress", 0) or 0)
+    done = bool(state.get("_questions_path_level_complete"))
+    started = bool(state.get("_questions_path_level_started"))
+    current = QUESTIONS_PATH_NUTRITION_QUESTIONS[min(q_index, len(QUESTIONS_PATH_NUTRITION_QUESTIONS) - 1)]
+
+    def start_or_question(e):
+        state["_questions_path_level_started"] = True
+        _questions_path_render_level(e.page, state)
+
+    point_left = int(card_w * 0.17)
+    point_top = int(card_h * 0.39)
+    start_button = ft.Container(
+        left=point_left,
+        top=point_top,
+        width=96,
+        height=96,
+        border_radius=999,
+        bgcolor="#00000001",
+        on_click=start_or_question,
+        content=ft.Image(src=_questions_path_level_start_asset(), fit=ft.BoxFit.CONTAIN, expand=True),
     )
 
-    point_controls = []
-    point_overlay_controls = []
-    editable_points = ensure_custom_points(selected)
-    for point_index, point in enumerate(editable_points):
-        point_ref = ft.Ref[ft.Container]()
-        point_marker_refs[point_index] = point_ref
-        point_overlay_controls.append(
-            ft.Container(
-                ref=point_ref,
-                left=point_left_from_percent(point["x"]),
-                top=point_top_from_percent(point["y"]),
-                content=ft.GestureDetector(
-                    on_pan_start=point_drag_start(point_index),
-                    on_pan_update=point_drag_update(point_index),
-                    on_pan_end=point_drag_end(point_index),
-                    on_tap=open_question_dialog_for(point_index),
-                    drag_interval=6,
-                    mouse_cursor=ft.MouseCursor.MOVE,
-                    content=ft.Container(
-                        width=54,
-                        height=54,
-                        border_radius=999,
-                        bgcolor="#10B981" if point_index == active_point_index else "#0EA5E9",
-                        border=ft.border.Border.all(3, "#D1FAE5" if point_index == active_point_index else "#BFDBFE"),
-                        alignment=ft.Alignment(0, 0),
-                        content=ft.Text(str(point_index + 1), size=18, weight="bold", color="#08131F"),
-                    ),
-                ),
-            )
+    def answer_handler(answer_index: int):
+        def _handler(e):
+            current_index = int(state.get("_questions_path_level_progress", 0) or 0)
+            question = QUESTIONS_PATH_NUTRITION_QUESTIONS[min(current_index, len(QUESTIONS_PATH_NUTRITION_QUESTIONS) - 1)]
+            if answer_index != int(question["correct"]):
+                e.page.snack_bar = ft.SnackBar(content=ft.Text("Noch nicht ganz – probier es nochmal."), open=True)
+                e.page.update()
+                return
+            next_index = current_index + 1
+            if next_index >= len(QUESTIONS_PATH_NUTRITION_QUESTIONS):
+                state["_questions_path_level_complete"] = True
+                state["_questions_path_level_progress"] = len(QUESTIONS_PATH_NUTRITION_QUESTIONS)
+                state["_questions_path_level1_done"] = True
+                state["_questions_path_unlocked_islands"] = max(int(state.get("_questions_path_unlocked_islands", 1) or 1), 2)
+                render_questions_path_complete(e.page, state)
+                return
+            state["_questions_path_level_progress"] = next_index
+            _questions_path_render_level(e.page, state)
+
+        return _handler
+
+    answer_buttons = [
+        _game_menu_button(
+            f"{ANSWER_LETTERS[index]}. {answer}",
+            answer_handler(index),
+            "#2563EB" if index == int(current["correct"]) else "#334155",
+            width=min(440, card_w - 72),
+            height=42,
         )
-        point_controls.append(
-            ft.Row(
-                [
-                    ft.Text(f"Punkt {point_index + 1}: {point.get('label', f'Punkt {point_index + 1}')}", size=12, color="#D5E3EE"),
-                    ft.Row(
-                        [
-                            ft.Text(f"x={point['x']}  y={point['y']}", size=11, color="#8FB7C9"),
-                            _game_menu_button("←", nudge_point(point_index, -2, 0), "#334155", width=40, height=30),
-                            _game_menu_button("↑", nudge_point(point_index, 0, -2), "#334155", width=40, height=30),
-                            _game_menu_button("↓", nudge_point(point_index, 0, 2), "#334155", width=40, height=30),
-                            _game_menu_button("→", nudge_point(point_index, 2, 0), "#334155", width=40, height=30),
-                        ],
-                        spacing=6,
-                    ),
-                ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            )
-        )
+        for index, answer in enumerate(current["answers"])
+    ]
+
+    modal = ft.Container(
+        width=min(620, card_w - 40),
+        padding=22,
+        border_radius=24,
+        bgcolor="#0B1220F2",
+        border=ft.border.Border.all(2, "#38BDF8"),
+        content=ft.Column(
+            [
+                ft.Text("Naturinsel · Level 1", size=12, color="#7DD3FC", text_align=ft.TextAlign.CENTER),
+                ft.Text(f"Frage {q_index + 1} von {len(QUESTIONS_PATH_NUTRITION_QUESTIONS)}", size=18, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                ft.Container(height=4),
+                ft.Text(current["question"], size=22, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
+                ft.Container(height=8),
+                ft.Column(answer_buttons, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Container(height=8),
+                ft.Text("Wähle eine Antwort, um zur nächsten Frage zu kommen.", size=11, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+            ],
+            spacing=8,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
 
     page.controls.clear()
     page.add(
@@ -16978,1650 +16871,48 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
             expand=True,
             content=ft.Stack(
                 [
-                    _questions_path_backdrop("#34D399", "#38BDF8"),
+                    ft.Image(src=_questions_path_level_background_asset(), fit=ft.BoxFit.COVER, expand=True),
+                    ft.Container(expand=True, bgcolor="#07101870"),
+                    start_button,
                     ft.Container(
                         expand=True,
-                        padding=14,
-                        content=ft.Column(
-                            [
-                                ft.Row(
-                                    [
-                                        _game_menu_button("← Profile", lambda e: (state.__setitem__("questions_path_scene", "profiles"), show_questions_path_hub(e.page, state)), "#475569", width=180, height=40),
-                                        ft.Text("Eigene Inselwelt", size=30, weight="bold", color="white"),
-                                        ft.Row(
-                                            [
-                                                _game_menu_button("Welt betreten", toggle_world_editor, "#0F766E", width=180, height=40),
-                                                _game_menu_button("+ Insel", open_add_menu, "#1D4ED8", width=140, height=40),
-                                                _game_menu_button("- Insel", remove_island, "#7C2D12", width=140, height=40),
-                                            ],
-                                            spacing=10,
-                                        ),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Container(
-                                    expand=True,
-                                    border_radius=28,
-                                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                    bgcolor="#061621E8",
-                                    content=ft.Container(
-                                        alignment=ft.Alignment(0, 0),
-                                        content=ft.Container(
-                                            width=int(creator_canvas_w * creator_zoom),
-                                            height=int(creator_canvas_h * creator_zoom),
-                                            animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
-                                            content=ft.Container(
-                                                width=creator_canvas_w,
-                                                height=creator_canvas_h,
-                                                scale=creator_zoom,
-                                                content=ft.Stack(
-                                                    [
-                                                        ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#06111A", "#092638", "#06131D"])),
-                                                        ft.Container(
-                                                            expand=True,
-                                                            opacity=0.34,
-                                                            content=ft.Image(
-                                                                src=selected_cfg.get("map_image_src", ""),
-                                                                fit=ft.BoxFit.COVER,
-                                                                error_content=ft.Container(),
-                                                            ) if selected_cfg.get("map_image_src") else ft.Container(),
-                                                        ),
-                                                        ft.Container(left=140, top=80, width=320, height=180, border_radius=999, bgcolor="#0BFFFFFF"),
-                                                        ft.Container(right=160, bottom=120, width=420, height=220, border_radius=999, bgcolor="#08FFFFFF"),
-                                                        *island_markers,
-                                                        ft.Container(
-                                                            visible=not custom_islands,
-                                                            expand=True,
-                                                            alignment=ft.Alignment(0, 0),
-                                                            content=ft.Container(
-                                                                width=420,
-                                                                padding=24,
-                                                                border_radius=24,
-                                                                bgcolor="#071019E6",
-                                                                border=ft.border.Border.all(1.5, "#38BDF8"),
-                                                                content=ft.Column(
-                                                                    [
-                                                                        ft.Text("Leere Inselwelt", size=28, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                                                                        ft.Text("Hier kannst du deine eigene Welt aufbauen. Starte oben rechts mit `+ Insel` und ziehe die Karten danach frei auf der Fläche herum.", size=14, color="#D5E3EE", text_align=ft.TextAlign.CENTER),
-                                                                    ],
-                                                                    spacing=10,
-                                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                                                ),
-                                    ),
-                                                        ),
-                                                    ],
-                                                    expand=True,
-                                                ),
-                                            ),
-                                        ),
-                                    ),
-                                ),
-                                ft.Row(
-                                    [
-                                        _questions_path_zoom_controls(state, "questions_path_creator_zoom", lambda p, s: _questions_path_render_creator(p, s)),
-                                        ft.Text("Inseln ziehen, zoomen und dann Welt betreten für Fragen/Punkte.", size=13, color="#A8C0D2"),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Container(
-                                    visible=selected_exists,
-                                    padding=ft.Padding(12, 0, 12, 0),
-                                    content=ft.Row(
-                                        [
-                                            ft.TextField(
-                                                ref=island_name_ref,
-                                                value=selected.get("title", ""),
-                                                label="Inselname",
-                                                bgcolor="#111827",
-                                                color="white",
-                                                border_color="#334155",
-                                                expand=True,
-                                            ),
-                                            _game_menu_button("Name speichern", save_island_details, "#0F766E", width=180, height=40),
-                                        ],
-                                        spacing=10,
-                                    ),
-                                ),
-                                ft.Container(
-                                    visible=creator_world_open and selected_exists,
-                                    height=620,
-                                    border_radius=24,
-                                    bgcolor="#071019F2",
-                                    padding=20,
-                                    content=ft.Column(
-                                        [
-                                            ft.Row(
-                                                [
-                                                    ft.Text(f"Bearbeite: {selected_cfg.get('title', 'Eigene Insel')}", size=22, weight="bold", color="white"),
-                                                    _game_menu_button("Insel speichern", save_island_details, "#0F766E", width=180, height=40),
-                                                ],
-                                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                            ),
-                                            ft.Row(
-                                                [
-                                                    ft.TextField(ref=island_icon_ref, value=selected.get("icon", "🏝️"), label="Emoji / Symbol", bgcolor="#111827", color="white", border_color="#334155", width=180),
-                                                    ft.Text("Inselname oben ändern", size=12, color="#A8C0D2"),
-                                                ],
-                                                spacing=10,
-                                            ),
-                                            ft.Row(
-                                                [
-                                                    ft.TextField(ref=island_subtitle_ref, value=selected.get("subtitle", ""), label="Beschreibung", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                                    world_dropdown,
-                                                ],
-                                                spacing=10,
-                                            ),
-                                            ft.Row(
-                                                [
-                                                    ft.TextField(ref=world_name_ref, value=selected.get("world_name", selected.get("title", "Eigene Welt")), label="Weltname", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                                    ft.TextField(ref=world_description_ref, value=selected.get("world_description", selected.get("subtitle", "")), label="Weltbeschreibung", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                                ],
-                                                spacing=10,
-                                            ),
-                                            ft.Row(
-                                                [
-                                                    ft.Text("Insel verschieben", size=14, weight="bold", color="white"),
-                                                    ft.Row(
-                                                        [
-                                                            _game_menu_button("←", move_selected_island(-2.5, 0), "#334155", width=52, height=36),
-                                                            _game_menu_button("↑", move_selected_island(0, -2.5), "#334155", width=52, height=36),
-                                                            _game_menu_button("↓", move_selected_island(0, 2.5), "#334155", width=52, height=36),
-                                                            _game_menu_button("→", move_selected_island(2.5, 0), "#334155", width=52, height=36),
-                                                        ],
-                                                        spacing=8,
-                                                    ),
-                                                ],
-                                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                            ),
-                                            ft.Text("Punkt-Editor", size=16, weight="bold", color="white"),
-                                            ft.Text("Klicke einen Punkt an, um seine Frage zu bearbeiten. Du kannst Punkte verschieben, neue hinzufügen und löschen.", size=12, color="#A8C0D2"),
-                                            ft.Container(
-                                                height=220,
-                                                border_radius=20,
-                                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                                bgcolor="#061621E8",
-                                                content=ft.Stack(
-                                                    [
-                                                        ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#081521", "#0A2B3E", "#07131C"])),
-                                                        ft.Container(
-                                                            expand=True,
-                                                            opacity=0.30,
-                                                            content=ft.Image(src=selected_cfg.get("map_image_src", ""), fit=ft.BoxFit.COVER, error_content=ft.Container()) if selected_cfg.get("map_image_src") else ft.Container(),
-                                                        ),
-                                                        *point_overlay_controls,
-                                                    ],
-                                                    expand=True,
-                                                ),
-                                            ),
-                                            ft.Row(
-                                                [
-                                                    _game_menu_button("Frage hinzufügen", add_point, "#0F766E", width=170, height=40),
-                                                    _game_menu_button("- Punkt", remove_active_point, "#7C2D12", width=140, height=40),
-                                                    _game_menu_button("Karte auswählen", open_world_map_menu, "#1D4ED8", width=180, height=40),
-                                                    _game_menu_button("Frage öffnen", open_question_dialog_for(active_point_index), "#7C3AED", width=170, height=40),
-                                                ],
-                                                spacing=10,
-                                            ),
-                                            ft.Column(point_controls, spacing=6),
-                                            ft.Row(
-                                                [
-                                                    _game_menu_button("Inselbild wählen", pick_selected_island_image, "#1D4ED8", width=180, height=40),
-                                                    _game_menu_button("Kartenbild wählen", pick_selected_map_image, "#7C3AED", width=180, height=40),
-                                                ],
-                                                spacing=10,
-                                            ),
-                                            ft.Container(
-                                                padding=16,
-                                                border_radius=18,
-                                                bgcolor="#0B1220DD",
-                                                border=ft.border.Border.all(1.4, "#334155"),
-                                                content=ft.Column(
-                                                    [
-                                                        ft.Text(f"Aktueller Punkt: {active_point_index + 1}", size=16, weight="bold", color="white"),
-                                                        ft.Text(active_question.get("question", "Noch keine Frage hinterlegt."), size=14, color="#D5E3EE", max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
-                                                        ft.Text(f"Richtige Antwort: {ANSWER_LETTERS[min(3, int(active_question.get('correct_idx', 0) or 0))]}", size=12, color="#86EFAC"),
-                                                        ft.Text(f"{len(selected_questions)} Fragen / Punkte in dieser Welt", size=12, color="#8FB7C9"),
-                                                    ],
-                                                    spacing=8,
-                                                ),
-                                            ),
-                                        ],
-                                        spacing=12,
-                                    ),
-                                ),
-                            ],
-                            spacing=12,
-                        ),
+                        alignment=ft.Alignment(0, 0),
+                        visible=started and not done,
+                        content=modal,
                     ),
                     ft.Container(
                         expand=True,
-                        visible=add_mode == "preset",
-                        bgcolor="#010611F0",
-                        blur=16,
                         alignment=ft.Alignment(0, 0),
+                        visible=done,
                         content=ft.Container(
-                            width=min(980, max(360, int(_page_size(page)[0] - 60))),
+                            width=min(560, card_w - 40),
                             padding=24,
                             border_radius=24,
-                            bgcolor="#08111BFE",
-                            border=ft.border.Border.all(2, "#38BDF8"),
+                            bgcolor="#0B1220F2",
+                            border=ft.border.Border.all(2, "#22C55E"),
                             content=ft.Column(
                                 [
-                                    ft.Row(
-                                        [
-                                            ft.Text("Insel hinzufügen", size=28, weight="bold", color="white"),
-                                            _game_menu_button("Schließen", close_add_menu, "#475569", width=160, height=40),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    ),
-                                    ft.Text("Wähle ein Standarddesign oder füge rechts einen eigenen Bildpfad / eine Bild-URL hinzu.", size=13, color="#B8CBD8"),
-                                    ft.Row(preset_cards, wrap=True, spacing=12, alignment=ft.MainAxisAlignment.CENTER),
-                                    ft.Container(height=8),
-                                    ft.Row(
-                                        [
-                                            ft.Text("Eigene Designs", size=18, weight="bold", color="white"),
-                                            _game_menu_button("+ Eigenes Design", open_custom_design, "#7C3AED", width=200, height=40),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    ),
-                                    ft.Row(
-                                        [
-                                            ft.Container(
-                                                width=220,
-                                                padding=12,
-                                                border_radius=18,
-                                                bgcolor="#0B1620",
-                                                border=ft.border.Border.all(1.2, "#334155"),
-                                                content=ft.Column(
-                                                    [ft.Text("Gespeichert", size=14, weight="bold", color="white")]
-                                                    + [
-                                                        ft.Container(
-                                                            padding=10,
-                                                            border_radius=14,
-                                                            bgcolor="#111827",
-                                                            on_click=choose_saved_design(design_value),
-                                                            content=ft.Row(
-                                                                [
-                                                                    ft.Container(
-                                                                        width=48,
-                                                                        height=48,
-                                                                        border_radius=12,
-                                                                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                                                        bgcolor="#0B1620",
-                                                                        content=ft.Image(src=design_value, fit=ft.BoxFit.COVER, error_content=ft.Text("🖼️", size=18)),
-                                                                    ),
-                                                                    ft.Text(design_value, size=11, color="#D4E2ED", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
-                                                                ],
-                                                                spacing=10,
-                                                            ),
-                                                        )
-                                                        for design_value in custom_designs
-                                                    ],
-                                                    spacing=8,
-                                                ),
-                                            )
-                                        ],
-                                        scroll=ft.ScrollMode.AUTO,
-                                    ),
+                                    ft.Text("Level geschafft!", size=28, weight="bold", color="white", text_align="center"),
+                                    ft.Text("Du hast alle 10 Ernährungsfragen gelöst.", size=14, color=theme_txt(theme, "secondary"), text_align="center"),
+                                    ft.Container(height=12),
+                                    _game_menu_button("Zur Inselkarte", lambda e: (state.__setitem__("questions_path_scene", "islands"), show_questions_path_hub(e.page, state)), "#22C55E", width=240, height=42),
+                                    _game_menu_button("Zur Spielauswahl", lambda e: open_main_menu(e.page, state), "#475569", width=240, height=42),
                                 ],
-                                spacing=14,
-                            ),
-                        ),
-                    ),
-                    ft.Container(
-                        expand=True,
-                        visible=choose_custom_design,
-                        bgcolor="#010611F0",
-                        blur=16,
-                        alignment=ft.Alignment(0, 0),
-                        content=ft.Container(
-                            width=min(760, max(340, int(_page_size(page)[0] - 80))),
-                            padding=24,
-                            border_radius=24,
-                            bgcolor="#08111BFE",
-                            border=ft.border.Border.all(2, "#7C3AED"),
-                            content=ft.Column(
-                                [
-                                    ft.Text("Eigenes Design hinzufügen", size=28, weight="bold", color="white"),
-                                    ft.Text("Für maximale Kompatibilität nutze bitte einen Bildpfad aus dem Projekt, eine direkte HTTPS-Bild-URL oder wähle eine Datei aus.", size=13, color="#B8CBD8"),
-                                    ft.TextField(ref=custom_design_ref, value="", label="Bildpfad oder Bild-URL", bgcolor="#111827", color="white", border_color="#334155"),
-                                    ft.Row(
-                                        [
-                                            _game_menu_button("Abbrechen", lambda e: (state.pop("_questions_path_choose_custom_design", None), _questions_path_render_creator(e.page, state)), "#475569", width=180, height=42),
-                                            _game_menu_button("Bild auswählen", pick_custom_design, "#1D4ED8", width=180, height=42),
-                                            _game_menu_button("Design speichern", add_custom_design, "#0F766E", width=220, height=42),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.CENTER,
-                                        spacing=12,
-                                    ),
-                                ],
-                                spacing=14,
+                                spacing=10,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                         ),
                     ),
                     ft.Container(
-                        expand=True,
-                        visible=choose_world_map and selected_exists,
-                        bgcolor="#010611F0",
-                        blur=16,
-                        alignment=ft.Alignment(0, 0),
-                        content=ft.Container(
-                            width=min(920, max(360, int(_page_size(page)[0] - 60))),
-                            padding=24,
-                            border_radius=24,
-                            bgcolor="#08111BFE",
-                            border=ft.border.Border.all(2, "#38BDF8"),
-                            content=ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            ft.Text("Karte auswählen", size=28, weight="bold", color="white"),
-                                            _game_menu_button("Schließen", close_world_map_menu, "#475569", width=160, height=40),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    ),
-                                    ft.Text("Wähle ein Grundlayout oder nutze ein eigenes Kartenbild. Punkte kannst du danach trotzdem frei hinzufügen, löschen und verschieben.", size=13, color="#B8CBD8"),
-                                    ft.Row(
-                                        [
-                                            ft.Container(
-                                                width=210,
-                                                height=140,
-                                                border_radius=20,
-                                                bgcolor="#0B1620",
-                                                border=ft.border.Border.all(1.5, "#38BDF8"),
-                                                padding=16,
-                                                on_click=choose_world_layout(layout_key),
-                                                content=ft.Column(
-                                                    [
-                                                        ft.Text(layout_data["label"], size=18, weight="bold", color="white"),
-                                                        ft.Text(f"{len(layout_data['points'])} Startpunkte", size=12, color="#A8C0D2"),
-                                                        ft.Text("Vorlage auswählen", size=12, color="#7DD3FC"),
-                                                    ],
-                                                    spacing=8,
-                                                ),
-                                            )
-                                            for layout_key, layout_data in QUESTIONS_PATH_WORLD_LAYOUTS.items()
-                                        ],
-                                        wrap=True,
-                                        spacing=12,
-                                    ),
-                                    ft.Row(
-                                        [
-                                            _game_menu_button("Eigenes Kartenbild wählen", pick_selected_map_image, "#7C3AED", width=250, height=42),
-                                            _game_menu_button("Nur Punkte behalten", close_world_map_menu, "#334155", width=200, height=42),
-                                        ],
-                                        spacing=12,
-                                    ),
-                                ],
-                                spacing=14,
-                            ),
-                        ),
+                        left=16,
+                        top=16,
+                        content=_game_menu_button("← Inselkarte", lambda e: _questions_path_render_islands(e.page, state), "#475569", width=160, height=40),
                     ),
                     ft.Container(
-                        expand=True,
-                        visible=question_dialog_open and selected_exists,
-                        bgcolor="#010611F0",
-                        blur=18,
-                        alignment=ft.Alignment(0, 0),
-                        content=ft.Container(
-                            width=min(860, max(360, int(_page_size(page)[0] - 70))),
-                            padding=24,
-                            border_radius=24,
-                            bgcolor="#08111BFE",
-                            border=ft.border.Border.all(2, "#7C3AED"),
-                            content=ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            ft.Text(f"Frage für Punkt {active_point_index + 1}", size=28, weight="bold", color="white"),
-                                            _game_menu_button("Schließen", close_question_dialog, "#475569", width=160, height=40),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    ),
-                                    ft.Text("Hier legst du die Frage und die vier Antwortmöglichkeiten für den ausgewählten Punkt fest.", size=13, color="#B8CBD8"),
-                                    ft.TextField(ref=question_ref, value=active_question.get("question", ""), label="Frage", bgcolor="#111827", color="white", border_color="#334155"),
-                                    ft.Row(
-                                        [
-                                            ft.TextField(ref=answer_refs[0], value=active_answers[0], label="Antwort A", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                            ft.TextField(ref=answer_refs[1], value=active_answers[1], label="Antwort B", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                        ],
-                                        spacing=10,
-                                    ),
-                                    ft.Row(
-                                        [
-                                            ft.TextField(ref=answer_refs[2], value=active_answers[2], label="Antwort C", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                            ft.TextField(ref=answer_refs[3], value=active_answers[3], label="Antwort D", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                        ],
-                                        spacing=10,
-                                    ),
-                                    ft.Dropdown(
-                                        ref=correct_ref,
-                                        value=str(int(active_question.get("correct_idx", 0) or 0)),
-                                        label="Richtige Antwort",
-                                        bgcolor="#111827",
-                                        color="white",
-                                        border_color="#334155",
-                                        options=[ft.dropdown.Option(str(i), text=f"{ANSWER_LETTERS[i]}") for i in range(4)],
-                                    ),
-                                    ft.Row(
-                                        [
-                                            _game_menu_button("Punkt löschen", remove_active_point, "#7C2D12", width=170, height=42),
-                                            _game_menu_button("Frage speichern", save_question(active_point_index, question_ref, answer_refs, correct_ref), "#0F766E", width=200, height=42),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.END,
-                                        spacing=12,
-                                    ),
-                                ],
-                                spacing=14,
-                            ),
-                        ),
-                    ),
-                ],
-                expand=True,
-            ),
-        )
-    )
-    page.update()
-    page.run_task(_sync_bg_music_async, page, state)
-
-
-def _questions_path_render_custom_menu(page: ft.Page, state: dict):
-    profiles = get_questions_path_profiles(state)
-    if not profiles:
-        profiles = [_questions_path_default_profile(0)]
-        persist_questions_path_profiles(state, profiles)
-        state["questions_path_profiles"] = profiles
-    active_index = get_questions_path_profile_index(state)
-    active_profile = profiles[active_index] if active_index < len(profiles) else _questions_path_default_profile(0)
-    theme = get_theme(state)
-
-    world_name_ref = ft.Ref[ft.TextField]()
-    world_create_dialog_open = bool(state.get("_questions_path_create_world_dialog", False))
-
-    def save_world(profile_index: int, profile: dict):
-        current_profiles = get_questions_path_profiles(state)
-        while profile_index >= len(current_profiles):
-            current_profiles.append(_questions_path_default_profile(len(current_profiles)))
-        current_profiles[profile_index] = profile
-        persist_questions_path_profiles(state, current_profiles)
-        state["questions_path_profiles"] = current_profiles
-
-    def open_world(profile_index: int, edit: bool, e):
-        refreshed = get_questions_path_profiles(state)
-        profile = dict(refreshed[profile_index] if profile_index < len(refreshed) else _questions_path_default_profile(profile_index))
-        profile["progression_mode"] = "creative"
-        save_world(profile_index, profile)
-        set_questions_path_profile_index(state, profile_index)
-        state["questions_path_scene"] = "editor" if edit else "islands"
-        show_questions_path_hub(e.page, state)
-
-    def play_world(profile_index: int):
-        def _handler(e):
-            open_world(profile_index, False, e)
-
-        return _handler
-
-    def edit_world(profile_index: int):
-        def _handler(e):
-            open_world(profile_index, True, e)
-
-        return _handler
-
-    def open_create_world_dialog(e):
-        state["_questions_path_create_world_dialog"] = True
-        _questions_path_render_custom_menu(e.page, state)
-
-    def close_create_world_dialog(e):
-        state["_questions_path_create_world_dialog"] = False
-        _questions_path_render_custom_menu(e.page, state)
-
-    def create_world(e):
-        current_profiles = get_questions_path_profiles(state)
-        if len(current_profiles) >= QUESTIONS_PATH_PROFILE_MAX:
-            e.page.snack_bar = ft.SnackBar(content=ft.Text("Maximal 10 Welten sind möglich."), open=True)
-            e.page.update()
-            return
-        raw_name = str(world_name_ref.current.value or "").strip() if world_name_ref.current else ""
-        new_profile = _questions_path_default_profile(len(current_profiles))
-        if raw_name:
-            new_profile["name"] = raw_name
-        new_profile["progression_mode"] = "creative"
-        current_profiles.append(new_profile)
-        persist_questions_path_profiles(state, current_profiles)
-        state["questions_path_profiles"] = current_profiles
-        set_questions_path_profile_index(state, len(current_profiles) - 1)
-        state["_questions_path_create_world_dialog"] = False
-        state["questions_path_scene"] = "creator"
-        show_questions_path_hub(e.page, state)
-
-    page.controls.clear()
-
-    world_cards = []
-    for idx, profile_item in enumerate(profiles):
-        is_active = idx == active_index
-        profile_name = str(profile_item.get("name", f"Profil {idx + 1}")).strip() or f"Profil {idx + 1}"
-        mode_label = "Kreativ" if _questions_path_profile_mode(profile_item) == "creative" else "Abenteuer"
-        custom_count = len(list(profile_item.get("custom_islands", []) or []))
-        last_label = "Noch keine Insel"
-        if custom_count:
-            last_label = f"{custom_count} eigene Inseln"
-        mode_description = (
-            "Bearbeiten öffnet die eigene Inselwelt mit Drag & Drop, Fragen und Layout."
-            if str(profile_item.get("progression_mode", "adventure")).lower() == "creative"
-            else "Spielen startet die standardisierte Insel-Reihenfolge."
-        )
-        world_cards.append(
-            ft.Container(
-                padding=16,
-                border_radius=22,
-                bgcolor="#0B1620F0" if is_active else "#08111BF0",
-                border=ft.border.Border.all(2, "#38BDF8" if is_active else "#1F2937"),
-                content=ft.Row(
-                    [
-                        ft.Column(
-                            [
-                                ft.Row(
-                                    [
-                                        ft.Text(profile_name, size=18, weight="bold", color="white"),
-                                        _questions_path_island_chip(mode_label, "#0F766E" if mode_label == "Kreativ" else "#334155"),
-                                    ],
-                                    spacing=10,
-                                ),
-                                ft.Text(
-                                    str(profile_item.get("selected_age", "mid")).capitalize() + " / " + last_label,
-                                    size=12,
-                                    color="#A8C0D2",
-                                ),
-                                ft.Text(mode_description, size=12, color="#D5E3EE"),
-                            ],
-                            spacing=5,
-                            expand=True,
-                        ),
-                        ft.Column(
-                            [
-                                _game_menu_button("Spielen", play_world(idx), "#0F766E", width=140, height=40),
-                                _game_menu_button("Bearbeiten", edit_world(idx), "#1D4ED8", width=140, height=40),
-                            ],
-                            spacing=8,
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-            )
-        )
-
-    page.add(
-        ft.Container(
-            expand=True,
-            content=ft.Stack(
-                [
-                    _questions_path_backdrop("#34D399", "#38BDF8"),
-                    ft.Container(
-                        expand=True,
-                        alignment=ft.Alignment(0, 0),
-                        padding=20,
-                        content=ft.Container(
-                            width=min(920, max(360, int(_page_size(page)[0] - 40))),
-                            padding=24,
-                            border_radius=28,
-                            bgcolor="#08111BFE",
-                            border=ft.border.Border.all(2, "#38BDF8"),
-                            content=ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            _game_menu_button("← Profile", lambda e: (state.__setitem__("questions_path_scene", "profiles"), show_questions_path_hub(e.page, state)), "#475569", width=170, height=40),
-                                            ft.Text("Eigenes Spiel", size=30, weight="bold", color="white"),
-                                            _game_menu_button("+ Welt", open_create_world_dialog, "#1D4ED8", width=140, height=40),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    ),
-                                    ft.Text("Hier verwaltest du deine Welten. Spielen öffnet die aktuelle Welt, Bearbeiten bringt dich in den Editor.", size=13, color="#B8CBD8", text_align=ft.TextAlign.CENTER),
-                                    ft.Container(height=4),
-                                    ft.Text("Meine Welten", size=18, weight="bold", color=theme_value(theme, "gold", "#F6C453"), text_align=ft.TextAlign.LEFT),
-                                    ft.Container(
-                                        expand=True,
-                                        content=ft.Column(
-                                            world_cards if world_cards else [
-                                                ft.Container(
-                                                    padding=18,
-                                                    border_radius=22,
-                                                    bgcolor="#0B1620F0",
-                                                    border=ft.border.Border.all(1.5, "#334155"),
-                                                    content=ft.Column(
-                                                        [
-                                                            ft.Text("Noch keine eigene Welt", size=22, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                                                            ft.Text("Erstelle oben rechts mit + Welt deine erste Welt. Danach kannst du sie spielen oder bearbeiten.", size=13, color="#D5E3EE", text_align=ft.TextAlign.CENTER),
-                                                        ],
-                                                        spacing=10,
-                                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                                    ),
-                                                )
-                                            ],
-                                            spacing=12,
-                                            scroll=ft.ScrollMode.AUTO,
-                                        ),
-                                    ),
-                                    ft.Row(
-                                        [
-                                            _questions_path_island_chip(f"{len(profiles)} Welt(en)", "#334155"),
-                                            _questions_path_island_chip("Bearbeiten = Inseln + Punkte", "#0F766E"),
-                                            _questions_path_island_chip("Spielen = aktuelle Welt", "#1D4ED8"),
-                                        ],
-                                        spacing=10,
-                                        alignment=ft.MainAxisAlignment.CENTER,
-                                    ),
-                                ],
-                                spacing=16,
-                                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                            ),
-                        ),
-                    ),
-                    ft.Container(
-                        expand=True,
-                        visible=world_create_dialog_open,
-                        bgcolor="#010611F0",
-                        blur=16,
-                        alignment=ft.Alignment(0, 0),
-                        content=ft.Container(
-                            width=min(520, max(320, int(_page_size(page)[0] - 60))),
-                            padding=24,
-                            border_radius=24,
-                            bgcolor="#08111BFE",
-                            border=ft.border.Border.all(2, "#38BDF8"),
-                            content=ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            ft.Text("Neue Welt", size=28, weight="bold", color="white"),
-                                            _game_menu_button("Schließen", close_create_world_dialog, "#475569", width=150, height=40),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    ),
-                                    ft.Text("Vergib direkt einen Namen für die neue Welt.", size=13, color="#B8CBD8"),
-                                    ft.TextField(ref=world_name_ref, label="Weltname", value=f"Welt {len(profiles) + 1}", bgcolor="#111827", color="white", border_color="#334155"),
-                                    ft.Row(
-                                        [
-                                            _game_menu_button("Welt anlegen", create_world, "#1D4ED8", width=180, height=42),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.END,
-                                    ),
-                                ],
-                                spacing=14,
-                            ),
-                        ),
-                    ),
-                ],
-                expand=True,
-            ),
-        )
-    )
-    page.update()
-    page.run_task(_sync_bg_music_async, page, state)
-
-
-def _questions_path_backdrop(accent_a: str = "#34D399", accent_b: str = "#38BDF8") -> ft.Control:
-    return ft.Stack(
-        [
-            ft.Container(
-                expand=True,
-                gradient=ft.LinearGradient(
-                    begin=ft.Alignment(-1, -1),
-                    end=ft.Alignment(1, 1),
-                    colors=["#030712", "#071827", "#0A2233"],
-                ),
-            ),
-            ft.Container(left=-180, top=-160, width=420, height=420, border_radius=999, bgcolor=f"#18{accent_a[1:]}"),
-            ft.Container(right=-120, top=40, width=340, height=340, border_radius=999, bgcolor=f"#16{accent_b[1:]}"),
-            ft.Container(left=80, bottom=-180, width=520, height=320, border_radius=999, bgcolor="#0BFFFFFF"),
-            ft.Container(right=110, bottom=-20, width=260, height=260, border_radius=999, bgcolor="#08FFFFFF"),
-        ],
-        expand=True,
-    )
-
-
-def _questions_path_level_state_for(profile_data: dict, map_key: str, level_index: int) -> str:
-    if _questions_path_profile_mode(profile_data) == "creative":
-        return "active"
-    level_progress = (profile_data.get("level_progress", {}) or {}).get(map_key, {})
-    if bool(level_progress.get("done", False)):
-        return "done"
-    active_level = int(profile_data.get("active_level_index", 0) or 0)
-    if level_index > active_level:
-        return "locked"
-    return "active"
-
-
-def _questions_path_island_chip(label: str, color: str) -> ft.Control:
-    return ft.Container(
-        content=ft.Text(label, size=10, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-        bgcolor=color,
-        border_radius=999,
-        padding=ft.Padding(10, 4, 10, 4),
-    )
-
-
-def _questions_path_zoom_controls(state: dict, key: str, rerender):
-    zoom_value = float(state.get(key, 1.0) or 1.0)
-    zoom_value = max(0.45, min(1.8, zoom_value))
-    state[key] = zoom_value
-
-    def set_zoom(next_zoom: float):
-        def _handler(e):
-            state[key] = max(0.45, min(1.8, round(next_zoom, 2)))
-            rerender(e.page, state)
-
-        return _handler
-
-    return ft.Row(
-        [
-            _game_menu_button("−", set_zoom(zoom_value - 0.22), "#1E293B", width=52, height=36),
-            _game_menu_button(f"{int(zoom_value * 100)}%", set_zoom(1.0), "#0F766E", width=84, height=36),
-            _game_menu_button("+", set_zoom(zoom_value + 0.22), "#1E293B", width=52, height=36),
-        ],
-        spacing=8,
-    )
-
-
-def _questions_path_interactive_viewer(content: ft.Control) -> ft.Control:
-    return ft.InteractiveViewer(
-        content=content,
-        min_scale=0.32,
-        max_scale=2.4,
-        boundary_margin=ft.Margin(240, 240, 240, 240),
-        constrained=False,
-        pan_enabled=True,
-        scale_enabled=True,
-        scale_factor=240,
-        interaction_update_interval=16,
-        trackpad_scroll_causes_scale=True,
-        clip_behavior=ft.ClipBehavior.HARD_EDGE,
-    )
-
-
-def _questions_path_question_card(
-    page: ft.Page,
-    state: dict,
-    game: dict,
-    map_cfg: dict,
-    active_node: int,
-    card_w: int,
-) -> ft.Control:
-    question = (game.get("questions") or [])[active_node]
-    accent = map_cfg.get("accent", "#34D399")
-    neutral_bg = "#162033"
-    neutral_border = "#2F3B52"
-    feedback = game.get("answer_feedback") if isinstance(game.get("answer_feedback"), dict) else {}
-    selected_wrong = feedback.get("chosen") if feedback.get("node") == active_node and feedback.get("kind") == "wrong" else None
-    selected_correct = feedback.get("chosen") if feedback.get("node") == active_node and feedback.get("kind") == "correct" else None
-
-    def continue_after_correct(e):
-        current_game = state.get("questions_path_game") or {}
-        current_idx = int(current_game.get("node_index", 0) or 0)
-        questions = list(current_game.get("questions") or [])
-        completed = {int(v) for v in list(current_game.get("completed_nodes", [])) if str(v).isdigit() or isinstance(v, int)}
-        completed.add(current_idx)
-        current_game["completed_nodes"] = sorted(completed)
-        current_game["answer_feedback"] = None
-        next_idx = current_idx + 1
-        if next_idx >= len(questions):
-            current_game["node_index"] = len(questions)
-            current_game["game_finished"] = True
-            state["_questions_path_active_node"] = None
-            save_questions_path_game(state)
-            render_questions_path_complete(e.page, state)
-            return
-        current_game["node_index"] = next_idx
-        current_game["game_finished"] = False
-        state["_questions_path_active_node"] = None
-        save_questions_path_game(state)
-        render_questions_path_game(e.page, state)
-
-    def choose_answer(answer_index: int):
-        def _handler(e):
-            current_game = state.get("questions_path_game") or {}
-            current_idx = int(current_game.get("node_index", 0) or 0)
-            questions = list(current_game.get("questions") or [])
-            if current_idx >= len(questions):
-                return
-            current_question = questions[current_idx]
-            if answer_index != int(current_question.get("correct_idx", 0)):
-                current_game["answer_feedback"] = {
-                    "node": current_idx,
-                    "chosen": answer_index,
-                    "correct": int(current_question.get("correct_idx", 0)),
-                    "kind": "wrong",
-                }
-                state["questions_path_game"] = current_game
-                render_questions_path_game(e.page, state)
-                return
-
-            current_game["answer_feedback"] = {
-                "node": current_idx,
-                "chosen": answer_index,
-                "correct": int(current_question.get("correct_idx", 0)),
-                "kind": "correct",
-            }
-            state["questions_path_game"] = current_game
-            render_questions_path_game(e.page, state)
-
-        return _handler
-
-    answer_controls = []
-    for idx, answer in enumerate(question.get("answers", [])):
-        is_wrong_choice = selected_wrong == idx
-        is_correct_choice = selected_correct == idx
-        answer_bg = "#451A1A" if is_wrong_choice else ("#123126" if is_correct_choice else neutral_bg)
-        answer_border = "#F87171" if is_wrong_choice else ("#34D399" if is_correct_choice else neutral_border)
-        answer_badge_bg = "#DC2626" if is_wrong_choice else ("#10B981" if is_correct_choice else accent)
-        answer_controls.append(
-            ft.Container(
-                width=min(520, card_w - 90),
-                padding=ft.Padding(14, 12, 14, 12),
-                border_radius=18,
-                bgcolor=answer_bg,
-                border=ft.border.Border.all(1.6, answer_border),
-                on_click=choose_answer(idx),
-                content=ft.Row(
-                    [
-                        ft.Container(
-                            width=34,
-                            height=34,
-                            border_radius=999,
-                            bgcolor=answer_badge_bg,
-                            alignment=ft.Alignment(0, 0),
-                            content=ft.Text(ANSWER_LETTERS[idx], size=13, weight="bold", color="white" if (is_wrong_choice or is_correct_choice) else "#08131F"),
-                        ),
-                        ft.Text(answer, size=15, color="white", weight="bold", expand=True),
-                    ],
-                    spacing=12,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-            )
-        )
-
-    return ft.Container(
-        width=min(640, card_w - 48),
-        padding=ft.Padding(24, 22, 24, 22),
-        border_radius=26,
-        bgcolor="#08111BFE",
-        border=ft.border.Border.all(2, accent),
-        shadow=ft.BoxShadow(blur_radius=26, color=f"#44{accent[1:]}", spread_radius=1),
-        content=ft.Column(
-            [
-                ft.Row(
-                    [
-                        _questions_path_island_chip(f"Station {active_node + 1}", accent),
-                        ft.Text(f"{len(game.get('completed_nodes', [])) + 1}/{len(map_cfg.get('points', []))}", size=12, color="#D7E6F5"),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                ft.Text(question.get("question", "Frage"), size=24, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                ft.Column(answer_controls, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Text(
-                    f"Die richtige Antwort ist: {question.get('answers', [''])[selected_correct]}." if selected_correct is not None else ("Diese Antwort ist falsch." if selected_wrong is not None else "Wähle eine Antwort. Falsche Antworten werden rot markiert."),
-                    size=12,
-                    color="#86EFAC" if selected_correct is not None else ("#FCA5A5" if selected_wrong is not None else "#9FB3C8"),
-                    text_align=ft.TextAlign.CENTER,
-                ),
-                _game_menu_button("Nächste Frage", continue_after_correct, accent, width=220, height=40) if selected_correct is not None else ft.Container(),
-                _game_menu_button("Schließen", lambda e: (state.pop("_questions_path_active_node", None), render_questions_path_game(e.page, state)), "#475569", width=220, height=40),
-            ],
-            spacing=14,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
-    )
-
-
-def _questions_path_render_islands(page: ft.Page, state: dict):
-    theme = get_theme(state)
-    profiles = get_questions_path_profiles(state)
-    if not profiles:
-        profiles = [_questions_path_default_profile(0)]
-        persist_questions_path_profiles(state, profiles)
-    state["questions_path_profiles"] = profiles
-    active_index = get_questions_path_profile_index(state)
-    active_profile = profiles[active_index] if active_index < len(profiles) else profiles[0]
-    creative_mode = _questions_path_profile_mode(active_profile) == "creative"
-    creative_action = str(state.get("questions_path_creative_action", "edit")).strip().lower()
-    creative_edit_mode = creative_mode and creative_action != "play"
-    page_w, page_h = _page_size(page)
-    visible_maps = _questions_path_maps_for_profile(active_profile)
-    base_canvas_w = max(2400, int(page_w * 1.6))
-    base_canvas_h = max(1500, int(page_h * 1.55))
-    fit_zoom = round(max(0.45, min(1.0, min(max(1, page_w - 40) / base_canvas_w, max(1, page_h - 220) / base_canvas_h))), 2)
-    zoom = max(0.45, min(1.8, float(state.get("questions_path_map_zoom", fit_zoom) or fit_zoom)))
-    state["questions_path_map_zoom"] = zoom
-    card_w = max(320, int(page_w - 24))
-    map_h = max(520, int(page_h - 180))
-    canvas_w = base_canvas_w
-    canvas_h = base_canvas_h
-    island_marker_refs: dict[int, ft.Ref[ft.Container]] = {}
-
-    def save_active_profile(updated_profile: dict):
-        refreshed_profiles = get_questions_path_profiles(state)
-        if not refreshed_profiles:
-            refreshed_profiles = [_questions_path_default_profile(0)]
-        while active_index >= len(refreshed_profiles):
-            refreshed_profiles.append(_questions_path_default_profile(len(refreshed_profiles)))
-        refreshed_profiles[active_index] = updated_profile
-        persist_questions_path_profiles(state, refreshed_profiles)
-        state["questions_path_profiles"] = refreshed_profiles
-
-    def island_card_scale(island_cfg: dict) -> float:
-        try:
-            return max(0.8, min(1.8, float(island_cfg.get("card_scale", 1.0) or 1.0)))
-        except Exception:
-            return 1.0
-
-    def island_card_size(island_cfg: dict) -> tuple[int, int]:
-        scale = island_card_scale(island_cfg)
-        return max(220, int(260 * scale)), max(168, int(176 * scale))
-
-    def island_left_from_percent(percent_x: float, island_width: int) -> int:
-        return max(24, min(int(canvas_w - island_width - 24), int((float(percent_x) / 100.0) * max(1, canvas_w - island_width))))
-
-    def island_top_from_percent(percent_y: float, island_height: int) -> int:
-        return max(24, min(int(canvas_h - island_height - 24), int((float(percent_y) / 100.0) * max(1, canvas_h - island_height))))
-
-    def open_level(map_key: str, level_index: int):
-        def _handler(e):
-            current_profiles = get_questions_path_profiles(state)
-            profile = current_profiles[active_index] if active_index < len(current_profiles) else active_profile
-            state_name = _questions_path_level_state_for(profile, map_key, level_index)
-            if state_name == "locked":
-                e.page.snack_bar = ft.SnackBar(content=ft.Text("Schließe zuerst die vorherige Insel ab."), open=True)
-                e.page.update()
-                return
-            saved_game = profile.get("active_game")
-            if isinstance(saved_game, dict) and saved_game.get("map_key") == map_key and not saved_game.get("game_finished", False):
-                resume_questions_path_game(e.page, state, saved_game)
-                return
-            start_questions_path_game(e.page, state, map_key)
-
-        return _handler
-
-    def open_editor(map_key: str):
-        def _handler(e):
-            state["_questions_path_editor_island_key"] = map_key
-            state["_questions_path_editor_map_key"] = map_key
-            state["_questions_path_editor_point_index"] = 0
-            state["questions_path_creative_action"] = "edit"
-            state["questions_path_scene"] = "editor"
-            show_questions_path_hub(e.page, state)
-
-        return _handler
-
-    def add_creative_island(e):
-        refreshed_profiles = get_questions_path_profiles(state)
-        refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else active_profile)
-        islands = creative_islands_for_profile(refreshed_profile)
-        if len(islands) >= 10:
-            e.page.snack_bar = ft.SnackBar(content=ft.Text("Maximal 10 eigene Inseln sind möglich."), open=True)
-            e.page.update()
-            return
-        islands.append(_questions_path_default_custom_island(len(islands)))
-        refreshed_profile["custom_islands"] = islands
-        refreshed_profile["progression_mode"] = "creative"
-        save_active_profile(refreshed_profile)
-        _questions_path_render_islands(e.page, state)
-
-    def creative_islands_for_profile(profile: dict) -> list[dict]:
-        islands: list[dict] = []
-        for idx, raw_island in enumerate(list(profile.get("custom_islands", []) or [])):
-            if not isinstance(raw_island, dict):
-                continue
-            island = dict(raw_island)
-            island["map_key"] = str(island.get("map_key", f"custom_{idx + 1}")).strip() or f"custom_{idx + 1}"
-            island["map_x"] = max(2.0, min(88.0, float(island.get("map_x", 20) or 20)))
-            island["map_y"] = max(2.0, min(82.0, float(island.get("map_y", 20) or 20)))
-            island["card_scale"] = island_card_scale(island)
-            islands.append(island)
-        return islands
-
-    def start_island_drag(index: int):
-        def _handler(e):
-            refreshed_profiles = get_questions_path_profiles(state)
-            refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else active_profile)
-            islands = creative_islands_for_profile(refreshed_profile)
-            if index >= len(islands):
-                return
-            island = islands[index]
-            drag_state = dict(state.get("_questions_path_island_drag_state") or {})
-            drag_state[index] = {
-                "start_map_x": float(island.get("map_x", 20)),
-                "start_map_y": float(island.get("map_y", 20)),
-                "map_x": float(island.get("map_x", 20)),
-                "map_y": float(island.get("map_y", 20)),
-                "card_w": island_card_size(island)[0],
-                "card_h": island_card_size(island)[1],
-            }
-            state["_questions_path_island_drag_state"] = drag_state
-
-        return _handler
-
-    def move_island_drag(index: int):
-        def _handler(e):
-            drag_state = dict(state.get("_questions_path_island_drag_state") or {})
-            current_drag = dict(drag_state.get(index) or {})
-            if not current_drag:
-                return
-            dx = float(getattr(e, "delta_x", 0.0) or 0.0)
-            dy = float(getattr(e, "delta_y", 0.0) or 0.0)
-            current_drag["map_x"] = max(2.0, min(88.0, float(current_drag.get("map_x", 20)) + (dx / max(1.0, canvas_w * zoom)) * 100.0))
-            current_drag["map_y"] = max(2.0, min(82.0, float(current_drag.get("map_y", 20)) + (dy / max(1.0, canvas_h * zoom)) * 100.0))
-            drag_state[index] = current_drag
-            state["_questions_path_island_drag_state"] = drag_state
-            marker_ref = island_marker_refs.get(index)
-            if marker_ref and marker_ref.current:
-                marker_ref.current.left = island_left_from_percent(current_drag["map_x"], int(current_drag.get("card_w", 260)))
-                marker_ref.current.top = island_top_from_percent(current_drag["map_y"], int(current_drag.get("card_h", 176)))
-                e.page.update()
-
-        return _handler
-
-    def end_island_drag(index: int):
-        def _handler(e):
-            drag_state = dict(state.get("_questions_path_island_drag_state") or {})
-            current_drag = dict(drag_state.get(index) or {})
-            refreshed_profiles = get_questions_path_profiles(state)
-            refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else active_profile)
-            islands = creative_islands_for_profile(refreshed_profile)
-            if current_drag and index < len(islands):
-                island = dict(islands[index])
-                island["map_x"] = float(current_drag.get("map_x", island.get("map_x", 20)))
-                island["map_y"] = float(current_drag.get("map_y", island.get("map_y", 20)))
-                islands[index] = island
-                refreshed_profile["custom_islands"] = islands
-                refreshed_profile["progression_mode"] = "creative"
-                save_active_profile(refreshed_profile)
-            drag_state.pop(index, None)
-            state["_questions_path_island_drag_state"] = drag_state
-            _questions_path_render_islands(e.page, state)
-
-        return _handler
-
-    route_dots = []
-    for dot_index in range(62):
-        route_dots.append(
-            ft.Container(
-                left=int(canvas_w * (0.05 + dot_index * 0.0145)),
-                top=int(canvas_h * (0.50 + (0.13 if dot_index % 4 == 1 else (-0.09 if dot_index % 4 == 2 else (0.03 if dot_index % 4 == 3 else 0.0))))),
-                width=10,
-                height=10,
-                border_radius=999,
-                bgcolor="#B6F0E055" if dot_index % 2 else "#7DD3FC66",
-            )
-        )
-
-    stage_items = []
-    if creative_mode:
-        creative_islands = creative_islands_for_profile(active_profile)
-        for level_index, island in enumerate(creative_islands):
-            map_key = island.get("map_key", f"custom_{level_index + 1}")
-            map_cfg = _questions_path_custom_map(island, level_index)
-            accent = map_cfg.get("accent", "#34D399")
-            width, height = island_card_size(map_cfg)
-            marker_ref = ft.Ref[ft.Container]()
-            island_marker_refs[level_index] = marker_ref
-            stage_items.append(
-                ft.Container(
-                    ref=marker_ref,
-                    left=island_left_from_percent(float(map_cfg.get("map_x", 20)), width),
-                    top=island_top_from_percent(float(map_cfg.get("map_y", 20)), height),
-                    width=width,
-                    height=height,
-                    content=ft.GestureDetector(
-                        on_tap=open_editor(map_key) if creative_edit_mode else open_level(map_key, level_index),
-                        on_pan_start=start_island_drag(level_index) if creative_edit_mode else None,
-                        on_pan_update=move_island_drag(level_index) if creative_edit_mode else None,
-                        on_pan_end=end_island_drag(level_index) if creative_edit_mode else None,
-                        drag_interval=1 if creative_edit_mode else 0,
-                        mouse_cursor=ft.MouseCursor.MOVE,
-                        content=ft.Container(
-                            expand=True,
-                            border_radius=36,
-                            bgcolor="#09131DE8",
-                            border=ft.border.Border.all(2.0, accent),
-                            shadow=ft.BoxShadow(blur_radius=28, color=f"#44{accent[1:]}", spread_radius=0),
-                            content=ft.Stack(
-                                [
-                                    ft.Container(
-                                        expand=True,
-                                        gradient=ft.LinearGradient(
-                                            begin=ft.Alignment(-1, -1),
-                                            end=ft.Alignment(1, 1),
-                                            colors=["#0A1622", map_cfg.get("panel", "#112133"), "#091623"],
-                                        ),
-                                    ),
-                                    ft.Container(left=22, top=20, width=78, height=78, border_radius=999, bgcolor=f"#22{accent[1:]}"),
-                                    ft.Container(right=22, top=20, content=_questions_path_island_chip("Bearbeiten", accent)),
-                                    ft.Container(
-                                        left=26,
-                                        right=24,
-                                        top=26,
-                                        bottom=22,
-                                        content=ft.Row(
-                                            [
-                                                ft.Container(
-                                                    width=88,
-                                                    height=88,
-                                                    border_radius=999,
-                                                    alignment=ft.Alignment(0, 0),
-                                                    gradient=ft.LinearGradient(
-                                                        begin=ft.Alignment(-1, -1),
-                                                        end=ft.Alignment(1, 1),
-                                                        colors=["#14304A", "#1D4F73", "#17365A"],
-                                                    ),
-                                                    content=ft.Image(src=map_cfg.get("image_src", ""), fit=ft.BoxFit.COVER, border_radius=999, error_content=ft.Text(map_cfg.get("icon", "🌍"), size=38, color="white", text_align=ft.TextAlign.CENTER)) if map_cfg.get("image_src") else ft.Text(map_cfg.get("icon", "🌍"), size=38, color="white", text_align=ft.TextAlign.CENTER),
-                                                ),
-                                                ft.Column(
-                                                    [
-                                                        ft.Text(map_cfg.get("title", "Insel"), size=24, weight="bold", color="white", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                                                        ft.Text(map_cfg.get("subtitle", ""), size=14, color="#D3E3EE", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                                                        ft.Text(f"{len(map_cfg.get('points', []))} Punkte", size=12, color=accent, weight="bold"),
-                                                        ft.Text("Tippen zum Eintauchen, direkt ziehen zum Verschieben." if creative_edit_mode else "Tippen startet deine eigene Inselrunde.", size=11, color="#A8C0D2"),
-                                                    ],
-                                                    spacing=4,
-                                                    expand=True,
-                                                    alignment=ft.MainAxisAlignment.CENTER,
-                                                ),
-                                            ],
-                                            spacing=18,
-                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                        ),
-                                    ),
-                                ],
-                                expand=True,
-                            ),
-                        ),
-                    ),
-                )
-            )
-    else:
-        scatter_template = [
-            (0.06, 0.08), (0.38, 0.07), (0.69, 0.10), (0.18, 0.34), (0.52, 0.29),
-            (0.82, 0.31), (0.08, 0.67), (0.38, 0.73), (0.67, 0.63), (0.81, 0.80),
-        ]
-        island_positions = []
-        for idx, (map_key, _map_cfg) in enumerate(visible_maps):
-            sx, sy = scatter_template[idx % len(scatter_template)]
-            island_positions.append({"map_key": map_key, "left": sx, "top": sy, "w": 0.20, "h": 0.20})
-
-        for level_index, item in enumerate(island_positions):
-            map_key = item["map_key"]
-            map_cfg = _questions_path_map_lookup_for_profile(active_profile, map_key)
-            island_state = _questions_path_level_state_for(active_profile, map_key, level_index)
-            left = int(canvas_w * item["left"])
-            top = int(canvas_h * item["top"])
-            width = max(260, int(canvas_w * item["w"] * 0.42))
-            height = max(210, int(canvas_h * item["h"] * 0.20))
-            accent = map_cfg.get("accent", "#34D399")
-            border_color = accent if island_state != "locked" else "#475569"
-            glow_color = f"#44{accent[1:]}" if island_state != "locked" else "#22000000"
-            chip_label = "Abgeschlossen" if island_state == "done" else ("Aktiv" if island_state == "active" else "Gesperrt")
-            chip_color = "#16A34A" if island_state == "done" else (accent if island_state == "active" else "#475569")
-            button_text = "Pfad öffnen" if island_state != "locked" else "Noch gesperrt"
-
-            stage_items.append(
-                ft.Container(
-                    left=left,
-                    top=top,
-                    width=width,
-                    height=height,
-                    border_radius=36,
-                    bgcolor="#09131DE8" if island_state != "locked" else "#0E1721D6",
-                    border=ft.border.Border.all(2.0, border_color),
-                    shadow=ft.BoxShadow(blur_radius=28, color=glow_color, spread_radius=0),
-                    on_click=open_level(map_key, level_index) if island_state != "locked" else None,
-                    content=ft.Stack(
-                        [
-                            ft.Container(
-                                expand=True,
-                                gradient=ft.LinearGradient(
-                                    begin=ft.Alignment(-1, -1),
-                                    end=ft.Alignment(1, 1),
-                                    colors=["#0A1622", map_cfg.get("panel", "#112133"), "#091623"],
-                                ),
-                            ),
-                            ft.Container(left=22, top=20, width=78, height=78, border_radius=999, bgcolor=f"#22{accent[1:]}"),
-                            ft.Container(right=22, top=20, content=_questions_path_island_chip(chip_label, chip_color)),
-                            ft.Container(
-                                left=26,
-                                right=24,
-                                top=26,
-                                bottom=22,
-                                content=ft.Row(
-                                    [
-                                        ft.Container(
-                                            width=88,
-                                            height=88,
-                                            border_radius=999,
-                                            alignment=ft.Alignment(0, 0),
-                                            gradient=ft.LinearGradient(
-                                                begin=ft.Alignment(-1, -1),
-                                                end=ft.Alignment(1, 1),
-                                                colors=["#14304A", "#1D4F73", "#17365A"],
-                                            ),
-                                            content=ft.Image(src=map_cfg.get("image_src", ""), fit=ft.BoxFit.COVER, border_radius=999, error_content=ft.Text(map_cfg.get("icon", "🌍"), size=38, color="white", text_align=ft.TextAlign.CENTER)) if map_cfg.get("image_src") else ft.Text(map_cfg.get("icon", "🌍"), size=38, color="white", text_align=ft.TextAlign.CENTER),
-                                        ),
-                                        ft.Column(
-                                            [
-                                                ft.Text(map_cfg.get("title", "Insel"), size=24, weight="bold", color="white", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                                                ft.Text(map_cfg.get("subtitle", ""), size=14, color="#D3E3EE", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                                                ft.Text(f"{len(map_cfg.get('points', []))} Stationen", size=12, color=accent, weight="bold"),
-                                                ft.Container(
-                                                    margin=ft.Margin(0, 8, 0, 0),
-                                                    padding=ft.Padding(12, 8, 12, 8),
-                                                    border_radius=16,
-                                                    bgcolor=accent,
-                                                    alignment=ft.Alignment(0, 0),
-                                                    content=ft.Text(button_text, size=12, weight="bold", color="#03121A"),
-                                                ),
-                                            ],
-                                            spacing=4,
-                                            expand=True,
-                                            alignment=ft.MainAxisAlignment.CENTER,
-                                        ),
-                                    ],
-                                    spacing=18,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
-                            ),
-                        ],
-                        expand=True,
-                    ),
-                )
-            )
-
-    page.controls.clear()
-    page.add(
-        ft.Container(
-            expand=True,
-            content=ft.Stack(
-                [
-                    _questions_path_backdrop("#34D399", "#38BDF8"),
-                    ft.Container(
-                        expand=True,
-                        padding=ft.Padding(12, 10, 12, 10),
-                        content=ft.Column(
-                            [
-                                ft.Row(
-                                    [
-                                        _game_menu_button("← Profile", lambda e: _questions_path_render_profiles(e.page, state), "#475569", width=170, height=40),
-                                        ft.Text("Fragen-Pfad", size=32, weight="bold", color="white"),
-                                        ft.Row(
-                                            [
-                                                _game_menu_button("+ Insel", add_creative_island, "#1D4ED8", width=130, height=40) if creative_edit_mode else ft.Container(),
-                                                _questions_path_zoom_controls(state, "questions_path_map_zoom", lambda p, s: _questions_path_render_islands(p, s)),
-                                                _questions_path_island_chip(active_profile.get("name", f"Profil {active_index + 1}"), "#0F766E"),
-                                            ],
-                                            spacing=10,
-                                        ),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Text(
-                                    "Zoome mit Touch, Touchpad oder Mausrad direkt in die Karte. Im Bearbeiten-Modus verschiebst du einzelne Inseln per Drag, im Spiel-Modus startest du sie per Tipp.",
-                                    size=13,
-                                    color=theme_txt(theme, "secondary"),
-                                    text_align=ft.TextAlign.CENTER,
-                                ),
-                                ft.Container(
-                                    expand=True,
-                                    width=card_w,
-                                    border_radius=28,
-                                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                    bgcolor="#07101AE0",
-                                    content=ft.Container(
-                                        alignment=ft.Alignment(0, 0),
-                                        content=ft.Container(
-                                            width=int(canvas_w * zoom),
-                                            height=int(canvas_h * zoom),
-                                            content=ft.Container(
-                                                width=canvas_w,
-                                                height=canvas_h,
-                                                scale=zoom,
-                                                animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
-                                                content=ft.Stack(
-                                                    [
-                                                        ft.Container(
-                                                            expand=True,
-                                                            gradient=ft.LinearGradient(
-                                                                begin=ft.Alignment(-1, -1),
-                                                                end=ft.Alignment(1, 1),
-                                                                colors=["#05131E", "#0A2A3C", "#08111D"],
-                                                            ),
-                                                        ),
-                                                        ft.Container(left=180, top=80, width=360, height=180, border_radius=999, bgcolor="#0EFFFFFF"),
-                                                        ft.Container(left=1220, top=760, width=520, height=220, border_radius=999, bgcolor="#0AFFFFFF"),
-                                                        ft.Container(right=220, top=120, width=420, height=200, border_radius=999, bgcolor="#0C7DD3FC"),
-                                                        *route_dots,
-                                                        *stage_items,
-                                                        ft.Container(
-                                                            visible=not visible_maps,
-                                                            expand=True,
-                                                            alignment=ft.Alignment(0, 0),
-                                                            content=ft.Container(
-                                                                width=480,
-                                                                padding=26,
-                                                                border_radius=28,
-                                                                bgcolor="#071019E8",
-                                                                border=ft.border.Border.all(1.8, "#38BDF8"),
-                                                                content=ft.Column(
-                                                                    [
-                                                                        ft.Text("Noch keine eigene Welt", size=30, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                                                                        ft.Text("Gehe auf `Spiel bearbeiten`, füge Inseln hinzu und ordne sie dann frei auf der Fläche an.", size=14, color="#D5E3EE", text_align=ft.TextAlign.CENTER),
-                                                                    ],
-                                                                    spacing=10,
-                                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                                                ),
-                                                            ),
-                                                        ),
-                                                    ],
-                                                    expand=True,
-                                                ),
-                                            ),
-                                        ),
-                                    ) if creative_mode else _questions_path_interactive_viewer(
-                                        ft.Container(
-                                            width=canvas_w,
-                                            height=canvas_h,
-                                            scale=zoom,
-                                            animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
-                                            content=ft.Stack(
-                                                [
-                                                    ft.Container(
-                                                        expand=True,
-                                                        gradient=ft.LinearGradient(
-                                                            begin=ft.Alignment(-1, -1),
-                                                            end=ft.Alignment(1, 1),
-                                                            colors=["#05131E", "#0A2A3C", "#08111D"],
-                                                        ),
-                                                    ),
-                                                    ft.Container(left=180, top=80, width=360, height=180, border_radius=999, bgcolor="#0EFFFFFF"),
-                                                    ft.Container(left=1220, top=760, width=520, height=220, border_radius=999, bgcolor="#0AFFFFFF"),
-                                                    ft.Container(right=220, top=120, width=420, height=200, border_radius=999, bgcolor="#0C7DD3FC"),
-                                                    *route_dots,
-                                                    *stage_items,
-                                                ],
-                                                expand=True,
-                                            ),
-                                        )
-                                    ),
-                                ),
-                                ft.Row(
-                                    [
-                                        _questions_path_island_chip("Bearbeitbar", "#0EA5E9") if creative_mode else _questions_path_island_chip("Aktiv", "#0EA5E9"),
-                                        _questions_path_island_chip("Abgeschlossen", "#16A34A") if not creative_mode else _questions_path_island_chip("Drag" if creative_edit_mode else "Spiel", "#16A34A"),
-                                        _questions_path_island_chip("Gesperrt", "#475569") if not creative_mode else _questions_path_island_chip("Tap = Eintauchen" if creative_edit_mode else "Tap = Start", "#475569"),
-                                        _questions_path_island_chip(f"{len(visible_maps)} Inseln", "#334155"),
-                                    ],
-                                    spacing=10,
-                                    alignment=ft.MainAxisAlignment.CENTER,
-                                ),
-                            ],
-                            spacing=10,
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                    ),
-                ],
-                expand=True,
-            ),
-        )
-    )
-    page.update()
-    page.run_task(_sync_bg_music_async, page, state)
-
-
-def _questions_path_render_level(page: ft.Page, state: dict):
-    theme = get_theme(state)
-    game = state.get("questions_path_game")
-    if not game:
-        show_questions_path_hub(page, state)
-        return
-
-    profiles = get_questions_path_profiles(state)
-    active_index = get_questions_path_profile_index(state)
-    active_profile = profiles[active_index] if active_index < len(profiles) else _questions_path_default_profile(0)
-    map_key = game.get("map_key", "waldpfad")
-    map_cfg = _questions_path_map_lookup_for_profile(active_profile, map_key)
-    questions = list(game.get("questions") or [])
-    points = list(map_cfg.get("points", []) or [])
-    if not questions or not points:
-        show_questions_path_hub(page, state)
-        return
-
-    if bool(game.get("game_finished", False)) or int(game.get("node_index", 0) or 0) >= len(questions):
-        render_questions_path_complete(page, state)
-        return
-
-    page_w, page_h = _page_size(page)
-    base_canvas_w = max(1700, int(page_w * 1.30))
-    base_canvas_h = max(1100, int(page_h * 1.05))
-    fit_zoom = round(max(0.45, min(1.0, min(max(1, page_w - 40) / base_canvas_w, max(1, page_h - 240) / base_canvas_h))), 2)
-    zoom = max(0.45, min(1.8, float(state.get("questions_path_level_zoom", fit_zoom) or fit_zoom)))
-    state["questions_path_level_zoom"] = zoom
-    card_w = max(320, int(page_w - 24))
-    card_h = max(440, int(page_h * 0.52))
-    canvas_w = base_canvas_w
-    canvas_h = base_canvas_h
-    current_index = int(game.get("node_index", 0) or 0)
-    completed_nodes = {int(v) for v in list(game.get("completed_nodes", [])) if str(v).isdigit() or isinstance(v, int)}
-    active_node = state.get("_questions_path_active_node")
-    replay_prompt = state.get("_questions_path_replay_prompt")
-
-    def open_current_node(e):
-        state["_questions_path_active_node"] = current_index
-        render_questions_path_game(e.page, state)
-
-    def ask_restart(level_idx: int):
-        def _handler(e):
-            state["_questions_path_replay_prompt"] = level_idx
-            render_questions_path_game(e.page, state)
-
-        return _handler
-
-    stage_items = []
-    route_dots = []
-    for idx in range(max(0, len(points) - 1)):
-        x1, y1 = points[idx]["x"], points[idx]["y"]
-        x2, y2 = points[idx + 1]["x"], points[idx + 1]["y"]
-        for step in range(1, 5):
-            mix = step / 5
-            route_dots.append(
-                ft.Container(
-                    left=int(canvas_w * ((x1 + (x2 - x1) * mix) / 100.0)) - 6,
-                    top=int(canvas_h * ((y1 + (y2 - y1) * mix) / 100.0)) - 6,
-                    width=12,
-                    height=12,
-                    border_radius=999,
-                    bgcolor="#E2E8F077" if idx < current_index else "#94A3B866",
-                )
-            )
-
-    for idx, point in enumerate(points):
-        node_state = "future"
-        if idx in completed_nodes:
-            node_state = "done"
-        elif idx == current_index:
-            node_state = "current"
-        left = int(canvas_w * (point["x"] / 100.0)) - 34
-        top = int(canvas_h * (point["y"] / 100.0)) - 34
-        if node_state == "done":
-            node_bg = "#10B981"
-            node_border = "#D1FAE5"
-            node_text = "✓"
-        elif node_state == "current":
-            node_bg = map_cfg.get("accent", "#34D399")
-            node_border = "#F8FAFC"
-            node_text = str(idx + 1)
-        else:
-            node_bg = "#1E293B"
-            node_border = "#475569"
-            node_text = str(idx + 1)
-        stage_items.append(
-            ft.Container(
-                left=left,
-                top=top,
-                width=68,
-                height=68,
-                border_radius=999,
-                bgcolor=node_bg,
-                border=ft.border.Border.all(3, node_border),
-                shadow=ft.BoxShadow(blur_radius=22, color=f"#55{node_bg[1:]}" if node_bg.startswith("#") and len(node_bg) == 7 else "#33000000", spread_radius=1),
-                on_click=open_current_node if idx == current_index else (ask_restart(idx) if idx in completed_nodes else None),
-                content=ft.Container(
-                    alignment=ft.Alignment(0, 0),
-                    content=ft.Text(node_text, size=22, weight="bold", color="#08131F" if node_state != "future" else "white"),
-                ),
-            )
-        )
-        stage_items.append(
-            ft.Container(
-                left=left - 18,
-                top=top + 76,
-                width=104,
-                alignment=ft.Alignment(0, 0),
-                content=ft.Text(point.get("label", f"Station {idx + 1}"), size=11, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-            )
-        )
-
-    progress_value = min(1.0, current_index / max(1, len(points)))
-
-    page.controls.clear()
-    page.add(
-        ft.Container(
-            expand=True,
-            content=ft.Stack(
-                [
-                    _questions_path_backdrop(map_cfg.get("accent", "#34D399"), map_cfg.get("border", "#38BDF8")),
-                    ft.Container(
-                        expand=True,
-                        padding=ft.Padding(12, 10, 12, 10),
-                        content=ft.Column(
-                            [
-                                ft.Row(
-                                    [
-                                        _game_menu_button("← Inselkarte", lambda e: (state.__setitem__("questions_path_scene", "islands"), show_questions_path_hub(e.page, state)), "#475569", width=170, height=40),
-                                        ft.Text("Fragen-Pfad", size=32, weight="bold", color="white"),
-                                        ft.Row(
-                                            [
-                                                _questions_path_zoom_controls(state, "questions_path_level_zoom", lambda p, s: _questions_path_render_level(p, s)),
-                                                _questions_path_island_chip(f"{len(completed_nodes)}/{len(points)} fertig", map_cfg.get("accent", "#34D399")),
-                                            ],
-                                            spacing=10,
-                                        ),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                                ft.Text(map_cfg.get("title", "Insel"), size=15, weight="bold", color=map_cfg.get("accent", "#34D399"), text_align=ft.TextAlign.CENTER),
-                                ft.Text(map_cfg.get("subtitle", ""), size=13, color="#BDD2E1", text_align=ft.TextAlign.CENTER),
-                                ft.ProgressBar(value=progress_value, height=10, color=map_cfg.get("accent", "#34D399"), bgcolor="#243244"),
-                                ft.Container(
-                                    expand=True,
-                                    width=card_w,
-                                    border_radius=28,
-                                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                    bgcolor="#07101AE0",
-                                    content=_questions_path_interactive_viewer(
-                                        ft.Container(
-                                            width=canvas_w,
-                                            height=canvas_h,
-                                            scale=zoom,
-                                            animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
-                                            content=ft.Stack(
-                                                [
-                                                    ft.Container(
-                                                        expand=True,
-                                                        gradient=ft.LinearGradient(
-                                                            begin=ft.Alignment(-1, -1),
-                                                            end=ft.Alignment(1, 1),
-                                                            colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"],
-                                                        ),
-                                                    ),
-                                                    ft.Container(
-                                                        expand=True,
-                                                        opacity=0.38,
-                                                        content=ft.Image(
-                                                            src=map_cfg.get("map_image_src", ""),
-                                                            fit=ft.BoxFit.COVER,
-                                                            error_content=ft.Container(),
-                                                        ) if map_cfg.get("map_image_src") else ft.Container(),
-                                                    ),
-                                                    ft.Container(left=180, top=52, width=280, height=120, border_radius=999, bgcolor="#0BFFFFFF"),
-                                                    ft.Container(right=120, bottom=36, width=260, height=110, border_radius=999, bgcolor="#08FFFFFF"),
-                                                    *route_dots,
-                                                    *stage_items,
-                                                ],
-                                                expand=True,
-                                            ),
-                                        )
-                                    ),
-                                ),
-                                ft.Row(
-                                    [
-                                        ft.Text(f"Aktuelle Station: {points[current_index].get('label', f'Station {current_index + 1}')}", size=13, color="white"),
-                                        ft.Text("Klicke auf grüne Haken, um eine Inselrunde erneut zu starten.", size=13, color="#B6C8D8"),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                ),
-                            ],
-                            spacing=10,
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                    ),
-                    ft.Container(
-                        expand=True,
-                        alignment=ft.Alignment(0, 0),
-                        visible=isinstance(active_node, int) and active_node == current_index,
-                        content=ft.Container(
-                            expand=True,
-                            bgcolor="#010611F0",
-                            blur=18,
-                            alignment=ft.Alignment(0, 0),
-                            content=_questions_path_question_card(page, state, game, map_cfg, current_index, card_w),
-                        ),
-                    ),
-                    ft.Container(
-                        expand=True,
-                        alignment=ft.Alignment(0, 0),
-                        visible=isinstance(replay_prompt, int),
-                        content=ft.Container(
-                            expand=True,
-                            bgcolor="#010611F0",
-                            blur=18,
-                            alignment=ft.Alignment(0, 0),
-                            content=ft.Container(
-                                width=min(520, card_w - 32),
-                                padding=24,
-                                border_radius=24,
-                                bgcolor="#0B1220F4",
-                                border=ft.border.Border.all(2, map_cfg.get("accent", "#34D399")),
-                                content=ft.Column(
-                                    [
-                                        ft.Text("Level bereits geschafft", size=28, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                                        ft.Text(
-                                            "Du hast dieses Level schon geschafft. Möchtest du die Insel noch einmal von vorne spielen?",
-                                            size=14,
-                                            color="#D3E3EE",
-                                            text_align=ft.TextAlign.CENTER,
-                                        ),
-                                        ft.Row(
-                                            [
-                                                _game_menu_button("Weiter spielen", lambda e: (state.pop("_questions_path_replay_prompt", None), render_questions_path_game(e.page, state)), "#475569", width=180, height=42),
-                                                _game_menu_button("Nochmal spielen", lambda e: (state.pop("_questions_path_replay_prompt", None), start_questions_path_game(e.page, state, map_key)), map_cfg.get("accent", "#34D399"), width=180, height=42),
-                                            ],
-                                            alignment=ft.MainAxisAlignment.CENTER,
-                                        ),
-                                    ],
-                                    spacing=16,
-                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
-                            ),
-                        ),
+                        left=0,
+                        top=12,
+                        right=0,
+                        content=ft.Text("Fragen-Pfad", size=28, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
                     ),
                 ],
                 expand=True,
@@ -18633,44 +16924,617 @@ def _questions_path_render_level(page: ft.Page, state: dict):
 
 
 def render_questions_path_complete(page: ft.Page, state: dict):
-    game = state.get("questions_path_game") or {}
-    profiles = get_questions_path_profiles(state)
-    active_index = get_questions_path_profile_index(state)
-    active_profile = profiles[active_index] if active_index < len(profiles) else _questions_path_default_profile(0)
-    map_key = game.get("map_key", "waldpfad")
-    map_cfg = _questions_path_map_lookup_for_profile(active_profile, map_key)
-    game["game_finished"] = True
-    save_questions_path_game(state)
-    state.pop("_questions_path_active_node", None)
-    state["questions_path_scene"] = "complete"
+    state["_questions_path_level_complete"] = True
+    state["_questions_path_unlocked_islands"] = max(int(state.get("_questions_path_unlocked_islands", 1) or 1), 2)
+    state["_questions_path_level_started"] = False
+    state["questions_path_scene"] = "islands"
+    _questions_path_render_islands(page, state)
+
+
+def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
+    state["questions_path_scene"] = "level"
+    state["questions_path_level"] = map_key
+    state["_questions_path_level_progress"] = 0
+    state["_questions_path_level_complete"] = False
+    state["_questions_path_level_started"] = False
+    render_questions_path_game(page, state)
+
+
+def resume_questions_path_game(page: ft.Page, state: dict, saved: dict | None = None):
+    state["questions_path_scene"] = state.get("questions_path_scene") or "profiles"
+    if state["questions_path_scene"] == "level":
+        render_questions_path_game(page, state)
+        return
+    show_questions_path_hub(page, state)
+
+
+def render_questions_path_game(page: ft.Page, state: dict):
+    scene = state.get("questions_path_scene") or "profiles"
+    if scene == "islands":
+        _questions_path_render_islands(page, state)
+        return
+    if scene == "level":
+        _questions_path_render_level(page, state)
+        return
+    if scene == "complete":
+        render_questions_path_complete(page, state)
+        return
+    _questions_path_render_profiles(page, state)
+
+
+def show_questions_path_hub(page: ft.Page, state: dict):
+    _set_resize_view(state, show_questions_path_hub)
+    scene = state.get("questions_path_scene") or "profiles"
+    if scene == "islands":
+        _questions_path_render_islands(page, state)
+    elif scene == "level":
+        _questions_path_render_level(page, state)
+    elif scene == "complete":
+        render_questions_path_complete(page, state)
+    else:
+        state["questions_path_scene"] = "profiles"
+        _questions_path_render_profiles(page, state)
+
+
+# ---------------------------------------------------------------------------
+# Questions Path overhaul
+# ---------------------------------------------------------------------------
+# The newer UX requested by the user is profile-driven and editor-focused:
+# - profiles can be created with a name + adventure/creative mode
+# - the hub offers "Schnelles Spiel" and "Eigenes Spiel"
+# - creative worlds can be created, edited, played, dragged, and zoomed
+# - points/questions live directly on the map
+
+QUESTIONS_PATH_PROFILE_MODES = [
+    {"key": "abenteuer", "label": "Abenteuer"},
+    {"key": "kreativ", "label": "Kreativ"},
+]
+
+QUESTIONS_PATH_WORLD_PRESETS = [
+    {
+        "key": "forest",
+        "label": "Wald",
+        "colors": ["#0F3D2E", "#143C54", "#1B6B52"],
+    },
+    {
+        "key": "ocean",
+        "label": "Ozean",
+        "colors": ["#082F49", "#1D4ED8", "#0EA5E9"],
+    },
+    {
+        "key": "sunset",
+        "label": "Sonnenuntergang",
+        "colors": ["#7C2D12", "#C2410C", "#F59E0B"],
+    },
+    {
+        "key": "neon",
+        "label": "Neon",
+        "colors": ["#111827", "#7C3AED", "#06B6D4"],
+    },
+    {
+        "key": "royal",
+        "label": "Royal",
+        "colors": ["#3B2A10", "#7C5C12", "#F4D35E"],
+    },
+]
+
+QUESTIONS_PATH_CUSTOM_ASSET_DIR = os.path.join("assets", "questions_path_custom")
+
+
+def _questions_path_clamp_pct(value: float) -> float:
+    try:
+        return max(0.0, min(100.0, float(value)))
+    except Exception:
+        return 50.0
+
+
+def _questions_path_normalize_answers(raw_answers) -> list[str]:
+    answers = [str(a).strip() for a in list(raw_answers or [])[:4]]
+    while len(answers) < 4:
+        answers.append("")
+    return answers
+
+
+def _questions_path_default_point(index: int) -> dict:
+    return {
+        "x": 18.0 + index * 12.0,
+        "y": 50.0 + (index % 2) * 8.0,
+        "name": f"Punkt {index + 1}",
+        "question": "",
+        "answers": ["", "", "", ""],
+        "correct": 0,
+    }
+
+
+def _questions_path_default_island(index: int = 0, name: str | None = None) -> dict:
+    preset = QUESTIONS_PATH_WORLD_PRESETS[index % len(QUESTIONS_PATH_WORLD_PRESETS)]
+    return {
+        "id": str(uuid.uuid4()),
+        "name": name or f"Insel {index + 1}",
+        "design": preset["key"],
+        "x": 18.0 + index * 16.0,
+        "y": 50.0 + (index % 2) * 10.0,
+        "points": [],
+    }
+
+
+def _questions_path_normalize_points(raw_points) -> list[dict]:
+    points = raw_points if isinstance(raw_points, list) else []
+    if not points:
+        return []
+    normalized_points = []
+    for p_idx, point in enumerate(points):
+        point = point if isinstance(point, dict) else {}
+        normalized_points.append(
+            {
+                "x": _questions_path_clamp_pct(point.get("x", 50.0)),
+                "y": _questions_path_clamp_pct(point.get("y", 50.0)),
+                "name": str(point.get("name", f"Punkt {p_idx + 1}")).strip() or f"Punkt {p_idx + 1}",
+                "question": str(point.get("question", "")).strip(),
+                "answers": _questions_path_normalize_answers(point.get("answers", [])),
+                "correct": max(0, min(int(point.get("correct", 0) or 0), 3)),
+            }
+        )
+    return normalized_points
+
+
+def _questions_path_normalize_islands(raw_islands, legacy_points=None, world_index: int = 0) -> list[dict]:
+    islands = raw_islands if isinstance(raw_islands, list) else []
+    normalized = []
+    for i_idx, island in enumerate(islands):
+        island = island if isinstance(island, dict) else {}
+        raw_type = str(island.get("type") or "").strip().lower()
+        raw_src = str(island.get("src") or "").strip()
+        template_key = str(island.get("template") or island.get("design") or QUESTIONS_PATH_WORLD_PRESETS[i_idx % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"]).strip()
+        is_image = raw_type == "image" or bool(raw_src) or raw_src.startswith("data:")
+        if is_image:
+            normalized.append(
+                {
+                    "id": str(island.get("id") or uuid.uuid4()),
+                    "name": str(island.get("name", f"Insel {i_idx + 1}")).strip() or f"Insel {i_idx + 1}",
+                    "template": template_key or str(island.get("id") or f"custom_image_{i_idx + 1}"),
+                    "design": template_key or str(island.get("id") or f"custom_image_{i_idx + 1}"),
+                    "type": "image",
+                    "src": raw_src,
+                    "x": _questions_path_clamp_pct(island.get("x", 50.0)),
+                    "y": _questions_path_clamp_pct(island.get("y", 50.0)),
+                    "base_w": max(40.0, float(island.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH)),
+                    "base_h": max(40.0, float(island.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT)),
+                    "scale": max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE))),
+                    "points": _questions_path_normalize_points(island.get("points", [])),
+                }
+            )
+            continue
+        if template_key not in {p["key"] for p in QUESTIONS_PATH_WORLD_PRESETS}:
+            template_key = QUESTIONS_PATH_WORLD_PRESETS[i_idx % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"]
+        normalized.append(
+            {
+                "id": str(island.get("id") or uuid.uuid4()),
+                "name": str(island.get("name", f"Insel {i_idx + 1}")).strip() or f"Insel {i_idx + 1}",
+                "template": template_key,
+                "design": template_key,
+                "type": "shape",
+                "src": "",
+                "x": _questions_path_clamp_pct(island.get("x", 50.0)),
+                "y": _questions_path_clamp_pct(island.get("y", 50.0)),
+                "base_w": max(40.0, float(island.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH)),
+                "base_h": max(40.0, float(island.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT)),
+                "scale": max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE))),
+                "points": _questions_path_normalize_points(island.get("points", [])),
+            }
+        )
+    if not normalized and legacy_points:
+        normalized.append(
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Insel 1",
+                "design": QUESTIONS_PATH_WORLD_PRESETS[world_index % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"],
+                "template": QUESTIONS_PATH_WORLD_PRESETS[world_index % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"],
+                "type": "shape",
+                "src": "",
+                "x": 50.0,
+                "y": 50.0,
+                "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+                "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
+                "scale": DEFAULT_ISLAND_SCALE,
+                "points": _questions_path_normalize_points(legacy_points),
+            }
+        )
+    return normalized
+
+
+def _questions_path_default_world(index: int = 0, name: str | None = None) -> dict:
+    preset = QUESTIONS_PATH_WORLD_PRESETS[index % len(QUESTIONS_PATH_WORLD_PRESETS)]
+    return {
+        "id": str(uuid.uuid4()),
+        "name": name or f"Welt {index + 1}",
+        "background_preset": preset["key"],
+        "background_image": "Fragenpfad/waldmap_1.png",
+        "points": [],
+        "islands": [],
+    }
+
+
+def _questions_path_default_profile(index: int) -> dict:
+    return {
+        "name": f"Profil {index + 1}",
+        "selected_age": "mid",
+        "mode": "abenteuer",
+        "active_level_index": 0,
+        "active_game": None,
+        "selected_world_id": None,
+        "custom_island_presets": [],
+        "worlds": [],
+        "level_progress": {
+            map_key: _questions_path_default_level_state() for map_key in QUESTIONS_PATH_LEVEL_ORDER
+        },
+    }
+
+
+def ensure_questions_path_defaults(user: dict):
+    profiles = user.setdefault("questions_path_profiles", [])
+    if not isinstance(profiles, list):
+        profiles = []
+    normalized = []
+    for idx, raw in enumerate(profiles):
+        raw = raw if isinstance(raw, dict) else {}
+        profile = _questions_path_default_profile(idx)
+        profile["name"] = str(raw.get("name", profile["name"])).strip() or profile["name"]
+        profile["selected_age"] = str(raw.get("selected_age", profile["selected_age"])).strip() or profile["selected_age"]
+        mode = str(raw.get("mode", profile["mode"])).strip().lower()
+        profile["mode"] = mode if mode in {m["key"] for m in QUESTIONS_PATH_PROFILE_MODES} else "abenteuer"
+        profile["active_level_index"] = max(0, min(int(raw.get("active_level_index", 0) or 0), len(QUESTIONS_PATH_LEVEL_ORDER) - 1))
+        profile["selected_world_id"] = raw.get("selected_world_id")
+        profile["active_game"] = raw.get("active_game") if isinstance(raw.get("active_game"), dict) else None
+        profile["custom_island_presets"] = _questions_path_normalize_custom_island_presets(raw.get("custom_island_presets", []))
+        worlds = raw.get("worlds", [])
+        if not isinstance(worlds, list):
+            worlds = []
+        normalized_worlds = []
+        for w_idx, world in enumerate(worlds):
+            world = world if isinstance(world, dict) else {}
+            preset_key = str(world.get("background_preset", QUESTIONS_PATH_WORLD_PRESETS[w_idx % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"])).strip()
+            if preset_key not in {p["key"] for p in QUESTIONS_PATH_WORLD_PRESETS}:
+                preset_key = "forest"
+            legacy_points = world.get("points", [])
+            if not isinstance(legacy_points, list):
+                legacy_points = []
+            islands = _questions_path_normalize_islands(world.get("islands", []), legacy_points, w_idx)
+            if not islands and not legacy_points:
+                islands = []
+            normalized_points = _questions_path_normalize_points(legacy_points)
+            normalized_worlds.append(
+                {
+                    "id": str(world.get("id") or uuid.uuid4()),
+                    "name": str(world.get("name", f"Welt {w_idx + 1}")).strip() or f"Welt {w_idx + 1}",
+                    "background_preset": preset_key,
+                    "background_image": str(world.get("background_image") or "").strip() or None,
+                    "points": normalized_points,
+                    "islands": islands,
+                }
+            )
+        profile["worlds"] = normalized_worlds
+        normalized.append(profile)
+    while len(normalized) < 3:
+        normalized.append(_questions_path_default_profile(len(normalized)))
+    user["questions_path_profiles"] = normalized
+
+
+def get_questions_path_profiles(state: dict) -> list[dict]:
+    email = state.get("current_user_email")
+    if not email:
+        return []
+    db = load_db()
+    user = db.get("users", {}).get(email)
+    if not user:
+        return []
+    ensure_social_defaults(user)
+    ensure_questions_path_defaults(user)
+    save_db(db)
+    return list(user.get("questions_path_profiles", []) or [])
+
+
+def persist_questions_path_profiles(state: dict, profiles: list[dict]):
+    email = state.get("current_user_email")
+    if not email:
+        return
+    db = load_db()
+    if email not in db.get("users", {}):
+        return
+    db["users"][email]["questions_path_profiles"] = profiles
+    save_db(db)
+    uid = state.get("current_user_uid") or db.get("users", {}).get(email, {}).get("uid")
+    client = get_firestore_client()
+    if client is not None and uid and firestore is not None:
+        try:
+            client.collection("users").document(uid).update({"questions_path_profiles": profiles})
+        except Exception as e:
+            print(f"Firebase questions_path_profiles save error: {e}")
+
+
+def get_questions_path_profile_index(state: dict) -> int:
+    profiles = state.get("questions_path_profiles") or []
+    return max(0, min(int(state.get("questions_path_profile_index", 0) or 0), max(len(profiles) - 1, 0)))
+
+
+def set_questions_path_profile_index(state: dict, index: int):
+    profiles = state.get("questions_path_profiles") or []
+    state["questions_path_profile_index"] = max(0, min(int(index), max(len(profiles) - 1, 0)))
+
+
+def _questions_path_active_profile(state: dict) -> dict:
+    profiles = state.get("questions_path_profiles") or []
+    idx = get_questions_path_profile_index(state)
+    if idx < len(profiles):
+        return profiles[idx]
+    return _questions_path_default_profile(idx)
+
+
+def _questions_path_preset_cfg(preset_key: str) -> dict:
+    for preset in QUESTIONS_PATH_WORLD_PRESETS:
+        if preset["key"] == preset_key:
+            return preset
+    return QUESTIONS_PATH_WORLD_PRESETS[0]
+
+
+def _questions_path_world_background_controls(world: dict) -> tuple[ft.Control, str]:
+    preset = _questions_path_preset_cfg(str(world.get("background_preset", "forest")))
+    custom_image = str(world.get("background_image") or "").strip()
+    image_asset = str(world.get("image") or "").strip()
+    overlay_image = image_asset if image_asset and os.path.exists(image_asset) else None
+    if custom_image and os.path.exists(custom_image):
+        overlay_image = custom_image
+    if overlay_image:
+        return (
+            ft.Container(
+                expand=True,
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                content=ft.Stack(
+                    [
+                        ft.Container(expand=True, bgcolor=preset["colors"][0]),
+                        ft.Image(src=overlay_image, fit=ft.BoxFit.COVER, expand=True),
+                    ],
+                    expand=True,
+                ),
+            ),
+            preset["label"],
+        )
+    return (
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=preset["colors"],
+            ),
+        ),
+        preset["label"],
+    )
+
+
+def _questions_path_world_points(world: dict) -> list[dict]:
+    points = world.setdefault("points", [])
+    if not isinstance(points, list) or not points:
+        world["points"] = []
+    return world["points"]
+
+
+def _questions_path_world_islands(world: dict) -> list[dict]:
+    islands = world.setdefault("islands", [])
+    if not isinstance(islands, list):
+        islands = []
+    if not islands and world.get("points"):
+        islands = _questions_path_normalize_islands([], world.get("points", []), 0)
+        world["islands"] = islands
+    elif not islands:
+        world["islands"] = []
+    return world["islands"]
+
+
+def _questions_path_default_island_points(index: int = 0) -> list[dict]:
+    return []
+
+
+def _questions_path_save_current_profiles(state: dict):
+    profiles = state.get("questions_path_profiles") or []
+    persist_questions_path_profiles(state, profiles)
+
+
+def _questions_path_create_profile_dialog(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    name_field = ft.TextField(
+        label="Profilname",
+        width=360,
+        bgcolor=theme["question_bg"],
+        color=theme["question_text"],
+        border_color=theme["border"],
+        autofocus=True,
+    )
+    mode_dropdown = ft.Dropdown(
+        label="Modus",
+        width=360,
+        value="abenteuer",
+        options=[ft.dropdown.Option(m["key"], m["label"]) for m in QUESTIONS_PATH_PROFILE_MODES],
+        bgcolor=theme["question_bg"],
+        color=theme["question_text"],
+        border_color=theme["border"],
+    )
+
+    overlay_ref = [None]
+
+    def close_dialog():
+        overlay = overlay_ref[0]
+        if overlay is not None:
+            try:
+                while overlay in page.overlay:
+                    page.overlay.remove(overlay)
+            except Exception:
+                pass
+        page.update()
+
+    def save_profile(e):
+        profiles = list(get_questions_path_profiles(state))
+        new_profile = _questions_path_default_profile(len(profiles))
+        new_profile["name"] = (name_field.value or "").strip() or new_profile["name"]
+        new_profile["mode"] = mode_dropdown.value or "abenteuer"
+        new_profile["worlds"] = []
+        profiles.append(new_profile)
+        state["questions_path_profiles"] = profiles
+        state["questions_path_profile_index"] = len(profiles) - 1
+        _questions_path_save_current_profiles(state)
+        close_dialog()
+        state["questions_path_scene"] = "menu"
+        show_questions_path_hub(page, state)
+
+    overlay = ft.Container(
+        expand=True,
+        bgcolor="#000000AA",
+        alignment=ft.Alignment(0, 0),
+        content=ft.Container(
+            width=min(520, int((_page_size(page)[0]) - 24)),
+            padding=24,
+            border_radius=24,
+            bgcolor="#0A1320F4",
+            border=ft.border.Border.all(2, theme["border"]),
+            content=ft.Column(
+                [
+                    ft.Text("Neues Profil", size=28, weight="bold", color="white", text_align="center"),
+                    ft.Text("Gib dem Profil einen Namen und wähle den Modus.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
+                    name_field,
+                    mode_dropdown,
+                    ft.Row(
+                        [
+                            _game_menu_button("Abbrechen", lambda e: close_dialog(), "#475569", width=180, height=42),
+                            _game_menu_button("Profil erstellen", save_profile, theme["success"], width=180, height=42),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=12,
+                        wrap=True,
+                    ),
+                ],
+                spacing=12,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        ),
+    )
+    overlay_ref[0] = overlay
+    page.overlay.append(overlay)
+    page.update()
+
+
+def _questions_path_profile_card(page: ft.Page, state: dict, profile: dict, index: int, active_index: int):
+    theme = get_theme(state)
+    active = index == active_index
+    mode_label = next((m["label"] for m in QUESTIONS_PATH_PROFILE_MODES if m["key"] == profile.get("mode", "abenteuer")), "Abenteuer")
+
+    def choose_profile(e):
+        set_questions_path_profile_index(state, index)
+        state["questions_path_scene"] = "menu"
+        show_questions_path_hub(e.page, state)
+
+    return ft.Container(
+        width=220,
+        padding=18,
+        border_radius=22,
+        bgcolor="#0B1624" if active else "#07121B",
+        border=ft.border.Border.all(2.2 if active else 1.2, theme.get("accent_2", "#38BDF8") if active else "#334155"),
+        on_click=choose_profile,
+        shadow=ft.BoxShadow(blur_radius=14, color="#33000000"),
+        content=ft.Column(
+            [
+                ft.Text(f"Profil {index + 1}", size=12, color=theme_txt(theme, "secondary")),
+                ft.Text(profile.get("name", f"Profil {index + 1}"), size=20, weight="bold", color="white", text_align="center"),
+                ft.Text(mode_label, size=12, color=theme["gold"], text_align="center"),
+                ft.Text(f"{len(profile.get('worlds', []) or [])} eigene Welt(en)", size=11, color=theme_txt(theme, "secondary"), text_align="center"),
+            ],
+            spacing=6,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+
+
+def _questions_path_render_profiles(page: ft.Page, state: dict):
+    state["questions_path_scene"] = "menu"
+    _questions_path_render_home(page, state)
+
+
+def _questions_path_render_home(page: ft.Page, state: dict):
+    theme = get_theme(state)
     page.controls.clear()
     page.add(
         ft.Container(
             expand=True,
             content=ft.Stack(
                 [
-                    _questions_path_backdrop(map_cfg.get("accent", "#34D399"), map_cfg.get("border", "#38BDF8")),
+                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#03110C", "#0E1A25", "#0A1320"])),
                     ft.Container(
                         expand=True,
                         alignment=ft.Alignment(0, 0),
+                        padding=16,
                         content=ft.Container(
-                            width=min(640, max(340, int(_page_size(page)[0] - 40))),
-                            padding=28,
-                            border_radius=28,
-                            bgcolor="#0B1220F5",
-                            border=ft.border.Border.all(2, map_cfg.get("accent", "#34D399")),
+                            width=min(1040, max(320, int(_page_size(page)[0] - 24))),
+                            padding=ft.Padding(24, 22, 24, 22),
+                            border_radius=30,
+                            bgcolor="#0A1320EE",
+                            border=ft.border.Border.all(2, "#49D6C8"),
                             content=ft.Column(
                                 [
-                                    ft.Text("Pfad abgeschlossen", size=32, weight="bold", color="white", text_align=ft.TextAlign.CENTER),
-                                    ft.Text(map_cfg.get("title", "Insel"), size=18, weight="bold", color=map_cfg.get("accent", "#34D399"), text_align=ft.TextAlign.CENTER),
-                                    ft.Text("Diese Insel ist geschafft. Du kannst sie jederzeit erneut spielen.", size=14, color="#C8D7E6", text_align=ft.TextAlign.CENTER),
-                                    ft.Container(height=8),
-                                    _game_menu_button("Nochmal spielen", lambda e: start_questions_path_game(e.page, state, map_key), map_cfg.get("accent", "#34D399"), width=260, height=42),
-                                    _game_menu_button("Zur Inselkarte", lambda e: (clear_questions_path_game(state), state.__setitem__("questions_path_scene", "islands"), show_questions_path_hub(e.page, state)), "#334155", width=260, height=42),
-                                    _game_menu_button("Zur Spielauswahl", lambda e: (clear_questions_path_game(state), open_main_menu(e.page, state)), "#475569", width=260, height=42),
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("← Spielauswahl", lambda e: open_main_menu(e.page, state), "#475569", width=170, height=40),
+                                            ft.Text("Fragen-Pfad", size=30, weight="bold", color="white"),
+                                            ft.Container(width=170),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Container(height=10),
+                                    ft.Row(
+                                        [
+                                            ft.Container(
+                                                width=470,
+                                                border_radius=24,
+                                                padding=24,
+                                                bgcolor="#0D1E2BED",
+                                                border=ft.border.Border.all(2, "#38BDF8"),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Schnelles Spiel", size=26, weight="bold", color="white", text_align="center"),
+                                                        ft.Text("Starte mit den vorgefertigten Karten.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
+                                                        ft.Container(height=10),
+                                                        _game_menu_button("Schnelles Spiel öffnen", lambda e: _questions_path_render_quick(e.page, state), "#38BDF8", width=260, height=44),
+                                                    ],
+                                                    alignment=ft.MainAxisAlignment.CENTER,
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                    spacing=8,
+                                                ),
+                                            ),
+                                            ft.Container(
+                                                width=470,
+                                                border_radius=24,
+                                                padding=24,
+                                                bgcolor="#101A15ED",
+                                                border=ft.border.Border.all(2, "#22C55E"),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Eigenes Spiel", size=26, weight="bold", color="white", text_align="center"),
+                                                        ft.Text("Eigene Welten erstellen, bearbeiten und spielen.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
+                                                        ft.Container(height=10),
+                                                        _game_menu_button("Eigenes Spiel öffnen", lambda e: _questions_path_render_owned(e.page, state), "#22C55E", width=260, height=44),
+                                                    ],
+                                                    alignment=ft.MainAxisAlignment.CENTER,
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                    spacing=8,
+                                                ),
+                                            ),
+                                        ],
+                                        spacing=14,
+                                        wrap=True,
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                    ),
                                 ],
-                                spacing=12,
+                                spacing=10,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                scroll=ft.ScrollMode.AUTO,
                             ),
                         ),
                     ),
@@ -18683,524 +17547,1123 @@ def render_questions_path_complete(page: ft.Page, state: dict):
     page.run_task(_sync_bg_music_async, page, state)
 
 
-def _questions_path_render_editor(page: ft.Page, state: dict):
-    theme = get_theme(state)
-    profiles = get_questions_path_profiles(state)
-    if not profiles:
-        profiles = [_questions_path_default_profile(0)]
-        persist_questions_path_profiles(state, profiles)
-    state["questions_path_profiles"] = profiles
-    active_index = get_questions_path_profile_index(state)
-    active_profile = profiles[active_index] if active_index < len(profiles) else _questions_path_default_profile(0)
-    creative_mode = _questions_path_profile_mode(active_profile) == "creative"
-    custom_islands = [dict(item) for item in list(active_profile.get("custom_islands", []) or []) if isinstance(item, dict)]
-    editing_island_key = str(state.get("_questions_path_editor_island_key") or state.get("_questions_path_editor_map_key") or "").strip()
-    editing_island_index = next((idx for idx, island in enumerate(custom_islands) if str(island.get("map_key", "")).strip() == editing_island_key), None)
-
-    editor_maps = _questions_path_editor_maps_for_profile(active_profile)
-    if not editor_maps:
-        editor_maps = [("waldpfad", QUESTIONS_PATH_MAPS["waldpfad"], False)]
-
-    selected_map_key = str(state.get("_questions_path_editor_map_key") or editor_maps[0][0]).strip() or editor_maps[0][0]
-    if selected_map_key not in {key for key, _, _ in editor_maps}:
-        selected_map_key = editor_maps[0][0]
-    state["_questions_path_editor_map_key"] = selected_map_key
-
-    if creative_mode and editing_island_index is not None:
-        map_cfg = _questions_path_custom_map(custom_islands[editing_island_index], editing_island_index)
-    else:
-        map_cfg = _questions_path_editor_map_lookup(active_profile, selected_map_key)
-        state.pop("_questions_path_editor_island_key", None)
-
-    page_w, page_h = _page_size(page)
-    card_w = max(320, int(page_w - 24))
-    card_h = max(520, int(page_h - 160))
-    base_canvas_w = max(1600, int(page_w * 1.25))
-    base_canvas_h = max(1100, int(page_h * 1.08))
-    fit_zoom = round(max(0.45, min(1.0, min(max(1, page_w - 40) / base_canvas_w, max(1, page_h - 220) / base_canvas_h))), 2)
-    zoom = max(0.45, min(2.2, float(state.get("questions_path_editor_zoom", fit_zoom) or fit_zoom)))
-    state["questions_path_editor_zoom"] = zoom
-
-    point_index = max(0, int(state.get("_questions_path_editor_point_index", 0) or 0))
-    points = list(map_cfg.get("points", []) or [])
+def _questions_path_make_world_editor_map(world: dict) -> dict:
+    points = list(world.get("points", []) or [])
     if not points:
-        points = _path_nodes([(50, 55)], ["Start"])
-    point_index = max(0, min(point_index, len(points) - 1))
-    state["_questions_path_editor_point_index"] = point_index
-    active_point = dict(points[point_index])
+        points = [_questions_path_default_point(0)]
+        world["points"] = points
+    return {
+        "title": str(world.get("name", "Welt")).strip() or "Welt",
+        "subtitle": "Eigene Welt",
+        "topic": "natur",
+        "icon": "Map",
+        "accent": _questions_path_preset_cfg(world.get("background_preset", "forest"))["colors"][1],
+        "panel": "#0A1320E8",
+        "border": _questions_path_preset_cfg(world.get("background_preset", "forest"))["colors"][2],
+        "line": "#D1FAE5",
+        "image": _questions_path_map_art_asset(),
+        "points": points,
+        "_world": world,
+    }
 
-    question_ref = ft.Ref[ft.TextField]()
-    answer_refs = [ft.Ref[ft.TextField]() for _ in range(4)]
-    correct_ref = ft.Ref[ft.Dropdown]()
-    map_title_ref = ft.Ref[ft.TextField]()
-    map_subtitle_ref = ft.Ref[ft.TextField]()
-    point_marker_refs: dict[int, ft.Ref[ft.Container]] = {}
 
-    def normalize_map_payload(raw_map: dict) -> dict:
-        current = dict(raw_map)
-        current["title"] = str(current.get("title", "Map")).strip() or "Map"
-        current["subtitle"] = str(current.get("subtitle", "")).strip()
-        current["icon"] = str(current.get("icon", "🗺️")).strip() or "🗺️"
-        current["points"] = ensure_points_list(current)
-        current["questions"] = _questions_path_copy_questions(current.get("questions", [])) or [_questions_path_default_custom_question(0)]
-        while len(current["questions"]) < len(current["points"]):
-            current["questions"].append(_questions_path_default_custom_question(len(current["questions"])))
-        current["questions"] = current["questions"][: len(current["points"])]
-        return current
+def _questions_path_worlds_for_profile(state: dict) -> list[dict]:
+    profile = _questions_path_active_profile(state)
+    worlds = profile.get("worlds", [])
+    return worlds if isinstance(worlds, list) else []
 
-    def save_target(mutator):
-        refreshed_profiles = get_questions_path_profiles(state)
-        refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else active_profile)
-        islands = [dict(item) for item in list(refreshed_profile.get("custom_islands", []) or []) if isinstance(item, dict)]
-        if creative_mode and editing_island_index is not None and editing_island_index < len(islands):
-            island = dict(islands[editing_island_index])
-            current_map = normalize_map_payload(_questions_path_custom_map(island, editing_island_index))
-            mutator(current_map)
-            current_map = normalize_map_payload(current_map)
-            island["title"] = current_map.get("title", island.get("title", "Eigene Insel"))
-            island["subtitle"] = current_map.get("subtitle", island.get("subtitle", ""))
-            island["world_name"] = current_map.get("world_name", island.get("world_name", island["title"]))
-            island["world_description"] = current_map.get("world_description", island.get("world_description", island["subtitle"]))
-            island["icon"] = current_map.get("icon", island.get("icon", "🏝️"))
-            island["image_src"] = current_map.get("image_src", island.get("image_src", ""))
-            island["map_image_src"] = current_map.get("map_image_src", island.get("map_image_src", ""))
-            island["accent"] = current_map.get("accent", island.get("accent", "#34D399"))
-            island["panel"] = current_map.get("panel", island.get("panel", "#0A1712E8"))
-            island["border"] = current_map.get("border", island.get("border", "#38BDF8"))
-            island["line"] = current_map.get("line", island.get("line", "#86EFAC"))
-            island["world_layout"] = current_map.get("world_layout", island.get("world_layout", "classic"))
-            island["custom_points"] = _questions_path_copy_points(current_map.get("points", []))
-            island["questions"] = _questions_path_copy_questions(current_map.get("questions", []))
-            islands[editing_island_index] = island
-            refreshed_profile["custom_islands"] = islands
-            refreshed_profile["progression_mode"] = "creative"
-        else:
-            current_map = normalize_map_payload(_questions_path_editor_map_lookup(refreshed_profile, selected_map_key))
-            mutator(current_map)
-            _questions_path_editor_save_map(refreshed_profile, selected_map_key, normalize_map_payload(current_map))
-        refreshed_profiles[active_index] = refreshed_profile
-        persist_questions_path_profiles(state, refreshed_profiles)
-        state["questions_path_profiles"] = refreshed_profiles
 
-    def apply_template(map_key: str):
-        def _handler(e):
-            if creative_mode and editing_island_index is not None:
-                template_cfg = dict(_questions_path_editor_map_lookup(active_profile, map_key))
-                def _mutate(raw_map):
-                    current_points = _questions_path_copy_points(raw_map.get("points", [])) or _path_nodes([(50, 55)], ["Start"])
-                    current_questions = _questions_path_copy_questions(raw_map.get("questions", [])) or [_questions_path_default_custom_question(0)]
-                    raw_map["subtitle"] = str(template_cfg.get("subtitle", raw_map.get("subtitle", ""))).strip()
-                    raw_map["icon"] = str(template_cfg.get("icon", raw_map.get("icon", "🗺️"))).strip() or raw_map.get("icon", "🗺️")
-                    raw_map["map_image_src"] = str(template_cfg.get("map_image_src", template_cfg.get("image", ""))).strip()
-                    raw_map["image_src"] = str(template_cfg.get("image_src", raw_map.get("image_src", ""))).strip()
-                    raw_map["accent"] = template_cfg.get("accent", raw_map.get("accent", "#34D399"))
-                    raw_map["panel"] = template_cfg.get("panel", raw_map.get("panel", "#0A1712E8"))
-                    raw_map["border"] = template_cfg.get("border", raw_map.get("border", "#38BDF8"))
-                    raw_map["line"] = template_cfg.get("line", raw_map.get("line", "#86EFAC"))
-                    raw_map["world_layout"] = template_cfg.get("world_layout", raw_map.get("world_layout", "classic"))
-                    raw_map["points"] = current_points
-                    raw_map["questions"] = current_questions[: len(current_points)]
-                    while len(raw_map["questions"]) < len(current_points):
-                        raw_map["questions"].append(_questions_path_default_custom_question(len(raw_map["questions"])))
+def _questions_path_world_by_id(state: dict, world_id: str | None) -> dict | None:
+    if not world_id:
+        return None
+    profile = _questions_path_active_profile(state)
+    for world in profile.get("worlds", []) or []:
+        if str(world.get("id")) == str(world_id):
+            return world
+    return None
 
-                save_target(_mutate)
-            else:
-                state["_questions_path_editor_map_key"] = map_key
-                state["_questions_path_editor_point_index"] = 0
-            _questions_path_render_editor(e.page, state)
 
-        return _handler
+def _questmapper_web_url() -> str:
+    return os.getenv("QUESTMAPPER_WEB_URL", "https://questmapper-web.onrender.com").strip() or "https://questmapper-web.onrender.com"
 
-    def set_active_point(index: int):
-        def _handler(e):
-            state["_questions_path_editor_point_index"] = index
-            _questions_path_render_editor(e.page, state)
 
-        return _handler
+def _open_questmapper_web(page: ft.Page):
+    try:
+        page.launch_url(_questmapper_web_url())
+    except Exception:
+        page.snack_bar = ft.SnackBar(content=ft.Text(f"QuestMapper Web: {_questmapper_web_url()}"), open=True)
+        page.update()
 
-    def ensure_points_list(raw_map: dict) -> list[dict]:
-        pts = _questions_path_copy_points(raw_map.get("points", []))
-        return pts or _path_nodes([(50, 55)], ["Start"])
 
-    def add_point(e):
-        def _mutate(raw_map):
-            raw_points = ensure_points_list(raw_map)
-            raw_points.append({"x": 50 if not raw_points else max(8, min(92, raw_points[-1]["x"] + 6)), "y": 55 if not raw_points else max(8, min(92, raw_points[-1]["y"] + 4)), "label": f"Punkt {len(raw_points) + 1}"})
-            raw_map["points"] = raw_points[:20]
-            raw_questions = list(raw_map.get("questions", []) or [])
-            raw_questions.append(_questions_path_default_custom_question(len(raw_questions)))
-            raw_map["questions"] = raw_questions[:20]
+def _questions_path_save_world(state: dict, world: dict):
+    profiles = list(get_questions_path_profiles(state))
+    idx = get_questions_path_profile_index(state)
+    if idx >= len(profiles):
+        return
+    current_profile = profiles[idx]
+    worlds = list(current_profile.get("worlds", []) or [])
+    for i, existing in enumerate(worlds):
+        if str(existing.get("id")) == str(world.get("id")):
+            worlds[i] = world
+            break
+    else:
+        worlds.append(world)
+    current_profile["worlds"] = worlds
+    profiles[idx] = current_profile
+    state["questions_path_profiles"] = profiles
+    persist_questions_path_profiles(state, profiles)
 
-        save_target(_mutate)
-        state["_questions_path_editor_point_index"] = min(19, len(points))
-        _questions_path_render_editor(e.page, state)
 
-    def remove_point(e):
-        def _mutate(raw_map):
-            raw_points = ensure_points_list(raw_map)
-            if len(raw_points) <= 1:
-                return
-            idx = max(0, min(int(state.get("_questions_path_editor_point_index", 0) or 0), len(raw_points) - 1))
-            raw_points.pop(idx)
-            raw_map["points"] = raw_points
-            raw_questions = list(raw_map.get("questions", []) or [])
-            if idx < len(raw_questions) and len(raw_questions) > 1:
-                raw_questions.pop(idx)
-            raw_map["questions"] = raw_questions or [_questions_path_default_custom_question(0)]
+def _questions_path_world_preview_asset(world: dict) -> str:
+    custom_image = str(world.get("background_image") or "").strip()
+    if custom_image and os.path.exists(custom_image):
+        return custom_image
+    preset = str(world.get("background_preset", "forest")).strip().lower()
+    if preset == "forest":
+        rel = _questions_path_map_art_asset()
+    elif preset == "ocean":
+        rel = _questions_path_island_hub_asset()
+    elif preset == "sunset":
+        rel = _questions_path_level_background_asset()
+    else:
+        rel = _questions_path_map_art_asset()
+    data = _questions_path_asset_bytes(rel)
+    return f"data:image/png;base64,{data}" if data else rel
 
-        save_target(_mutate)
-        state["_questions_path_editor_point_index"] = max(0, point_index - 1)
-        _questions_path_render_editor(e.page, state)
 
-    def create_custom_map(rel_path: str, keep_content: bool, page_obj: ft.Page):
-        refreshed_profiles = get_questions_path_profiles(state)
-        refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else active_profile)
-        custom_maps = list(refreshed_profile.get("custom_maps", []) or [])
-        new_map = _questions_path_default_custom_map(len(custom_maps))
-        new_map["map_key"] = f"custom_map_{len(custom_maps) + 1}"
-        new_map["title"] = f"Eigene Map {len(custom_maps) + 1}"
-        new_map["map_image_src"] = rel_path
-        new_map["image"] = rel_path
-        if keep_content:
-            new_map["points"] = _questions_path_copy_points(map_cfg.get("points", [])) or _path_nodes([(50, 55)], ["Start"])
-            new_map["questions"] = _questions_path_copy_questions(map_cfg.get("questions", [])) or [_questions_path_default_custom_question(0)]
-        custom_maps.append(new_map)
-        refreshed_profile["custom_maps"] = custom_maps[-12:]
-        refreshed_profiles[active_index] = refreshed_profile
-        persist_questions_path_profiles(state, refreshed_profiles)
-        state["questions_path_profiles"] = refreshed_profiles
-        if creative_mode and editing_island_index is not None:
-            def _mutate(raw_map):
-                raw_map["map_image_src"] = rel_path
-                raw_map["image"] = rel_path
-                if not keep_content:
-                    raw_map["points"] = _path_nodes([(50, 55)], ["Start"])
-                    raw_map["questions"] = [_questions_path_default_custom_question(0)]
-            save_target(_mutate)
-        else:
-            state["_questions_path_editor_map_key"] = new_map["map_key"]
-            if not keep_content:
-                state["_questions_path_editor_point_index"] = 0
-        _questions_path_render_editor(page_obj, state)
+def _questions_path_create_world_dialog(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    name_field = ft.TextField(
+        label="Inselname",
+        width=360,
+        bgcolor=theme["question_bg"],
+        color=theme["question_text"],
+        border_color=theme["border"],
+        autofocus=True,
+    )
+    overlay_ref = [None]
 
-    def ask_custom_map_mode(page_obj: ft.Page, rel_path: str):
-        dlg = ft.AlertDialog(
-            modal=True,
-            bgcolor="#0B1220",
-            title=ft.Text("Eigene Map hinzufügen", color="white"),
-            content=ft.Text("Sollen die vorhandenen Punkte und Fragen übernommen werden oder möchtest du komplett neu anfangen?", color="#D7E6F5"),
-            actions_alignment=ft.MainAxisAlignment.END,
-            actions=[
-                _game_menu_button(
-                    "Neu anfangen",
-                    lambda e: (close_page_dialog(page_obj, dlg), create_custom_map(rel_path, False, page_obj)),
-                    "#7C2D12",
-                    width=170,
-                    height=40,
-                ),
-                _game_menu_button(
-                    "Punkte übernehmen",
-                    lambda e: (close_page_dialog(page_obj, dlg), create_custom_map(rel_path, True, page_obj)),
-                    "#0F766E",
-                    width=190,
-                    height=40,
-                ),
-            ],
-        )
-        open_page_dialog(page_obj, dlg)
+    def close_dialog():
+        overlay = overlay_ref[0]
+        if overlay is not None:
+            try:
+                while overlay in page.overlay:
+                    page.overlay.remove(overlay)
+            except Exception:
+                pass
+        page.update()
 
-    async def pick_custom_map_task(page_obj: ft.Page):
-        rel_path = await _questions_path_pick_and_store_image(page_obj, "custom_map")
-        if rel_path:
-            ask_custom_map_mode(page_obj, rel_path)
+    def create_world(e):
+        try:
+            world_name = str(name_field.value or "").strip()
+            profiles = list(get_questions_path_profiles(state))
+            if not profiles:
+                profiles = [_questions_path_default_profile(0)]
+            idx = get_questions_path_profile_index(state)
+            idx = max(0, min(idx, len(profiles) - 1))
+            current = dict(profiles[idx] or {})
+            worlds = list(current.get("worlds", []) or [])
+            world = _questions_path_default_world(len(worlds), world_name or None)
+            world["name"] = world_name or world["name"]
+            world["background_preset"] = QUESTIONS_PATH_WORLD_PRESETS[0]["key"]
+            world["points"] = [_questions_path_default_point(0)]
+            worlds.append(world)
+            current["worlds"] = worlds
+            profiles[idx] = current
+            state["questions_path_profiles"] = profiles
+            persist_questions_path_profiles(state, profiles)
+            state["questions_path_scene"] = "own"
+            state["questions_path_selected_world_id"] = world["id"]
+            close_dialog()
+            e.page.snack_bar = ft.SnackBar(content=ft.Text(f"Welt '{world['name']}' wurde erstellt."), open=True)
+            e.page.update()
+            _questions_path_render_owned(e.page, state)
+        except Exception as exc:
+            print(f"Create world error: {exc}")
+            e.page.snack_bar = ft.SnackBar(content=ft.Text("Welt konnte nicht erstellt werden."), open=True)
+            e.page.update()
 
-    def pick_custom_map(e):
-        e.page.run_task(pick_custom_map_task, e.page)
+    overlay = ft.Container(
+        expand=True,
+        bgcolor="#000000AA",
+        alignment=ft.Alignment(0, 0),
+        content=ft.Container(
+            width=min(540, int((_page_size(page)[0]) - 24)),
+            padding=24,
+            border_radius=24,
+            bgcolor="#0A1320F4",
+            border=ft.border.Border.all(2, theme["border"]),
+            content=ft.Column(
+                [
+                    ft.Text("Neue Welt", size=28, weight="bold", color="white", text_align="center"),
+                    ft.Text("Gib deiner Welt einen Namen.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
+                    name_field,
+                    ft.Row(
+                        [
+                            _game_menu_button("Abbrechen", lambda e: close_dialog(), "#475569", width=170, height=42),
+                            _game_menu_button("Welt erstellen", create_world, theme["success"], width=180, height=42),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=12,
+                        wrap=True,
+                    ),
+                ],
+                spacing=12,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        ),
+    )
+    overlay_ref[0] = overlay
+    page.overlay.append(overlay)
+    page.update()
 
-    def save_point_details(e):
-        def _mutate(raw_map):
-            raw_points = ensure_points_list(raw_map)
-            idx = max(0, min(int(state.get("_questions_path_editor_point_index", 0) or 0), len(raw_points) - 1))
-            raw_questions = list(raw_map.get("questions", []) or [])
-            while len(raw_questions) < len(raw_points):
-                raw_questions.append(_questions_path_default_custom_question(len(raw_questions)))
-            if idx < len(raw_points):
-                raw_points[idx]["label"] = str(map_title_ref.current.value or raw_points[idx].get("label", f"Punkt {idx + 1}")).strip() or f"Punkt {idx + 1}"
-                raw_points[idx]["x"] = max(2, min(96, int(raw_points[idx].get("x", 10) or 10)))
-                raw_points[idx]["y"] = max(2, min(96, int(raw_points[idx].get("y", 10) or 10)))
-            raw_map["points"] = raw_points
-            if idx < len(raw_questions):
-                q = dict(raw_questions[idx])
-                q["question"] = str(question_ref.current.value or q.get("question", "")).strip() or q.get("question", "Frage")
-                answers = []
-                existing_answers = list(q.get("answers", []) or [])
-                while len(existing_answers) < 4:
-                    existing_answers.append("")
-                for answer_idx, ref in enumerate(answer_refs):
-                    value = str(ref.current.value or "").strip() if ref.current else ""
-                    answers.append(value or existing_answers[answer_idx] or f"Antwort {ANSWER_LETTERS[answer_idx]}")
-                q["answers"] = answers[:4]
-                q["correct_idx"] = int(correct_ref.current.value or q.get("correct_idx", 0)) if correct_ref.current else int(q.get("correct_idx", 0))
-                raw_questions[idx] = q
-            raw_map["questions"] = raw_questions
 
-        save_target(_mutate)
-        _questions_path_render_editor(e.page, state)
-
-    def point_left_from_percent(percent_x: float) -> int:
-        marker_w = 100
-        return max(8, min(int(base_canvas_w - marker_w - 8), int((float(percent_x) / 100.0) * max(1, base_canvas_w - marker_w))))
-
-    def point_top_from_percent(percent_y: float) -> int:
-        marker_h = 94
-        return max(8, min(int(base_canvas_h - marker_h - 8), int((float(percent_y) / 100.0) * max(1, base_canvas_h - marker_h))))
-
-    def point_drag_start(idx: int):
-        def _handler(e):
-            current_points = ensure_points_list(map_cfg)
-            if idx >= len(current_points):
-                return
-            drag_state = dict(state.get("_questions_path_editor_drag") or {})
-            drag_state[idx] = {
-                "start_x": float(current_points[idx].get("x", 10)),
-                "start_y": float(current_points[idx].get("y", 10)),
-                "x": float(current_points[idx].get("x", 10)),
-                "y": float(current_points[idx].get("y", 10)),
-            }
-            state["_questions_path_editor_drag"] = drag_state
-            state["_questions_path_editor_point_index"] = idx
-
-        return _handler
-
-    def point_drag_update(idx: int):
-        def _handler(e):
-            drag_state = dict(state.get("_questions_path_editor_drag") or {})
-            current_drag = dict(drag_state.get(idx) or {})
-            if not current_drag:
-                return
-            dx = float(getattr(e, "delta_x", 0.0) or 0.0)
-            dy = float(getattr(e, "delta_y", 0.0) or 0.0)
-            current_drag["x"] = max(2.0, min(96.0, float(current_drag.get("x", 10)) + (dx / max(1.0, base_canvas_w * zoom)) * 100.0))
-            current_drag["y"] = max(2.0, min(96.0, float(current_drag.get("y", 10)) + (dy / max(1.0, base_canvas_h * zoom)) * 100.0))
-            drag_state[idx] = current_drag
-            state["_questions_path_editor_drag"] = drag_state
-            marker_ref = point_marker_refs.get(idx)
-            if marker_ref and marker_ref.current:
-                marker_ref.current.left = point_left_from_percent(current_drag["x"])
-                marker_ref.current.top = point_top_from_percent(current_drag["y"])
-                e.page.update()
-
-        return _handler
-
-    def point_drag_end(idx: int):
-        def _handler(e):
-            drag_state = dict(state.get("_questions_path_editor_drag") or {})
-            current_drag = dict(drag_state.get(idx) or {})
-            if current_drag:
-                def _mutate(raw_map):
-                    raw_points = ensure_points_list(raw_map)
-                    if idx < len(raw_points):
-                        raw_points[idx]["x"] = max(2, min(96, int(current_drag.get("x", raw_points[idx].get("x", 10)))))
-                        raw_points[idx]["y"] = max(2, min(96, int(current_drag.get("y", raw_points[idx].get("y", 10)))))
-                        raw_map["points"] = raw_points
-                save_target(_mutate)
-            drag_state.pop(idx, None)
-            state["_questions_path_editor_drag"] = drag_state
-            _questions_path_render_editor(e.page, state)
-
-        return _handler
-
-    current_questions = list(map_cfg.get("questions", []) or [])
-    while len(current_questions) < len(points):
-        current_questions.append(_questions_path_default_custom_question(len(current_questions)))
-    active_question = dict(current_questions[point_index]) if current_questions else _questions_path_default_custom_question(0)
-    active_answers = list(active_question.get("answers", []) or [])
-    while len(active_answers) < 4:
-        active_answers.append("")
-    map_cards = []
-    for map_key, cfg, is_custom in editor_maps:
-        selected = (map_key == selected_map_key) if editing_island_index is None else False
-        preview_src = str(cfg.get("map_image_src") or cfg.get("image") or cfg.get("image_src") or "").strip()
-        map_cards.append(
+def _questions_path_render_quick(page: ft.Page, state: dict):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    page.controls.clear()
+    cards = []
+    for key, cfg in QUESTIONS_PATH_MAPS.items():
+        def _play(map_key=key):
+            return lambda e: start_questions_path_game(e.page, state, map_key)
+        cards.append(
             ft.Container(
-                padding=14,
-                border_radius=18,
-                bgcolor="#0C1723F0" if selected else "#08111BF0",
-                border=ft.border.Border.all(2, cfg.get("accent", "#38BDF8") if selected else "#233244"),
-                on_click=apply_template(map_key),
+                width=300,
+                padding=18,
+                border_radius=22,
+                bgcolor="#0B1624",
+                border=ft.border.Border.all(2, cfg.get("border", "#38BDF8")),
                 content=ft.Column(
                     [
                         ft.Container(
-                            height=110,
-                            border_radius=14,
-                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                            bgcolor="#101827",
-                            content=ft.Stack(
-                                [
-                                    ft.Container(
-                                        expand=True,
-                                        gradient=ft.LinearGradient(
-                                            begin=ft.Alignment(-1, -1),
-                                            end=ft.Alignment(1, 1),
-                                            colors=[cfg.get("panel", "#0A1712E8"), "#132235", "#0B1020"],
-                                        ),
-                                    ),
-                                    ft.Container(
-                                        expand=True,
-                                        opacity=0.78,
-                                        content=ft.Image(src=preview_src, fit=ft.BoxFit.COVER, error_content=ft.Container()),
-                                    ) if preview_src else ft.Container(),
-                                    ft.Container(
-                                        left=10,
-                                        bottom=10,
-                                        padding=ft.Padding(8, 4, 8, 4),
-                                        border_radius=999,
-                                        bgcolor="#09131DD8",
-                                        content=ft.Text("Als Vorlage nutzen", size=10, color="white", weight="bold"),
-                                    ),
-                                ]
-                            ),
+                            width=54,
+                            height=54,
+                            border_radius=27,
+                            bgcolor=cfg.get("accent", "#38BDF8"),
+                            alignment=ft.Alignment(0, 0),
+                            content=ft.Text(str(cfg.get("icon", "Map"))[:3], size=16, weight="bold", color="white", text_align="center"),
                         ),
-                        ft.Row(
-                            [
-                                ft.Text(cfg.get("icon", "🗺️"), size=18),
-                                ft.Text(cfg.get("title", map_key), size=16, weight="bold", color="white"),
-                            ],
-                            spacing=8,
-                        ),
-                        ft.Text(cfg.get("subtitle", ""), size=11, color="#A8C0D2"),
-                        ft.Text(f"{len(cfg.get('points', []) or [])} Punkte", size=11, color=cfg.get("accent", "#38BDF8")),
+                        ft.Text(cfg.get("title", "Karte"), size=22, weight="bold", color="white", text_align="center"),
+                        ft.Text(cfg.get("subtitle", ""), size=12, color=theme_txt(theme, "secondary"), text_align="center"),
+                        ft.Container(height=8),
+                        _game_menu_button("Spielen", _play(), cfg.get("accent", "#38BDF8"), width=220, height=42),
                     ],
-                    spacing=6,
+                    spacing=8,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             )
         )
-
-    point_markers = []
-    for idx, point in enumerate(points):
-        left = point_left_from_percent(point["x"])
-        top = point_top_from_percent(point["y"])
-        marker_ref = ft.Ref[ft.Container]()
-        point_marker_refs[idx] = marker_ref
-        point_markers.append(
-            ft.Container(
-                ref=marker_ref,
-                left=left,
-                top=top,
-                width=100,
-                height=94,
-                content=ft.GestureDetector(
-                    on_pan_start=point_drag_start(idx),
-                    on_pan_update=point_drag_update(idx),
-                    on_pan_end=point_drag_end(idx),
-                    on_tap=set_active_point(idx),
-                    drag_interval=1,
-                    mouse_cursor=ft.MouseCursor.MOVE,
-                    content=ft.Column(
-                        [
-                            ft.Container(
-                                width=64,
-                                height=64,
-                                border_radius=999,
-                                bgcolor="#EC4899" if idx == point_index else "#0EA5E9",
-                                border=ft.border.Border.all(3, "#FCE7F3" if idx == point_index else "#DBEAFE"),
-                                alignment=ft.Alignment(0, 0),
-                                content=ft.Text(str(idx + 1), size=20, weight="bold", color="#08131F"),
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#02110B", "#0B1E2E", "#08131F"])),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=16,
+                        content=ft.Container(
+                            width=min(1240, max(320, int(_page_size(page)[0] - 24))),
+                            padding=ft.Padding(22, 20, 22, 20),
+                            border_radius=30,
+                            bgcolor="#0A1320EE",
+                            border=ft.border.Border.all(2, "#49D6C8"),
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("← Zurück", lambda e: _questions_path_render_home(e.page, state), "#475569", width=150, height=40),
+                                            ft.Text("Schnelles Spiel", size=30, weight="bold", color="white"),
+                                            ft.Container(width=150),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Text(f"Aktives Profil: {profile.get('name', 'Profil')}", size=12, color=theme_txt(theme, "secondary"), text_align="center"),
+                                    ft.Container(height=8),
+                                    ft.Column(cards, spacing=14, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO),
+                                ],
+                                spacing=10,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                scroll=ft.ScrollMode.AUTO,
                             ),
-                            ft.Text(point.get("label", f"Punkt {idx + 1}"), size=10, color="white", text_align=ft.TextAlign.CENTER, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                        ],
-                        spacing=4,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_render_owned(page: ft.Page, state: dict):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    worlds = list(profile.get("worlds", []) or [])
+    page.controls.clear()
+    rows = []
+    for world in worlds:
+        preview_src = _questions_path_world_preview_asset(world)
+
+        def _play(world_id=world["id"]):
+            return lambda e: start_questions_path_game(e.page, state, world_id)
+
+        def _edit(world_id=world["id"]):
+            def _handler(e):
+                state["questions_path_scene"] = "editor"
+                state.pop("_questions_path_editor_selected_point", None)
+                state.pop("_questions_path_selected_island_id", None)
+                _questions_path_render_world_editor(e.page, state, world_id)
+
+            return _handler
+
+        def _delete(world_id=world["id"], world_name=world.get("name", "Welt")):
+            def _handler(e):
+                overlay_ref = [None]
+
+                def close_dialog():
+                    overlay = overlay_ref[0]
+                    if overlay is not None:
+                        try:
+                            while overlay in e.page.overlay:
+                                e.page.overlay.remove(overlay)
+                        except Exception:
+                            pass
+                    e.page.update()
+
+                def confirm_delete(ev):
+                    current_profile = _questions_path_active_profile(state)
+                    current_worlds = [
+                        w for w in list(current_profile.get("worlds", []) or [])
+                        if str(w.get("id")) != str(world_id)
+                    ]
+                    current_profile["worlds"] = current_worlds
+                    profiles = list(get_questions_path_profiles(state))
+                    idx = get_questions_path_profile_index(state)
+                    if idx < len(profiles):
+                        profiles[idx] = current_profile
+                        state["questions_path_profiles"] = profiles
+                        persist_questions_path_profiles(state, profiles)
+                    if state.get("questions_path_selected_world_id") == world_id:
+                        state["questions_path_selected_world_id"] = current_worlds[0]["id"] if current_worlds else None
+                    close_dialog()
+                    _questions_path_render_owned(ev.page, state)
+
+                overlay = ft.Container(
+                    expand=True,
+                    bgcolor="#000000AA",
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Container(
+                        width=min(460, int((_page_size(e.page)[0]) - 24)),
+                        padding=24,
+                        border_radius=24,
+                        bgcolor="#0A1320F4",
+                        border=ft.border.Border.all(2, theme["border"]),
+                        content=ft.Column(
+                            [
+                                ft.Text("Welt löschen?", size=24, weight="bold", color="white", text_align="center"),
+                                ft.Text(f"'{world_name}' wird dauerhaft aus deinem Profil entfernt.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
+                                ft.Row(
+                                    [
+                                        _game_menu_button("Abbrechen", lambda ev: close_dialog(), "#475569", width=160, height=42),
+                                        _game_menu_button("Löschen", confirm_delete, theme["danger"], width=160, height=42),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    spacing=12,
+                                    wrap=True,
+                                ),
+                            ],
+                            spacing=12,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ),
+                )
+                overlay_ref[0] = overlay
+                e.page.overlay.append(overlay)
+                e.page.update()
+
+            return _handler
+
+        rows.append(
+            ft.Container(
+                padding=14,
+                border_radius=18,
+                bgcolor="#09131C",
+                border=ft.border.Border.all(1.5, "#334155"),
+                on_click=_edit(),
+                content=ft.Row(
+                    [
+                        ft.Container(
+                            width=72,
+                            height=48,
+                            border_radius=14,
+                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            bgcolor="#0F172A",
+                            border=ft.border.Border.all(1, "#1F2937"),
+                            content=ft.Stack(
+                                [
+                                    ft.Image(src=preview_src, fit=ft.BoxFit.COVER, expand=True),
+                                    ft.Container(expand=True, bgcolor="#00000022"),
+                                ],
+                                expand=True,
+                            ),
+                        ),
+                        ft.Text(world.get("name", "Welt"), size=18, weight="bold", color="white", expand=True),
+                        ft.Row(
+                            [
+                                _game_menu_button("Spiel bearbeiten", _edit(), "#475569", width=150, height=38),
+                                _game_menu_button("Spiel spielen", _play(), theme["success"], width=150, height=38),
+                                _game_menu_button("Löschen", _delete(), theme["danger"], width=110, height=38),
+                            ],
+                            spacing=10,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+            )
+        )
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#03110C", "#0D1720", "#08131F"])),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=16,
+                        content=ft.Container(
+                            width=min(1280, max(320, int(_page_size(page)[0] - 24))),
+                            padding=ft.Padding(22, 20, 22, 20),
+                            border_radius=30,
+                            bgcolor="#0A1320EE",
+                            border=ft.border.Border.all(2, "#49D6C8"),
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("← Zurück", lambda e: _questions_path_render_home(e.page, state), "#475569", width=150, height=40),
+                                            ft.Text("Eigenes Spiel", size=30, weight="bold", color="white"),
+                                            _game_menu_button("+ Welt hinzufügen", lambda e: _questions_path_create_world_dialog(e.page, state), theme["accent"], width=170, height=40),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                    ft.Container(height=8),
+                                    ft.Column(
+                                        rows or [
+                                            ft.Container(
+                                                padding=20,
+                                                border_radius=18,
+                                                bgcolor="#09131C",
+                                                border=ft.border.Border.all(1.5, "#334155"),
+                                                content=ft.Text("Noch keine eigenen Welten vorhanden.", size=13, color=theme_txt(theme, "secondary"), text_align="center"),
+                                            )
+                                        ],
+                                        spacing=10,
+                                        scroll=ft.ScrollMode.AUTO,
+                                        expand=True,
+                                    ),
+                                ],
+                                spacing=10,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_game_map_cfg(state: dict, map_key: str) -> dict:
+    world = _questions_path_world_by_id(state, map_key)
+    if world:
+        points = list(world.get("points", []) or [])
+        if not points:
+            points = [_questions_path_default_point(0)]
+            world["points"] = points
+        return _questions_path_make_world_editor_map(world)
+    return QUESTIONS_PATH_MAPS.get(map_key) or QUESTIONS_PATH_MAPS["waldpfad"]
+
+
+def _questions_path_map_node_control(page: ft.Page, state: dict, game: dict, map_cfg: dict, map_w: float, map_h: float, idx: int) -> ft.Container:
+    point = map_cfg["points"][idx]
+    node_states = dict(game.get("node_states", {}) or {})
+    node_state = dict(node_states.get(str(idx), {}) or {})
+    status = str(node_state.get("status", "idle"))
+    active = state.get("_questions_path_active_node")
+    if status == "correct":
+        color = "#22C55E"
+        border_color = "#D1FAE5"
+        label_text = "✓"
+    elif status == "wrong":
+        color = "#EF4444"
+        border_color = "#FECACA"
+        label_text = "×"
+    else:
+        color = "#64748B"
+        border_color = map_cfg.get("accent", "#FACC15") if idx == active else "#94A3B8"
+        label_text = str(idx + 1)
+    size = 24
+
+    def open_node(e):
+        state["_questions_path_active_node"] = idx
+        render_questions_path_game(page, state)
+
+    return ft.Container(
+        left=(map_w * point["x"] / 100.0) - size,
+        top=(map_h * point["y"] / 100.0) - size,
+        width=size * 2,
+        height=size * 2,
+        shape=ft.BoxShape.CIRCLE,
+        bgcolor=color,
+        border=ft.border.Border.all(2, border_color),
+        alignment=ft.Alignment(0, 0),
+        on_click=open_node,
+        tooltip=point.get("name", f"Punkt {idx + 1}"),
+        content=ft.Text(label_text, size=13, weight="bold", color="white"),
+        animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+    )
+
+
+def _questions_path_map_stack(page: ft.Page, state: dict, game: dict, map_cfg: dict, map_w: float, map_h: float) -> list[ft.Control]:
+    points = map_cfg["points"]
+    layers: list[ft.Control] = []
+    for idx in range(len(points) - 1):
+        layers.extend(_questions_path_map_line(points[idx], points[idx + 1], map_w, map_h, map_cfg.get("line", "#FFFFFF")))
+    for idx in range(len(points)):
+        layers.append(_questions_path_map_node_control(page, state, game, map_cfg, map_w, map_h, idx))
+    return layers
+
+
+def _questions_path_answer_buttons(page: ft.Page, state: dict, node_idx: int, question: dict, map_cfg: dict) -> ft.Control:
+    answers = list(question.get("answers", []))
+    correct_idx = int(question.get("correct_idx", 0))
+    buttons = []
+    game = state.get("questions_path_game") or {}
+    node_states = dict(game.get("node_states", {}) or {})
+    node_state = dict(node_states.get(str(node_idx), {}) or {})
+    selected_idx = node_state.get("selected_idx")
+    node_status = str(node_state.get("status", "idle"))
+
+    def choose(idx: int):
+        def _handler(e):
+            game = state.get("questions_path_game")
+            if not game:
+                return
+            node_states = dict(game.get("node_states", {}) or {})
+            node_state = dict(node_states.get(str(node_idx), {}) or {})
+            if idx == correct_idx:
+                node_state["status"] = "correct"
+                node_state["selected_idx"] = idx
+                node_states[str(node_idx)] = node_state
+                game["node_states"] = node_states
+                state.pop("_questions_path_active_node", None)
+                save_questions_path_game(state)
+                if sum(1 for item in node_states.values() if str(item.get("status")) == "correct") >= len(game.get("questions", [])):
+                    game["game_finished"] = True
+                    save_questions_path_game(state)
+                    render_questions_path_complete(e.page, state)
+                    return
+                render_questions_path_game(e.page, state)
+            else:
+                node_state["status"] = "wrong"
+                node_state["selected_idx"] = idx
+                node_states[str(node_idx)] = node_state
+                game["node_states"] = node_states
+                save_questions_path_game(state)
+                e.page.snack_bar = ft.SnackBar(content=ft.Text("Noch nicht ganz - probier es nochmal."), open=True)
+                e.page.update()
+                render_questions_path_game(e.page, state)
+        return _handler
+
+    for idx, answer in enumerate(answers):
+        button_color = "#334155"
+        if node_status == "correct" and idx == correct_idx:
+            button_color = "#22C55E"
+        elif node_status == "wrong" and selected_idx == idx:
+            button_color = "#EF4444"
+        buttons.append(
+            _game_menu_button(
+                f"{ANSWER_LETTERS[idx]}. {answer}",
+                choose(idx),
+                button_color,
+                width=280,
+                height=42,
+            )
+        )
+    return ft.Column(buttons, spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+
+
+def _questions_path_editor_point_stack(world: dict, map_w: float, map_h: float, selected_index: int, on_select, on_drag) -> list[ft.Control]:
+    layers: list[ft.Control] = []
+    points = _questions_path_world_points(world)
+    drag_last: dict[int, tuple[float, float]] = {}
+
+    def point_drag_start(index: int, e):
+        position = getattr(e, "global_position", None)
+        if position is not None and hasattr(position, "x") and hasattr(position, "y"):
+            drag_last[index] = (float(position.x or 0.0), float(position.y or 0.0))
+
+    def point_drag_update(index: int, e):
+        position = getattr(e, "global_position", None)
+        if position is not None and hasattr(position, "x") and hasattr(position, "y"):
+            current = (float(position.x or 0.0), float(position.y or 0.0))
+            last = drag_last.get(index)
+            drag_last[index] = current
+            if last is not None:
+                on_drag(index, current[0] - last[0], current[1] - last[1])
+                return
+        dx, dy = _gesture_delta_xy(e)
+        on_drag(index, dx, dy)
+
+    def point_drag_end(index: int, e):
+        drag_last.pop(index, None)
+
+    for idx, point in enumerate(points):
+        is_selected = idx == selected_index
+        size = 30 if is_selected else 24
+        color = "#38BDF8" if is_selected else "#22C55E"
+        layers.append(
+            ft.Container(
+                left=(map_w * point["x"] / 100.0) - size,
+                top=(map_h * point["y"] / 100.0) - size,
+                width=size * 2,
+                height=size * 2,
+                content=ft.Container(
+                    expand=True,
+                    shape=ft.BoxShape.CIRCLE,
+                    bgcolor=color,
+                    border=ft.border.Border.all(2, "white" if is_selected else "#D1FAE5"),
+                    shadow=ft.BoxShadow(blur_radius=20 if is_selected else 10, color="#77000000"),
+                    tooltip=point.get("name", f"Punkt {idx + 1}"),
+                    animate_scale=ft.Animation(180, ft.AnimationCurve.EASE_OUT),
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.GestureDetector(
+                        on_tap=lambda e, p=idx: on_select(p),
+                        on_pan_start=lambda e, p=idx: point_drag_start(p, e),
+                        on_pan_update=lambda e, p=idx: point_drag_update(p, e),
+                        on_pan_end=lambda e, p=idx: point_drag_end(p, e),
+                        content=ft.Container(
+                            expand=True,
+                            alignment=ft.Alignment(0, 0),
+                            content=ft.Text(str(idx + 1), size=13, weight="bold", color="white"),
+                        ),
                     ),
                 ),
             )
         )
+    return layers
+
+
+def _questions_path_world_background_preview(world: dict) -> ft.Control:
+    preset = _questions_path_preset_cfg(world.get("background_preset", "forest"))
+    custom_image = str(world.get("background_image") or "").strip()
+    if custom_image and os.path.exists(custom_image):
+        return ft.Container(
+            expand=True,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            border_radius=18,
+            content=ft.Image(src=custom_image, fit=ft.BoxFit.COVER, expand=True),
+        )
+    return ft.Container(
+        expand=True,
+        border_radius=18,
+        gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=preset["colors"]),
+    )
+
+
+def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: str | None):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    worlds = list(profile.get("worlds", []) or [])
+    world = None
+    for entry in worlds:
+        if str(entry.get("id")) == str(world_id):
+            world = entry
+            break
+    if world is None:
+        world = _questions_path_default_world(0)
+        worlds.append(world)
+        profile["worlds"] = worlds
+        profiles = list(get_questions_path_profiles(state))
+        idx = get_questions_path_profile_index(state)
+        if idx < len(profiles):
+            profiles[idx] = profile
+            state["questions_path_profiles"] = profiles
+            persist_questions_path_profiles(state, profiles)
+    state["questions_path_selected_world_id"] = world["id"]
+    state["questions_path_scene"] = "editor"
+    state.setdefault("_questions_path_editor_selected_point", 0)
+
+    page_w, page_h = _page_size(page)
+    map_w = max(520, min(980, int(page_w * 0.62)))
+    map_h = max(420, min(760, int(page_h * 0.72)))
+    selected_point = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+    islands = _questions_path_world_islands(world)
+    selected_island_id = state.get("_questions_path_selected_island_id")
+    selected_island = None
+    for island in islands:
+        if str(island.get("id")) == str(selected_island_id):
+            selected_island = island
+            break
+
+    def back_to_owned(e):
+        state.pop("_questions_path_selected_island_id", None)
+        state["questions_path_scene"] = "own"
+        _questions_path_render_owned(e.page, state)
+
+    if selected_island is None:
+        state.pop("_questions_path_selected_island_id", None)
+
+        def move_island(index: int, dx: float, dy: float):
+            if 0 <= index < len(islands):
+                islands[index]["x"] = _questions_path_clamp_pct(islands[index].get("x", 50.0) + dx * 0.08)
+                islands[index]["y"] = _questions_path_clamp_pct(islands[index].get("y", 50.0) + dy * 0.08)
+                persist_world = lambda: _questions_path_save_world(state, world)
+                persist_world()
+                _questions_path_render_world_editor(page, state, world["id"])
+
+        def open_island(island_id: str):
+            def _handler(e):
+                state["_questions_path_selected_island_id"] = island_id
+                _questions_path_render_world_editor(e.page, state, world["id"])
+
+            return _handler
+
+        def create_island_dialog(e):
+            theme_local = get_theme(state)
+            name_field = ft.TextField(
+                label="Inselname",
+                width=360,
+                bgcolor=theme_local["question_bg"],
+                color=theme_local["question_text"],
+                border_color=theme_local["border"],
+                autofocus=True,
+            )
+            overlay_ref = [None]
+
+            def close_dialog():
+                overlay = overlay_ref[0]
+                if overlay is not None:
+                    try:
+                        while overlay in e.page.overlay:
+                            e.page.overlay.remove(overlay)
+                    except Exception:
+                        pass
+                e.page.update()
+
+            def save_island(ev):
+                default_design = QUESTIONS_PATH_WORLD_PRESETS[len(islands) % len(QUESTIONS_PATH_WORLD_PRESETS)]["key"]
+                islands.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "name": (name_field.value or "").strip() or f"Insel {len(islands) + 1}",
+                        "design": default_design,
+                        "x": 18.0 + len(islands) * 14.0,
+                        "y": 42.0 + (len(islands) % 2) * 12.0,
+                        "points": [],
+                    }
+                )
+                _questions_path_save_world(state, world)
+                close_dialog()
+                _questions_path_render_world_editor(ev.page, state, world["id"])
+
+            overlay = ft.Container(
+                expand=True,
+                bgcolor="#000000AA",
+                alignment=ft.Alignment(0, 0),
+                content=ft.Container(
+                    width=min(520, int((_page_size(e.page)[0]) - 24)),
+                    padding=24,
+                    border_radius=24,
+                    bgcolor="#0A1320F4",
+                    border=ft.border.Border.all(2, theme_local["border"]),
+                    content=ft.Column(
+                        [
+                            ft.Text("Neue Insel", size=28, weight="bold", color="white", text_align="center"),
+                            ft.Text("Gib deiner Insel einen Namen.", size=13, color=theme_txt(theme_local, "secondary"), text_align="center"),
+                            name_field,
+                            ft.Row(
+                                [
+                                    _game_menu_button("Abbrechen", lambda ev: close_dialog(), "#475569", width=180, height=42),
+                                    _game_menu_button("Insel erstellen", save_island, theme_local["success"], width=180, height=42),
+                                ],
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=12,
+                                wrap=True,
+                            ),
+                        ],
+                        spacing=12,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ),
+            )
+            overlay_ref[0] = overlay
+            e.page.overlay.append(overlay)
+            e.page.update()
+
+        island_layers: list[ft.Control] = [
+            ft.Container(
+                width=map_w,
+                height=map_h,
+                border_radius=28,
+                content=ft.Stack(
+                    [
+                        ft.Container(expand=True, bgcolor="#0B1624"),
+                        ft.Image(src=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
+                    ],
+                    expand=True,
+                ),
+                border=ft.border.Border.all(2, "#49D6C8"),
+            )
+        ]
+        for idx, island in enumerate(islands):
+            preset = _questions_path_preset_cfg(island.get("design", QUESTIONS_PATH_WORLD_PRESETS[0]["key"]))
+            island_layers.append(
+                ft.Container(
+                    left=(map_w * float(island.get("x", 50.0)) / 100.0) - 36,
+                    top=(map_h * float(island.get("y", 50.0)) / 100.0) - 36,
+                    width=72,
+                    height=72,
+                    content=ft.GestureDetector(
+                        on_tap=open_island(island["id"]),
+                        on_pan_update=lambda ev, p=idx: move_island(p, *_gesture_delta_xy(ev)),
+                        content=ft.Container(
+                            expand=True,
+                            shape=ft.BoxShape.CIRCLE,
+                            bgcolor=preset["colors"][1],
+                            border=ft.border.Border.all(3, "#FFFFFF"),
+                            alignment=ft.Alignment(0, 0),
+                            shadow=ft.BoxShadow(blur_radius=16, color="#55000000"),
+                            content=ft.Column(
+                                [
+                                    ft.Icon(ft.Icons.LANDSCAPE, size=22, color="white"),
+                                    ft.Text(str(island.get("name", f"Insel {idx + 1}"))[:10], size=10, weight="bold", color="white", text_align="center"),
+                                ],
+                                spacing=0,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                )
+            )
+
+        page.controls.clear()
+        page.add(
+            ft.Container(
+                expand=True,
+                bgcolor="#F3F5F7",
+                content=ft.Stack(
+                    [
+                        ft.Container(expand=True, bgcolor="#F3F5F7"),
+                        ft.Container(
+                            expand=True,
+                            alignment=ft.Alignment(0, 0),
+                            padding=16,
+                            content=ft.Container(
+                                width=min(1280, max(320, int(_page_size(page)[0] - 24))),
+                                padding=ft.Padding(22, 20, 22, 20),
+                                border_radius=30,
+                                bgcolor="#FFFFFF",
+                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                shadow=ft.BoxShadow(blur_radius=28, color="#14000000", offset=ft.Offset(0, 10)),
+                                content=ft.Column(
+                                    [
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("← Eigenes Spiel", back_to_owned, "#64748B", width=170, height=40),
+                                                ft.Text("Inselmenü", size=28, weight="bold", color="#2B2F36"),
+                                                _game_menu_button("+ Insel hinzufügen", create_island_dialog, theme["accent"], width=170, height=40),
+                                            ],
+                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        ),
+                                        ft.Container(height=8),
+                                        ft.Row(
+                                            [
+                                            ft.Container(
+                                                expand=True,
+                                                border_radius=24,
+                                                padding=16,
+                                                bgcolor="#FFFFFF",
+                                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Leere Map", size=16, weight="bold", color=theme["gold"], text_align="center"),
+                                                        ft.Text("Klicke eine Insel an oder füge oben rechts eine neue Insel hinzu.", size=12, color="#6B7280", text_align="center"),
+                                                        ft.Container(height=8),
+                                                        ft.Container(
+                                                            width=min(980, map_w),
+                                                            height=map_h,
+                                                            border_radius=28,
+                                                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                            content=ft.Stack(controls=island_layers),
+                                                        ),
+                                                    ],
+                                                    spacing=10,
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                ),
+                                            ),
+                                            ft.Container(
+                                                width=min(360, max(280, int(page_w * 0.28))),
+                                                border_radius=24,
+                                                padding=16,
+                                                bgcolor="#FFFFFF",
+                                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                content=ft.Column(
+                                                    [
+                                                        ft.Text("Inseln", size=18, weight="bold", color="#111827", text_align="center"),
+                                                        ft.Text(f"Vorhanden: {len(islands)}", size=12, color="#6B7280", text_align="center"),
+                                                        ft.Text("Ziehe Inseln, um sie zu verschieben. Tippe eine Insel an, um in den Punkt-Editor zu wechseln.", size=12, color="#6B7280", text_align="center"),
+                                                    ],
+                                                    spacing=8,
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                ),
+                                            ),
+                                            ],
+                                            spacing=14,
+                                            wrap=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.START,
+                                        ),
+                                    ],
+                                    spacing=12,
+                                    scroll=ft.ScrollMode.AUTO,
+                                ),
+                            ),
+                        ),
+                    ],
+                    expand=True,
+                ),
+            )
+        )
+        page.update()
+        page.run_task(_sync_bg_music_async, page, state)
+        return
+
+    world["points"] = list(selected_island.get("points", []) or [])
+    world["background_preset"] = str(selected_island.get("design", world.get("background_preset", "forest")))
+
+    def persist_world():
+        _questions_path_save_world(state, world)
+
+    def select_point(index: int):
+        state["_questions_path_editor_selected_point"] = max(0, min(index, len(_questions_path_world_points(world)) - 1))
+        _questions_path_render_world_editor(page, state, world["id"])
+
+    def move_point(index: int, dx: float, dy: float):
+        points = _questions_path_world_points(world)
+        if 0 <= index < len(points):
+            points[index]["x"] = _questions_path_clamp_pct(points[index]["x"] + dx * 0.08)
+            points[index]["y"] = _questions_path_clamp_pct(points[index]["y"] + dy * 0.08)
+            persist_world()
+            _questions_path_render_world_editor(page, state, world["id"])
+
+    def add_point(e):
+        points = _questions_path_world_points(world)
+        points.append(_questions_path_default_point(len(points)))
+        state["_questions_path_editor_selected_point"] = len(points) - 1
+        persist_world()
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def delete_point(e):
+        points = _questions_path_world_points(world)
+        if len(points) <= 1:
+            return
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if 0 <= idx < len(points):
+            points.pop(idx)
+            state["_questions_path_editor_selected_point"] = max(0, idx - 1)
+            persist_world()
+            _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def save_fields(e):
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        points = _questions_path_world_points(world)
+        if not (0 <= idx < len(points)):
+            return
+        point = points[idx]
+        point["name"] = str(name_field.value or "").strip() or point["name"]
+        point["question"] = str(question_field.value or "").strip()
+        point["answers"] = [str(f.value or "").strip() for f in answer_fields]
+        while len(point["answers"]) < 4:
+            point["answers"].append("")
+        point["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+        world["name"] = str(world_name_field.value or "").strip() or world["name"]
+        persist_world()
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def back_to_islands(e):
+        selected_island["points"] = list(world.get("points", []) or [])
+        _questions_path_save_world(state, world)
+        state.pop("_questions_path_selected_island_id", None)
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    point = _questions_path_world_points(world)[selected_point]
+    name_field = ft.TextField(
+        label="Punktname",
+        value=point.get("name", ""),
+        width=320,
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+    question_field = ft.TextField(
+        label="Frage",
+        value=point.get("question", ""),
+        width=320,
+        min_lines=3,
+        max_lines=6,
+        multiline=True,
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+    answer_fields = []
+    answers = list(point.get("answers", []))
+    while len(answers) < 4:
+        answers.append("")
+    for i in range(4):
+        answer_fields.append(
+            ft.TextField(
+                label=f"Antwort {ANSWER_LETTERS[i]}",
+                value=answers[i],
+                width=320,
+                bgcolor="#FFFFFF",
+                color="#111827",
+                border_color="#D1D5DB",
+            )
+        )
+    correct_dropdown = ft.Dropdown(
+        label="Richtige Antwort",
+        value=str(point.get("correct", 0)),
+        width=200,
+        options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)],
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+    world_name_field = ft.TextField(
+        label="Inselname",
+        value=world.get("name", ""),
+        width=320,
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+    bg_label = "Leere Karte"
+    map_layers = [
+        ft.Container(width=map_w, height=map_h, content=ft.Stack([
+            ft.Container(expand=True, bgcolor="#F8FAFC"),
+            ft.Image(src=_questions_path_asset_bytes(_questions_path_island_hub_asset()), fit=ft.BoxFit.COVER, expand=True),
+        ], expand=True)),
+        ft.Container(width=map_w, height=map_h, bgcolor="#FFFFFF00"),
+        *_questions_path_editor_point_stack(world, map_w, map_h, selected_point, select_point, move_point),
+    ]
 
     page.controls.clear()
     page.add(
         ft.Container(
             expand=True,
-            content=ft.Row(
+            bgcolor="#F3F5F7",
+            content=ft.Stack(
                 [
+                    ft.Container(expand=True, bgcolor="#F3F5F7"),
                     ft.Container(
                         expand=True,
-                        padding=12,
+                        padding=16,
                         content=ft.Column(
                             [
                                 ft.Row(
                                     [
-                                        _game_menu_button("← Inselkarte", lambda e: (state.__setitem__("questions_path_scene", "islands"), show_questions_path_hub(e.page, state)), "#475569", width=170, height=40),
-                                        ft.Text("Fragen-Pfad", size=32, weight="bold", color="white"),
+                                        _game_menu_button("← Inseln", back_to_owned, "#64748B", width=150, height=40),
+                                        ft.Text("Inselmenü", size=28, weight="bold", color="#2B2F36"),
                                         ft.Row(
                                             [
-                                                _questions_path_zoom_controls(state, "questions_path_editor_zoom", lambda p, s: _questions_path_render_editor(p, s)),
-                                                _questions_path_island_chip(map_cfg.get("title", "Map"), map_cfg.get("accent", "#38BDF8")),
+                                                _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
+                                                _game_menu_button("▶ Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=120, height=38),
                                             ],
                                             spacing=10,
                                         ),
                                     ],
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
-                                ft.Text(map_cfg.get("subtitle", ""), size=13, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
-                                ft.Container(
-                                    expand=True,
-                                    border_radius=28,
-                                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                    bgcolor="#07101AE0",
-                                    content=ft.Container(
-                                        alignment=ft.Alignment(0, 0),
-                                        content=ft.Container(
-                                            width=int(base_canvas_w * zoom),
-                                            height=int(base_canvas_h * zoom),
-                                            content=ft.Container(
-                                                width=base_canvas_w,
-                                                height=base_canvas_h,
-                                                scale=zoom,
-                                                content=ft.Stack(
-                                                    [
-                                                        ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=[map_cfg.get("panel", "#0A1712E8"), "#0B1828", "#07101A"])),
-                                                        ft.Container(expand=True, opacity=0.86, content=ft.Image(src=map_cfg.get("map_image_src") or map_cfg.get("image", ""), fit=ft.BoxFit.COVER, error_content=ft.Container()) if (map_cfg.get("map_image_src") or map_cfg.get("image")) else ft.Container()),
-                                                        *point_markers,
-                                                    ],
-                                                    expand=True,
-                                                ),
+                                ft.Row(
+                                    [
+                                        ft.Container(
+                                            expand=True,
+                                            border_radius=24,
+                                            padding=16,
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            shadow=ft.BoxShadow(blur_radius=24, color="#12000000", offset=ft.Offset(0, 8)),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Row(
+                                                        [
+                                                            ft.Text("Leere Karte", size=16, weight="bold", color="#111827"),
+                                                            ft.Text(bg_label, size=11, color="#6B7280"),
+                                                        ],
+                                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                    ),
+                                                    ft.Container(height=8),
+                                                    ft.Container(
+                                                        width=min(980, map_w),
+                                                        height=map_h,
+                                                        border_radius=28,
+                                                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                        border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                                        content=ft.Stack(controls=map_layers),
+                                                    ),
+                                                    ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus.", size=11, color="#6B7280", text_align="center"),
+                                                ],
+                                                spacing=10,
                                             ),
                                         ),
-                                    ),
+                                        ft.Container(
+                                            width=min(420, max(320, int(page_w * 0.34))),
+                                            border_radius=24,
+                                            padding=16,
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Text("Quiz Editor", size=18, weight="bold", color="#111827", text_align="center"),
+                                                    ft.Text(f"Ausgewählt: {point.get('name', 'Punkt')}", size=12, color="#6B7280", text_align="center"),
+                                                    world_name_field,
+                                                    name_field,
+                                                    question_field,
+                                                    *answer_fields,
+                                                    correct_dropdown,
+                                                    ft.Row(
+                                                        [
+                                                            _game_menu_button("Speichern", save_fields, theme["success"], width=120, height=38),
+                                                            _game_menu_button("Löschen", delete_point, theme["danger"], width=120, height=38),
+                                                        ],
+                                                        spacing=10,
+                                                        wrap=True,
+                                                    ),
+                                                    ft.Text("Wenn du einen Punkt anklickst, kannst du hier Frage und Antworten bearbeiten.", size=11, color="#6B7280", text_align="center"),
+                                                ],
+                                                spacing=8,
+                                                scroll=ft.ScrollMode.AUTO,
+                                            ),
+                                        ),
+                                    ],
+                                    spacing=14,
+                                    wrap=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.START,
                                 ),
-                                ft.Text("Punkt antippen zum Markieren. Danach mit Maus oder Finger gedrückt halten und direkt an die gewünschte Stelle ziehen.", size=12, color="#A8C0D2", text_align=ft.TextAlign.CENTER),
                             ],
-                            spacing=10,
-                        ),
-                    ),
-                    ft.Container(
-                        width=390,
-                        padding=12,
-                        content=ft.Column(
-                            [
-                                ft.Text("Maps", size=20, weight="bold", color="white"),
-                                ft.Text("Vorlagen und eigene Hintergründe für diese Insel.", size=11, color="#A8C0D2") if editing_island_index is not None else ft.Container(),
-                                ft.Container(height=220, content=ft.Column(map_cards, spacing=10, scroll=ft.ScrollMode.AUTO)),
-                                _game_menu_button("Eigene Map hinzufügen", pick_custom_map, "#1D4ED8", width=280, height=40),
-                                ft.Row([
-                                    _game_menu_button("Punkt hinzufügen", add_point, "#0F766E", width=130, height=40),
-                                    _game_menu_button("Punkt löschen", remove_point, "#7C2D12", width=130, height=40),
-                                ], spacing=10),
-                                ft.Divider(color="#243244"),
-                                ft.TextField(ref=map_title_ref, value=active_point.get("label", ""), label="Punktname", bgcolor="#111827", color="white", border_color="#334155"),
-                                ft.TextField(ref=question_ref, value=active_question.get("question", ""), label="Frage", bgcolor="#111827", color="white", border_color="#334155"),
-                                ft.Row([
-                                    ft.TextField(ref=answer_refs[0], value=active_answers[0], label="Antwort A", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                    ft.TextField(ref=answer_refs[1], value=active_answers[1], label="Antwort B", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                ], spacing=8),
-                                ft.Row([
-                                    ft.TextField(ref=answer_refs[2], value=active_answers[2], label="Antwort C", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                    ft.TextField(ref=answer_refs[3], value=active_answers[3], label="Antwort D", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                ], spacing=8),
-                                ft.Dropdown(ref=correct_ref, value=str(int(active_question.get("correct_idx", 0) or 0)), label="Richtige Antwort", bgcolor="#111827", color="white", border_color="#334155", options=[ft.dropdown.Option(str(i), text=f"{ANSWER_LETTERS[i]}") for i in range(4)]),
-                                _game_menu_button("Speichern", save_point_details, "#0F766E", width=180, height=42),
-                            ],
-                            spacing=10,
+                            spacing=12,
                             scroll=ft.ScrollMode.AUTO,
                         ),
                     ),
@@ -19214,31 +18677,232 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
 
 
 def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
-    profiles = get_questions_path_profiles(state)
-    profile_index = get_questions_path_profile_index(state)
-    profile = profiles[profile_index] if profile_index < len(profiles) else _questions_path_default_profile(profile_index)
-    map_cfg = _questions_path_map_lookup_for_profile(profile, map_key)
+    map_cfg = _questions_path_game_map_cfg(state, map_key)
+    profile = _questions_path_active_profile(state)
     age = profile.get("selected_age", state.get("questions_path_age", "mid"))
-    questions = build_questions_path_questions(age, map_key, state)
-    visible_map_keys = [key for key, _cfg in _questions_path_maps_for_profile(profile)] or QUESTIONS_PATH_LEVEL_ORDER
-    state["questions_path_game"] = {
+    points = list(map_cfg.get("points", []))
+    if map_key in QUESTIONS_PATH_MAPS:
+        questions = build_questions_path_questions(age, map_key, state)
+    else:
+        questions = [
+            {
+                "question": str(point.get("question", "")).strip() or f"Frage {idx + 1}",
+                "answers": _questions_path_normalize_answers(point.get("answers", [])),
+                "correct_idx": max(0, min(3, int(point.get("correct", 0) or 0))),
+            }
+            for idx, point in enumerate(points)
+        ]
+    game = {
         "map_key": map_key,
         "map_title": map_cfg.get("title", "Fragen-Pfad"),
         "age": age,
         "node_index": 0,
         "completed_nodes": [],
-        "questions": questions,
+        "questions": questions[: len(points)] if points else questions,
         "game_finished": False,
         "checkpoint_index": 0,
         "current_hint": None,
-        "current_level_index": visible_map_keys.index(map_key) if map_key in visible_map_keys else 0,
+        "profile_index": get_questions_path_profile_index(state),
     }
-    state["questions_path_age"] = age
+    if len(game["questions"]) < len(points):
+        for idx in range(len(game["questions"]), len(points)):
+            game["questions"].append(
+                {
+                    "question": points[idx].get("question", f"Frage {idx + 1}"),
+                    "answers": _questions_path_normalize_answers(points[idx].get("answers", ["A", "B", "C", "D"])),
+                    "correct_idx": max(0, min(3, int(points[idx].get("correct", 0) or 0))),
+                }
+            )
+    state["questions_path_game"] = game
+    state["questions_path_scene"] = "game"
     state.pop("_questions_path_active_node", None)
-    state["questions_path_game"]["answer_feedback"] = None
-    state["questions_path_scene"] = "level"
     save_questions_path_game(state)
     render_questions_path_game(page, state)
+
+
+def render_questions_path_game(page: ft.Page, state: dict):
+    page.bgcolor = "#F3F5F7"
+    game = state.get("questions_path_game")
+    if not game:
+        show_questions_path_hub(page, state)
+        return
+    map_cfg = _questions_path_game_map_cfg(state, game.get("map_key", "waldpfad"))
+    questions = list(game.get("questions", []))
+    node_states = dict(game.get("node_states", {}) or {})
+    completed_count = sum(1 for item in node_states.values() if str(item.get("status")) == "correct")
+    if questions and completed_count >= len(questions):
+        render_questions_path_complete(page, state)
+        return
+
+    page_w, page_h = _page_size(page)
+    theme = get_theme(state)
+    is_mobile = page_w < 920
+    map_w = max(260, min(980, int(page_w * (0.92 if is_mobile else 0.68))))
+    map_h = max(280, min(560, int(page_h * (0.50 if is_mobile else 0.66))))
+    panel_w = max(260, min(360, int(page_w * 0.28)))
+    active_node = state.get("_questions_path_active_node")
+    current_idx = int(active_node if active_node is not None else game.get("node_index", 0))
+    current_idx = max(0, min(current_idx, max(len(questions) - 1, 0)))
+    current_q = questions[current_idx]
+    progress_value = completed_count / max(len(questions), 1)
+    hint = game.get("current_hint")
+    map_items = _questions_path_map_stack(page, state, game, map_cfg, map_w, map_h)
+    map_bg, _ = _questions_path_world_background_controls(map_cfg)
+    map_stack = ft.Container(
+        width=map_w,
+        height=map_h,
+        border_radius=28,
+        border=ft.border.Border.all(2.4, map_cfg.get("border", "#34D399")),
+        padding=10,
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        content=ft.Stack(
+            [
+                ft.Container(width=map_w, height=map_h, content=map_bg),
+                ft.Container(width=map_w, height=map_h, bgcolor="#06140B8C"),
+                ft.Container(width=map_w, height=map_h, padding=6, content=ft.Stack(map_items)),
+            ],
+            expand=True,
+        ),
+    )
+
+    status_panel = ft.Container(
+        width=panel_w,
+        padding=20,
+        border_radius=24,
+        bgcolor="#0A0F15E8",
+        border=ft.border.Border.all(2, map_cfg.get("border", "#34D399")),
+        content=ft.Column(
+            [
+                ft.Text(map_cfg.get("title", "Fragen-Pfad"), size=24, weight="bold", color="white"),
+                ft.Text(map_cfg.get("subtitle", ""), size=13, color=theme_txt(theme, "secondary")),
+                ft.Container(height=8),
+                ft.Text(f"Fortschritt: {completed_count} / {len(questions)}", size=12, color="white"),
+                ft.ProgressBar(value=progress_value, expand=True, color=map_cfg.get("accent", "#34D399")),
+                ft.Text(f"Aktuelle Station: {map_cfg.get('points', [])[current_idx].get('name', f'Station {current_idx + 1}')}", size=12, color="white"),
+                ft.Container(height=4),
+                ft.Text(hint or "Klicke eine Station auf der Karte, um die Frage rechts zu öffnen.", size=11, color=theme_txt(theme, "secondary")),
+                ft.Container(height=10),
+                _game_menu_button("Zurück zur Auswahl", lambda e: (state.pop("_questions_path_active_node", None), state.__setitem__("questions_path_scene", "menu"), _questions_path_render_home(e.page, state)), "#475569", width=panel_w - 40, height=42),
+            ],
+            spacing=8,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+
+    question_panel = ft.Container(
+        expand=True,
+        padding=18,
+        border_radius=24,
+        bgcolor="#000000A0" if active_node is not None else "#00000055",
+        content=ft.Container(
+            width=min(560, max(320, int(page_w - 28))),
+            padding=24,
+            bgcolor="#111827",
+            border_radius=24,
+            border=ft.border.Border.all(2, map_cfg.get("accent", "#34D399")),
+            content=ft.Column(
+                [
+                    ft.Text(
+                        f"Station {current_idx + 1}: {map_cfg.get('points', [])[current_idx].get('name', '')}",
+                        size=12,
+                        color=map_cfg.get("accent", "#34D399"),
+                    ),
+                    ft.Text(current_q.get("question", "?"), size=20, weight="bold", color="white", text_align="center"),
+                    ft.Container(height=6),
+                    _questions_path_answer_buttons(page, state, current_idx, current_q, map_cfg),
+                    ft.Container(height=8),
+                    _game_menu_button("Schließen", lambda e: (state.pop("_questions_path_active_node", None), render_questions_path_game(e.page, state)), "#475569", width=220, height=40),
+                ],
+                spacing=10,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        ),
+        visible=active_node is not None,
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                controls=[
+                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=["#02110C", "#0B1E2E", "#08131F"])),
+                    ft.Container(expand=True, bgcolor="#04110B92"),
+                    ft.Container(
+                        expand=True,
+                        padding=16,
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        _game_menu_button("← Spielauswahl", lambda e: (state.pop("_questions_path_active_node", None), state.__setitem__("questions_path_scene", "menu"), _questions_path_render_home(e.page, state)), "#475569", width=160, height=40),
+                                        ft.Text("Fragen-Pfad", size=28, weight="bold", color="white"),
+                                        ft.Container(width=160),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
+                                ft.Container(height=10),
+                                ft.Row([map_stack, status_panel], spacing=16, vertical_alignment=ft.CrossAxisAlignment.START, wrap=is_mobile),
+                            ],
+                            spacing=10,
+                            scroll=ft.ScrollMode.AUTO,
+                        ),
+                    ),
+                    question_panel,
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def render_questions_path_complete(page: ft.Page, state: dict):
+    page.bgcolor = "#F3F5F7"
+    game = state.get("questions_path_game") or {}
+    map_cfg = _questions_path_game_map_cfg(state, game.get("map_key", "waldpfad"))
+    clear_questions_path_game(state)
+    state["questions_path_scene"] = "menu"
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                controls=[
+                    ft.Container(expand=True, gradient=ft.LinearGradient(begin=ft.Alignment(-1, -1), end=ft.Alignment(1, 1), colors=map_cfg.get("colors", ["#02110C", "#0B1E2E", "#08131F"]))),
+                    ft.Container(expand=True, bgcolor="#04110BD8"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Container(
+                            width=440,
+                            padding=24,
+                            bgcolor="#0A1712E8",
+                            border_radius=24,
+                            border=ft.border.Border.all(2, map_cfg.get("accent", "#34D399")),
+                            content=ft.Column(
+                                [
+                                    ft.Text("Map abgeschlossen!", size=28, weight="bold", color="white", text_align="center"),
+                                    ft.Text(map_cfg.get("title", "Fragen-Pfad"), size=16, color="#D1FAE5", text_align="center"),
+                                    ft.Container(height=6),
+                                    ft.Text("Du hast alle Stationen geschafft.", size=13, color=theme_txt(get_theme(state), "secondary"), text_align="center"),
+                                    ft.Container(height=16),
+                                    _game_menu_button("Zur Auswahl", lambda e: _questions_path_render_home(e.page, state), map_cfg.get("accent", "#34D399"), width=250),
+                                    _game_menu_button("Zur Spielauswahl", lambda e: open_main_menu(e.page, state), "#475569", width=250),
+                                ],
+                                spacing=12,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
 
 
 def resume_questions_path_game(page: ft.Page, state: dict, saved: dict | None = None):
@@ -19257,51 +18921,27 @@ def resume_questions_path_game(page: ft.Page, state: dict, saved: dict | None = 
         "checkpoint_index": int(saved.get("checkpoint_index", 0)),
         "current_hint": saved.get("current_hint"),
         "current_level_index": int(saved.get("current_level_index", 0)),
-        "answer_feedback": None,
     }
-    state["questions_path_scene"] = "level"
     state.pop("_questions_path_active_node", None)
+    state.pop("_questions_path_modal", None)
     render_questions_path_game(page, state)
-
-
-def render_questions_path_game(page: ft.Page, state: dict):
-    scene = state.get("questions_path_scene") or "profiles"
-    if scene == "islands":
-        _questions_path_render_islands(page, state)
-        return
-    if scene == "custom_menu":
-        _questions_path_render_custom_menu(page, state)
-        return
-    if scene == "level":
-        _questions_path_render_level(page, state)
-        return
-    if scene == "editor":
-        _questions_path_render_editor(page, state)
-        return
-    if scene == "complete":
-        render_questions_path_complete(page, state)
-        return
-    _questions_path_render_profiles(page, state)
 
 
 def show_questions_path_hub(page: ft.Page, state: dict):
     _set_resize_view(state, show_questions_path_hub)
-    scene = state.get("questions_path_scene") or "profiles"
-    if scene == "islands":
-        _questions_path_render_islands(page, state)
-    elif scene == "custom_menu":
-        _questions_path_render_custom_menu(page, state)
-    elif scene == "creator":
-        _questions_path_render_creator(page, state)
-    elif scene == "level":
-        _questions_path_render_level(page, state)
-    elif scene == "editor":
-        _questions_path_render_editor(page, state)
-    elif scene == "complete":
-        render_questions_path_complete(page, state)
-    else:
-        state["questions_path_scene"] = "profiles"
-        _questions_path_render_profiles(page, state)
+    profiles = get_questions_path_profiles(state)
+    if profiles:
+        state["questions_path_profiles"] = profiles
+    elif "questions_path_profiles" not in state:
+        state["questions_path_profiles"] = []
+    if state.pop("_startup_recovering", False):
+        saved = get_saved_questions_path_game(state)
+        if saved:
+            resume_questions_path_game(page, state, saved)
+            return
+    state["questions_path_scene"] = "menu"
+    theme = get_theme(state)
+    _questions_path_render_home(page, state)
 
 
 def main(page: ft.Page):
@@ -19392,6 +19032,1939 @@ def main(page: ft.Page):
     page.update()
 
 
+def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: str | None):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    worlds = list(profile.get("worlds", []) or [])
+    world = None
+    for entry in worlds:
+        if str(entry.get("id")) == str(world_id):
+            world = entry
+            break
+    if world is None:
+        world = _questions_path_default_world(0)
+        worlds.append(world)
+        profile["worlds"] = worlds
+        profiles = list(get_questions_path_profiles(state))
+        idx = get_questions_path_profile_index(state)
+        if idx < len(profiles):
+            profiles[idx] = profile
+            state["questions_path_profiles"] = profiles
+            persist_questions_path_profiles(state, profiles)
+
+    islands = _questions_path_world_islands(world)
+    if not islands:
+        islands = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": world.get("name", "Welt 1"),
+                "design": world.get("background_preset", QUESTIONS_PATH_WORLD_PRESETS[0]["key"]),
+                "x": 50.0,
+                "y": 50.0,
+                "points": [_questions_path_default_point(0)],
+            }
+        ]
+        world["islands"] = islands
+        _questions_path_save_world(state, world)
+
+    selected_island = islands[0]
+    state["questions_path_selected_world_id"] = world["id"]
+    state["questions_path_scene"] = "editor"
+    state["_questions_path_selected_island_id"] = selected_island["id"]
+    state.setdefault("_questions_path_editor_selected_point", 0)
+    state["_questions_path_editor_selected_point"] = max(
+        0,
+        min(int(state.get("_questions_path_editor_selected_point", 0) or 0), max(len(_questions_path_world_points(world)) - 1, 0)),
+    )
+
+    world["points"] = list(selected_island.get("points", []) or [])
+    if not world["points"]:
+        world["points"] = [_questions_path_default_point(0)]
+        selected_island["points"] = list(world["points"])
+    world["background_preset"] = str(selected_island.get("design", world.get("background_preset", "forest")))
+
+    def persist_world():
+        selected_island["points"] = list(_questions_path_world_points(world))
+        selected_island["design"] = str(world.get("background_preset", selected_island.get("design", "forest")))
+        selected_island["name"] = str(world.get("name", selected_island.get("name", "Welt 1")))
+        _questions_path_save_world(state, world)
+
+    def back_to_owned(e):
+        state["questions_path_scene"] = "own"
+        _questions_path_render_owned(e.page, state)
+
+    def select_point(index: int):
+        state["_questions_path_editor_selected_point"] = max(0, min(index, len(_questions_path_world_points(world)) - 1))
+        _questions_path_render_world_editor(page, state, world["id"])
+
+    def move_point(index: int, dx: float, dy: float):
+        points = _questions_path_world_points(world)
+        if 0 <= index < len(points):
+            points[index]["x"] = _questions_path_clamp_pct(points[index]["x"] + dx * 0.08)
+            points[index]["y"] = _questions_path_clamp_pct(points[index]["y"] + dy * 0.08)
+            persist_world()
+            _questions_path_render_world_editor(page, state, world["id"])
+
+    def add_point(e):
+        points = _questions_path_world_points(world)
+        points.append(_questions_path_default_point(len(points)))
+        state["_questions_path_editor_selected_point"] = len(points) - 1
+        persist_world()
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def delete_point(e):
+        points = _questions_path_world_points(world)
+        if len(points) <= 1:
+            return
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if 0 <= idx < len(points):
+            points.pop(idx)
+            state["_questions_path_editor_selected_point"] = max(0, idx - 1)
+            persist_world()
+            _questions_path_render_world_editor(e.page, state, world["id"])
+
+    point = _questions_path_world_points(world)[state["_questions_path_editor_selected_point"]]
+    world_name_field = ft.TextField(
+        label="Weltname",
+        value=world.get("name", ""),
+        width=320,
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+    name_field = ft.TextField(
+        label="Punktname",
+        value=point.get("name", ""),
+        width=320,
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+    question_field = ft.TextField(
+        label="Frage",
+        value=point.get("question", ""),
+        width=320,
+        min_lines=3,
+        max_lines=6,
+        multiline=True,
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+    answer_fields = []
+    answers = list(point.get("answers", []))
+    while len(answers) < 4:
+        answers.append("")
+    for i in range(4):
+        answer_fields.append(
+            ft.TextField(
+                label=f"Antwort {ANSWER_LETTERS[i]}",
+                value=answers[i],
+                width=320,
+                bgcolor="#FFFFFF",
+                color="#111827",
+                border_color="#D1D5DB",
+            )
+        )
+    correct_dropdown = ft.Dropdown(
+        label="Richtige Antwort",
+        value=str(point.get("correct", 0)),
+        width=200,
+        options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)],
+        bgcolor="#FFFFFF",
+        color="#111827",
+        border_color="#D1D5DB",
+    )
+
+    def save_fields(e):
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        points = _questions_path_world_points(world)
+        if not (0 <= idx < len(points)):
+            return
+        point_local = points[idx]
+        point_local["name"] = str(name_field.value or "").strip() or point_local["name"]
+        point_local["question"] = str(question_field.value or "").strip()
+        point_local["answers"] = [str(f.value or "").strip() for f in answer_fields]
+        while len(point_local["answers"]) < 4:
+            point_local["answers"].append("")
+        point_local["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+        world["name"] = str(world_name_field.value or "").strip() or world.get("name", "Welt 1")
+        persist_world()
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    page_w, page_h = _page_size(page)
+    map_w = max(520, min(980, int(page_w * 0.62)))
+    map_h = max(420, min(760, int(page_h * 0.72)))
+    bg_label = "Leere Map"
+    map_layers = [
+        ft.Container(
+            width=map_w,
+            height=map_h,
+            border_radius=28,
+            bgcolor="#FFFFFF",
+            border=ft.border.Border.all(1.5, "#E5E7EB"),
+            content=ft.Stack(
+                [
+                    ft.Container(expand=True, bgcolor="#F8FAFC"),
+                    ft.Container(
+                        expand=True,
+                        gradient=ft.LinearGradient(
+                            begin=ft.Alignment(-1, -1),
+                            end=ft.Alignment(1, 1),
+                            colors=["#FFFFFF", "#EEF7FF"],
+                        ),
+                    ),
+                    *_questions_path_editor_point_stack(
+                        world,
+                        map_w,
+                        map_h,
+                        int(state.get("_questions_path_editor_selected_point", 0) or 0),
+                        select_point,
+                        move_point,
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    ]
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            bgcolor="#F3F5F7",
+            content=ft.Stack(
+                [
+                    ft.Container(expand=True, bgcolor="#F3F5F7"),
+                    ft.Container(
+                        expand=True,
+                        padding=16,
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        _game_menu_button("â† Eigenes Spiel", back_to_owned, "#64748B", width=170, height=40),
+                                        ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
+                                                _game_menu_button("â–¶ Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=120, height=38),
+                                            ],
+                                            spacing=10,
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
+                                ft.Row(
+                                    [
+                                        ft.Container(
+                                            expand=True,
+                                            border_radius=24,
+                                            padding=16,
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            shadow=ft.BoxShadow(blur_radius=24, color="#12000000", offset=ft.Offset(0, 8)),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Row(
+                                                        [
+                                                            ft.Text("Leere Karte", size=16, weight="bold", color="#111827"),
+                                                            ft.Text(bg_label, size=11, color="#6B7280"),
+                                                        ],
+                                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                    ),
+                                                    ft.Container(height=8),
+                                                    ft.Container(
+                                                        width=min(980, map_w),
+                                                        height=map_h,
+                                                        border_radius=28,
+                                                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                        content=ft.Stack(controls=map_layers),
+                                                    ),
+                                                    ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus.", size=11, color="#6B7280", text_align="center"),
+                                                ],
+                                                spacing=10,
+                                            ),
+                                        ),
+                                        ft.Container(
+                                            width=min(420, max(320, int(page_w * 0.34))),
+                                            border_radius=24,
+                                            padding=16,
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Text("Quiz Editor", size=18, weight="bold", color="#111827", text_align="center"),
+                                                    ft.Text(f"AusgewÃ¤hlt: {point.get('name', 'Punkt')}", size=12, color="#6B7280", text_align="center"),
+                                                    world_name_field,
+                                                    name_field,
+                                                    question_field,
+                                                    *answer_fields,
+                                                    correct_dropdown,
+                                                    ft.Row(
+                                                        [
+                                                            _game_menu_button("Speichern", save_fields, theme["success"], width=120, height=38),
+                                                            _game_menu_button("LÃ¶schen", delete_point, theme["danger"], width=120, height=38),
+                                                        ],
+                                                        spacing=10,
+                                                        wrap=True,
+                                                    ),
+                                                    ft.Text("Wenn du einen Punkt anklickst, kannst du hier Frage und Antworten bearbeiten.", size=11, color="#6B7280", text_align="center"),
+                                                ],
+                                                spacing=8,
+                                                scroll=ft.ScrollMode.AUTO,
+                                            ),
+                                        ),
+                                    ],
+                                    spacing=14,
+                                    wrap=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                ),
+                            ],
+                            spacing=12,
+                            scroll=ft.ScrollMode.AUTO,
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: str | None):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    worlds = list(profile.get("worlds", []) or [])
+    world = None
+    for entry in worlds:
+        if str(entry.get("id")) == str(world_id):
+            world = entry
+            break
+    if world is None:
+        world = _questions_path_default_world(0)
+        worlds.append(world)
+        profile["worlds"] = worlds
+        profiles = list(get_questions_path_profiles(state))
+        idx = get_questions_path_profile_index(state)
+        if idx < len(profiles):
+            profiles[idx] = profile
+            state["questions_path_profiles"] = profiles
+            persist_questions_path_profiles(state, profiles)
+
+    islands = _questions_path_world_islands(world)
+    if not islands:
+        islands = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": world.get("name", "Welt 1"),
+                "design": world.get("background_preset", QUESTIONS_PATH_WORLD_PRESETS[0]["key"]),
+                "x": 50.0,
+                "y": 50.0,
+                "points": [_questions_path_default_point(0)],
+            }
+        ]
+        world["islands"] = islands
+        _questions_path_save_world(state, world)
+
+    selected_island = islands[0]
+    state["questions_path_selected_world_id"] = world["id"]
+    state["questions_path_scene"] = "editor"
+    state["_questions_path_selected_island_id"] = selected_island["id"]
+    state["_questions_path_editor_selected_point"] = max(
+        0,
+        min(int(state.get("_questions_path_editor_selected_point", 0) or 0), max(len(_questions_path_world_points(world)) - 1, 0)),
+    )
+
+    world["points"] = list(selected_island.get("points", []) or [])
+    if not world["points"]:
+        world["points"] = [_questions_path_default_point(0)]
+        selected_island["points"] = list(world["points"])
+    world["background_preset"] = str(selected_island.get("design", world.get("background_preset", "forest")))
+
+    def persist_world():
+        selected_island["points"] = list(_questions_path_world_points(world))
+        selected_island["design"] = str(world.get("background_preset", selected_island.get("design", "forest")))
+        selected_island["name"] = str(world.get("name", selected_island.get("name", "Welt 1")))
+        _questions_path_save_world(state, world)
+
+    def back_to_owned(e):
+        state["questions_path_scene"] = "own"
+        _questions_path_render_owned(e.page, state)
+
+    def select_point(index: int):
+        state["_questions_path_editor_selected_point"] = max(0, min(index, len(_questions_path_world_points(world)) - 1))
+        _questions_path_render_world_editor(page, state, world["id"])
+
+    def move_point(index: int, dx: float, dy: float):
+        points = _questions_path_world_points(world)
+        if 0 <= index < len(points):
+            points[index]["x"] = _questions_path_clamp_pct(points[index]["x"] + dx * 0.08)
+            points[index]["y"] = _questions_path_clamp_pct(points[index]["y"] + dy * 0.08)
+            persist_world()
+            _questions_path_render_world_editor(page, state, world["id"])
+
+    def add_point(e):
+        points = _questions_path_world_points(world)
+        points.append(_questions_path_default_point(len(points)))
+        state["_questions_path_editor_selected_point"] = len(points) - 1
+        persist_world()
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def delete_point(e):
+        points = _questions_path_world_points(world)
+        if len(points) <= 1:
+            return
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        if 0 <= idx < len(points):
+            points.pop(idx)
+            state["_questions_path_editor_selected_point"] = max(0, idx - 1)
+            persist_world()
+            _questions_path_render_world_editor(e.page, state, world["id"])
+
+    point = _questions_path_world_points(world)[state["_questions_path_editor_selected_point"]]
+    world_name_field = ft.TextField(label="Weltname", value=world.get("name", ""), width=320, bgcolor="#FFFFFF", color="#111827", border_color="#D1D5DB")
+    name_field = ft.TextField(label="Punktname", value=point.get("name", ""), width=320, bgcolor="#FFFFFF", color="#111827", border_color="#D1D5DB")
+    question_field = ft.TextField(label="Frage", value=point.get("question", ""), width=320, min_lines=3, max_lines=6, multiline=True, bgcolor="#FFFFFF", color="#111827", border_color="#D1D5DB")
+    answer_fields = []
+    answers = list(point.get("answers", []))
+    while len(answers) < 4:
+        answers.append("")
+    for i in range(4):
+        answer_fields.append(ft.TextField(label=f"Antwort {ANSWER_LETTERS[i]}", value=answers[i], width=320, bgcolor="#FFFFFF", color="#111827", border_color="#D1D5DB"))
+    correct_dropdown = ft.Dropdown(label="Richtige Antwort", value=str(point.get("correct", 0)), width=200, options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)], bgcolor="#FFFFFF", color="#111827", border_color="#D1D5DB")
+
+    def save_fields(e):
+        idx = int(state.get("_questions_path_editor_selected_point", 0) or 0)
+        points = _questions_path_world_points(world)
+        if not (0 <= idx < len(points)):
+            return
+        point_local = points[idx]
+        point_local["name"] = str(name_field.value or "").strip() or point_local["name"]
+        point_local["question"] = str(question_field.value or "").strip()
+        point_local["answers"] = [str(f.value or "").strip() for f in answer_fields]
+        while len(point_local["answers"]) < 4:
+            point_local["answers"].append("")
+        point_local["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+        world["name"] = str(world_name_field.value or "").strip() or world.get("name", "Welt 1")
+        persist_world()
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    page_w, page_h = _page_size(page)
+    map_w = max(520, min(980, int(page_w * 0.62)))
+    map_h = max(420, min(760, int(page_h * 0.72)))
+    map_stack = ft.Container(
+        width=map_w,
+        height=map_h,
+        border_radius=28,
+        bgcolor="#FFFFFF",
+        border=ft.border.Border.all(1.5, "#E5E7EB"),
+        content=ft.Stack(
+            [
+                ft.Container(expand=True, bgcolor="#FFFFFF"),
+                ft.Container(expand=True, bgcolor="#F8FAFC"),
+                *_questions_path_editor_point_stack(
+                    world,
+                    map_w,
+                    map_h,
+                    int(state.get("_questions_path_editor_selected_point", 0) or 0),
+                    select_point,
+                    move_point,
+                ),
+            ],
+            expand=True,
+        ),
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            bgcolor="#F3F5F7",
+            content=ft.Stack(
+                [
+                    ft.Container(expand=True, bgcolor="#F3F5F7"),
+                    ft.Container(
+                        expand=True,
+                        padding=16,
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        _game_menu_button("Zurück", back_to_owned, "#64748B", width=170, height=40),
+                                        ft.Text("QuestMapper", size=28, weight="bold", color="#2B2F36"),
+                                        ft.Row(
+                                            [
+                                                _game_menu_button("+ Punkt", add_point, theme["accent"], width=120, height=38),
+                                                _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=120, height=38),
+                                            ],
+                                            spacing=10,
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
+                                ft.Row(
+                                    [
+                                        ft.Container(
+                                            expand=True,
+                                            border_radius=24,
+                                            padding=16,
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            shadow=ft.BoxShadow(blur_radius=24, color="#12000000", offset=ft.Offset(0, 8)),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Row(
+                                                        [
+                                                            ft.Text("Leere Karte", size=16, weight="bold", color="#111827"),
+                                                            ft.Text("Clean", size=11, color="#6B7280"),
+                                                        ],
+                                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                                    ),
+                                                    ft.Container(height=8),
+                                                    ft.Container(
+                                                        width=min(980, map_w),
+                                                        height=map_h,
+                                                        border_radius=28,
+                                                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                                        content=ft.Stack(controls=[map_stack]),
+                                                    ),
+                                                    ft.Text("Hinweis: Ziehe Punkte mit dem Finger oder der Maus.", size=11, color="#6B7280", text_align="center"),
+                                                ],
+                                                spacing=10,
+                                            ),
+                                        ),
+                                        ft.Container(
+                                            width=min(420, max(320, int(page_w * 0.34))),
+                                            border_radius=24,
+                                            padding=16,
+                                            bgcolor="#FFFFFF",
+                                            border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                            content=ft.Column(
+                                                [
+                                                    ft.Text("Quiz Editor", size=18, weight="bold", color="#111827", text_align="center"),
+                                                    ft.Text(f"Ausgewahlt: {point.get('name', 'Punkt')}", size=12, color="#6B7280", text_align="center"),
+                                                    world_name_field,
+                                                    name_field,
+                                                    question_field,
+                                                    *answer_fields,
+                                                    correct_dropdown,
+                                                    ft.Row(
+                                                        [
+                                                            _game_menu_button("Speichern", save_fields, theme["success"], width=120, height=38),
+                                                            _game_menu_button("Loeschen", delete_point, theme["danger"], width=120, height=38),
+                                                        ],
+                                                        spacing=10,
+                                                        wrap=True,
+                                                    ),
+                                                    ft.Text("Klicke einen Punkt an, um Frage und Antworten zu bearbeiten.", size=11, color="#6B7280", text_align="center"),
+                                                ],
+                                                spacing=8,
+                                                scroll=ft.ScrollMode.AUTO,
+                                            ),
+                                        ),
+                                    ],
+                                    spacing=14,
+                                    wrap=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                ),
+                            ],
+                            spacing=12,
+                            scroll=ft.ScrollMode.AUTO,
+                        ),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES = [
+    {"key": "circle", "label": "Circle", "type": "shape", "shape": "circle", "w": 11.0, "h": 11.0, "fill": "#74C365", "outline": "#356C2A"},
+    {"key": "oval", "label": "Oval", "type": "shape", "shape": "oval", "w": 13.0, "h": 9.0, "fill": "#7CCB72", "outline": "#3C7A33"},
+    {"key": "rect", "label": "Rectangle", "type": "shape", "shape": "rect", "w": 12.0, "h": 8.5, "fill": "#6FB85D", "outline": "#3A6C33"},
+    {"key": "triangle", "label": "Triangle", "type": "shape", "shape": "triangle", "w": 12.0, "h": 11.0, "fill": "#8ACF6B", "outline": "#3D7530"},
+    {"key": "polygon", "label": "Polygon", "type": "shape", "shape": "polygon", "w": 13.0, "h": 10.0, "fill": "#69B35A", "outline": "#325F2C"},
+]
+
+_QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE: list[dict] = []
+_QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE: tuple = ()
+QUESTIONS_PATH_EDITOR_ASSET_ISLAND_DIR = Path("assets") / "islands"
+QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+QUESTIONS_PATH_EDITOR_CANVAS_W = 6000.0
+QUESTIONS_PATH_EDITOR_CANVAS_H = 4200.0
+DEFAULT_IMAGE_ISLAND_BASE_WIDTH = 220.0
+DEFAULT_IMAGE_ISLAND_BASE_HEIGHT = 160.0
+DEFAULT_ISLAND_SCALE = 1.0
+MIN_ISLAND_SCALE = 0.4
+MAX_ISLAND_SCALE = 3.0
+ISLAND_SCALE_STEP = 0.15
+ISLAND_DRAG_FPS = 30.0
+QUESTIONS_PATH_EDITOR_SIDEBAR_W = 320
+
+
+def _questions_path_normalize_custom_island_presets(raw_presets) -> list[dict]:
+    presets = raw_presets if isinstance(raw_presets, list) else []
+    normalized: list[dict] = []
+    for idx, raw in enumerate(presets):
+        raw = raw if isinstance(raw, dict) else {}
+        src = str(raw.get("src") or "").strip().replace("\\", "/").lstrip("/")
+        ext = os.path.splitext(src)[1].lower()
+        if not src:
+            continue
+        if not src.startswith("data:") and ext not in QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS:
+            continue
+        asset_path = os.path.join("assets", *src.split("/")) if not src.startswith("data:") else None
+        if asset_path and not os.path.exists(asset_path):
+            continue
+        normalized.append(
+            {
+                "key": str(raw.get("key") or f"custom_island_{idx + 1}"),
+                "label": str(raw.get("label") or raw.get("name") or f"Custom {idx + 1}").strip() or f"Custom {idx + 1}",
+                "type": "image",
+                "src": src,
+                "base_w": max(40.0, float(raw.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH)),
+                "base_h": max(40.0, float(raw.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT)),
+                "fill": "#E5E7EB",
+                "outline": "#94A3B8",
+                "is_custom": True,
+            }
+        )
+    return normalized
+
+
+def _questions_path_island_mime_type(filename: str) -> str:
+    ext = os.path.splitext(str(filename or "").strip())[1].lower()
+    return {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(ext, "image/png")
+
+
+async def _questions_path_pick_custom_island_asset(page: ft.Page) -> dict | None:
+    picker = ft.FilePicker()
+    try:
+        if picker not in page.overlay:
+            page.overlay.append(picker)
+            page.update()
+    except Exception:
+        pass
+
+    extensions = [ext.lstrip(".") for ext in sorted(QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS)]
+    try:
+        pick_call = picker.pick_files(
+            dialog_title="Eigene Insel auswählen",
+            allow_multiple=False,
+            with_data=True,
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=extensions,
+        )
+    except TypeError:
+        try:
+            pick_call = picker.pick_files(
+                allow_multiple=False,
+                with_data=True,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=extensions,
+            )
+        except TypeError:
+            pick_call = picker.pick_files(
+                allow_multiple=False,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=extensions,
+            )
+    except Exception:
+        try:
+            if picker in page.overlay:
+                page.overlay.remove(picker)
+        except Exception:
+            pass
+        return None
+
+    picked_files = await pick_call if inspect.isawaitable(pick_call) else pick_call
+    picked_files = list(picked_files or [])
+    try:
+        if picker in page.overlay:
+            page.overlay.remove(picker)
+    except Exception:
+        pass
+    try:
+        page.update()
+    except Exception:
+        pass
+
+    if not picked_files:
+        return None
+
+    picked = picked_files[0]
+    original_name = str(getattr(picked, "name", "") or "").strip() or "custom_island.png"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS:
+        ext = ".png"
+    file_bytes = getattr(picked, "bytes", None)
+    if not file_bytes:
+        picked_path = str(getattr(picked, "path", "") or "")
+        if picked_path and os.path.exists(picked_path):
+            try:
+                with open(picked_path, "rb") as f:
+                    file_bytes = f.read()
+            except Exception:
+                file_bytes = None
+    if not file_bytes:
+        return None
+
+    label = Path(original_name).stem.replace("_", " ").replace("-", " ").strip() or "Eigene Insel"
+    data_url = f"data:{_questions_path_island_mime_type(original_name)};base64,{base64.b64encode(file_bytes).decode('ascii')}"
+    return {
+        "key": f"custom_island_{_sanitize_filename_part(label.lower())}_{int(time.time() * 1000)}",
+        "label": label.title(),
+        "type": "image",
+        "src": data_url,
+        "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+        "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
+        "fill": "#E5E7EB",
+        "outline": "#94A3B8",
+        "is_custom": True,
+    }
+
+
+def _questions_path_editor_asset_island_presets() -> list[dict]:
+    global _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE
+    global _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE
+
+    asset_dir = QUESTIONS_PATH_EDITOR_ASSET_ISLAND_DIR
+    if not asset_dir.exists():
+        _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE = []
+        _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE = ()
+        return []
+
+    image_files = []
+    for path in asset_dir.iterdir():
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in QUESTIONS_PATH_CUSTOM_ISLAND_EXTENSIONS:
+            continue
+        stat = path.stat()
+        image_files.append((path, stat.st_mtime_ns, stat.st_size))
+    image_files.sort(key=lambda item: item[0].name.lower())
+    signature = tuple((item[0].name.lower(), item[1], item[2]) for item in image_files)
+    if signature == _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE:
+        return list(_QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE)
+
+    presets: list[dict] = []
+    for path, _mtime, _size in image_files:
+        stem_label = path.stem.replace("_", " ").replace("-", " ").strip()
+        rel_src = path.relative_to(Path("assets")).as_posix()
+        presets.append(
+            {
+                "key": f"asset_{_sanitize_filename_part(path.stem.lower())}",
+                "label": stem_label.title() or path.stem,
+                "type": "image",
+                "src": rel_src,
+                "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+                "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
+                "fill": "#E5E7EB",
+                "outline": "#94A3B8",
+                "is_asset_folder": True,
+            }
+        )
+
+    _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE = list(presets)
+    _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE = signature
+    return list(presets)
+
+
+def _questions_path_editor_template_cfg(template_key: str, profile: dict | None = None) -> dict:
+    for template in _questions_path_editor_presets(profile):
+        if template["key"] == template_key:
+            return template
+    return _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES[0]
+
+
+def _questions_path_editor_presets(profile: dict | None = None) -> list[dict]:
+    presets = list(_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES)
+    folder_presets = _questions_path_editor_asset_island_presets()
+    presets.extend(folder_presets)
+    if not folder_presets:
+        legacy_candidates = [
+            ("fragenpfad_island", "Fragenpfad", "Fragenpfad/level_insel_1.png", 16.0, 12.0),
+            ("hub_island", "Hub", "Fragenpfad/Inseln.png", 18.0, 12.0),
+        ]
+        for key, label, src, width, height in legacy_candidates:
+            if Path("assets", *src.split("/")).exists():
+                presets.append(
+                    {
+                        "key": key,
+                        "label": label,
+                        "type": "image",
+                        "src": src,
+                        "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+                        "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
+                        "fill": "#E5E7EB",
+                        "outline": "#94A3B8",
+                    }
+                )
+    if isinstance(profile, dict):
+        presets.extend(_questions_path_normalize_custom_island_presets(profile.get("custom_island_presets", [])))
+    return presets
+
+
+def _questions_path_editor_normalize_islands(world: dict, profile: dict | None = None) -> list[dict]:
+    raw_islands = world.get("islands", [])
+    if not isinstance(raw_islands, list):
+        raw_islands = []
+    normalized: list[dict] = []
+    preset_keys = {tpl["key"] for tpl in _questions_path_editor_presets(profile)}
+    for idx, island in enumerate(raw_islands):
+        island = island if isinstance(island, dict) else {}
+        template_key = str(island.get("template") or island.get("shape") or island.get("design") or "circle").strip().lower()
+        if template_key not in preset_keys:
+            if str(island.get("type") or "").strip().lower() == "image" and str(island.get("src") or "").strip():
+                template_key = str(island.get("template") or island.get("id") or f"custom_image_{idx + 1}")
+            else:
+                template_key = _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES[idx % len(_QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES)]["key"]
+        template_cfg = _questions_path_editor_template_cfg(template_key, profile)
+        fallback_pct_w = float(template_cfg.get("w", 12.0) or 12.0)
+        fallback_pct_h = float(template_cfg.get("h", 10.0) or 10.0)
+        normalized.append(
+            {
+                "id": str(island.get("id") or uuid.uuid4()),
+                "name": str(island.get("name") or f"Insel {idx + 1}").strip() or f"Insel {idx + 1}",
+                "template": template_key,
+                "type": str(island.get("type") or template_cfg.get("type") or "shape"),
+                "src": str(island.get("src") or template_cfg.get("src") or ""),
+                "x": _questions_path_clamp_pct(island.get("x", 50.0)),
+                "y": _questions_path_clamp_pct(island.get("y", 50.0)),
+                "base_w": max(
+                    40.0,
+                    float(
+                        island.get(
+                            "base_w",
+                            template_cfg.get(
+                                "base_w",
+                                QUESTIONS_PATH_EDITOR_CANVAS_W * float(island.get("w", fallback_pct_w)) / 100.0,
+                            ),
+                        )
+                        or DEFAULT_IMAGE_ISLAND_BASE_WIDTH
+                    ),
+                ),
+                "base_h": max(
+                    40.0,
+                    float(
+                        island.get(
+                            "base_h",
+                            template_cfg.get(
+                                "base_h",
+                                QUESTIONS_PATH_EDITOR_CANVAS_H * float(island.get("h", fallback_pct_h)) / 100.0,
+                            ),
+                        )
+                        or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT
+                    ),
+                ),
+                "scale": max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE))),
+            }
+        )
+    world["islands"] = normalized
+    return normalized
+
+
+def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: str | None):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    worlds = list(profile.get("worlds", []) or [])
+    world = next((entry for entry in worlds if str(entry.get("id")) == str(world_id)), None)
+    if world is None:
+        world = _questions_path_default_world(0)
+        worlds.append(world)
+        profile["worlds"] = worlds
+        profiles = list(get_questions_path_profiles(state))
+        idx = get_questions_path_profile_index(state)
+        if idx < len(profiles):
+            profiles[idx] = profile
+            state["questions_path_profiles"] = profiles
+            persist_questions_path_profiles(state, profiles)
+
+    islands = _questions_path_editor_normalize_islands(world, profile)
+    if not islands:
+        islands = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": str(world.get("name", "Welt 1")) or "Welt 1",
+                "template": _QUESTIONS_PATH_EDITOR_ISLAND_TEMPLATES[0]["key"],
+                "type": "shape",
+                "src": "",
+                "x": 50.0,
+                "y": 50.0,
+                "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+                "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
+                "scale": DEFAULT_ISLAND_SCALE,
+            }
+        ]
+        world["islands"] = islands
+        _questions_path_save_world(state, world)
+    state["questions_path_selected_world_id"] = world["id"]
+    state["questions_path_scene"] = "editor"
+
+    page_w, page_h = _page_size(page)
+    sidebar_w = QUESTIONS_PATH_EDITOR_SIDEBAR_W if page_w >= 760 else max(240, min(QUESTIONS_PATH_EDITOR_SIDEBAR_W, int(page_w * 0.9)))
+    viewport_w = max(300, int(page_w - sidebar_w - 52))
+    viewport_h = max(360, int(page_h - 88))
+    canvas_w, canvas_h = QUESTIONS_PATH_EDITOR_CANVAS_W, QUESTIONS_PATH_EDITOR_CANVAS_H
+    fit_zoom = min(1.0, max(0.15, min(viewport_w / canvas_w, viewport_h / canvas_h)))
+    min_zoom, max_zoom = fit_zoom, 6.0
+    zoom_key = f"_qpe_zoom_{world['id']}"
+    pan_x_key = f"_qpe_pan_x_{world['id']}"
+    pan_y_key = f"_qpe_pan_y_{world['id']}"
+    init_key = f"_qpe_ready_centered_{world['id']}"
+    ctrl_key = "_qpe_ctrl_down_until"
+    ctrl_hold_key = "_qpe_ctrl_held"
+    pan_drag_key = f"_qpe_pan_drag_{world['id']}"
+    previous_keyboard_handler = getattr(page, "on_keyboard_event", None)
+    if getattr(previous_keyboard_handler, "_qpe_keyboard_handler", False):
+        previous_keyboard_handler = None
+
+    def on_editor_keyboard(e):
+        if callable(previous_keyboard_handler):
+            previous_keyboard_handler(e)
+        if str(getattr(e, "key", "") or "").lower() in {"control", "ctrl"}:
+            event_type = str(getattr(e, "event_type", "") or "").lower()
+            if event_type in {"down", "repeat"}:
+                state[ctrl_hold_key] = True
+                state[ctrl_key] = time.time() + 5.0
+            elif event_type == "up":
+                state[ctrl_hold_key] = False
+                state[ctrl_key] = 0.0
+        elif bool(getattr(e, "ctrl", False)):
+            state[ctrl_hold_key] = True
+            state[ctrl_key] = time.time() + 5.0
+        elif str(getattr(e, "event_type", "") or "").lower() == "up":
+            state[ctrl_hold_key] = False
+
+    on_editor_keyboard._qpe_keyboard_handler = True
+    page.on_keyboard_event = on_editor_keyboard
+
+    def clamp_zoom(value: float) -> float:
+        return max(min_zoom, min(max_zoom, float(value)))
+
+    def zoom() -> float:
+        return clamp_zoom(float(state.get(zoom_key, 1.0) or 1.0))
+
+    def display_size() -> tuple[float, float]:
+        current = zoom()
+        return canvas_w * current, canvas_h * current
+
+    def clamp_pan(x: float, y: float) -> tuple[float, float]:
+        display_w, display_h = display_size()
+        span_x = max(0.0, (display_w - viewport_w) / 2.0)
+        span_y = max(0.0, (display_h - viewport_h) / 2.0)
+        return max(-span_x, min(span_x, float(x))), max(-span_y, min(span_y, float(y)))
+
+    def persist_world():
+        _questions_path_save_world(state, world)
+
+    def render_again():
+        _questions_path_render_world_editor(page, state, world["id"])
+
+    if state.get(init_key) != "1":
+        state[zoom_key] = 1.0
+        state[pan_x_key] = 0.0
+        state[pan_y_key] = 0.0
+        state[init_key] = "1"
+
+    pan_x, pan_y = clamp_pan(float(state.get(pan_x_key, 0.0) or 0.0), float(state.get(pan_y_key, 0.0) or 0.0))
+    state[pan_x_key], state[pan_y_key] = pan_x, pan_y
+    current_zoom = zoom()
+    display_w, display_h = display_size()
+    island_by_id = {str(island.get("id")): island for island in islands}
+    island_hosts: dict[str, ft.Container] = {}
+    if islands and str(state.get("_questions_path_editor_selected_island_id") or "") not in island_by_id:
+        state["_questions_path_editor_selected_island_id"] = str(islands[0].get("id"))
+
+    def back_to_owned(e):
+        state["questions_path_scene"] = "own"
+        state.pop("_questions_path_editor_selected_point", None)
+        state.pop("_questions_path_editor_selected_island_id", None)
+        _questions_path_render_owned(e.page, state)
+
+    def open_island_map_editor(island_id: str):
+        state["_questions_path_editor_selected_island_id"] = island_id
+        state["questions_path_scene"] = "editor_map"
+        _questions_path_render_island_map_editor(page, state, world["id"], island_id)
+
+    def center_pan_for_zoom(target_zoom: float) -> tuple[float, float]:
+        return 0.0, 0.0
+
+    def set_zoom(new_zoom: float):
+        target_zoom = clamp_zoom(new_zoom)
+        state[zoom_key] = target_zoom
+        state[pan_x_key], state[pan_y_key] = center_pan_for_zoom(target_zoom)
+        sync_canvas_transform()
+
+    def ctrl_wheel_zoom(e):
+        # Flet web does not expose a browser-native preventDefault hook here.
+        # We handle Flet scroll/scale events when they reach Python and keep the visible buttons as the guaranteed fallback.
+        event_ctrl = bool(getattr(e, "ctrl", False) or getattr(e, "ctrl_key", False))
+        held_ctrl = bool(state.get(ctrl_hold_key))
+        recent_ctrl = float(state.get(ctrl_key, 0.0) or 0.0) > time.time()
+        if not event_ctrl and not held_ctrl and not recent_ctrl:
+            return
+        delta_y = _scroll_delta_y(e)
+        if abs(delta_y) < 0.01:
+            return
+        factor = 1.22 if delta_y < 0 else 1 / 1.22
+        set_zoom(zoom() * factor)
+
+    def scroll_pan_map(e):
+        event_ctrl = bool(getattr(e, "ctrl", False) or getattr(e, "ctrl_key", False))
+        held_ctrl = bool(state.get(ctrl_hold_key))
+        recent_ctrl = float(state.get(ctrl_key, 0.0) or 0.0) > time.time()
+        if event_ctrl or held_ctrl or recent_ctrl:
+            ctrl_wheel_zoom(e)
+            return
+        dx = _scroll_delta_x(e)
+        dy = _scroll_delta_y(e)
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+        state[pan_x_key], state[pan_y_key] = clamp_pan(
+            float(state.get(pan_x_key, pan_x) or 0.0) - dx,
+            float(state.get(pan_y_key, pan_y) or 0.0) - dy,
+        )
+        sync_canvas_transform()
+
+    def editor_key_down(e):
+        if str(getattr(e, "key", "") or "").lower() in {"control", "ctrl"} or bool(getattr(e, "ctrl", False)):
+            state[ctrl_hold_key] = True
+            state[ctrl_key] = time.time() + 5.0
+
+    def editor_key_up(e):
+        if str(getattr(e, "key", "") or "").lower() in {"control", "ctrl"}:
+            state[ctrl_hold_key] = False
+            state[ctrl_key] = 0.0
+
+    def editor_presets() -> list[dict]:
+        return _questions_path_editor_presets(profile)
+
+    def show_editor_message(message: str, color: str | None = None):
+        page.snack_bar = ft.SnackBar(content=ft.Text(message), bgcolor=color)
+        page.snack_bar.open = True
+        page.update()
+
+    def refresh_island_folder(e):
+        global _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE
+        global _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE
+        _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_SIGNATURE = ()
+        _QUESTIONS_PATH_EDITOR_FOLDER_PRESETS_CACHE = []
+        count = len(_questions_path_editor_asset_island_presets())
+        if count:
+            show_editor_message(f"{count} Inselbilder aus assets/islands geladen.", "#166534")
+        else:
+            show_editor_message("Keine Inselbilder in assets/islands gefunden.", "#B91C1C")
+        render_again()
+
+    def open_custom_island_dialog(e):
+        folder_path = Path("assets") / "islands"
+        try:
+            folder_path.mkdir(parents=True, exist_ok=True)
+            resolved = folder_path.resolve()
+            if os.name == "nt":
+                os.startfile(str(resolved))
+            else:
+                page.launch_url(resolved.as_uri())
+            show_editor_message(f"Ordner geoeffnet: {resolved}", "#166534")
+        except Exception:
+            show_editor_message("Der Insel-Ordner konnte nicht geoeffnet werden.", "#B91C1C")
+
+    def set_world_background(preset_key: str | None = None, image_src: str | None = None):
+        if preset_key:
+            world["background_preset"] = preset_key
+        if image_src is not None:
+            world["background_image"] = image_src or None
+        persist_world()
+        render_again()
+
+    def open_custom_map_dialog(e):
+        name_field = ft.TextField(label="Name der Map", value=world.get("name", "Eigene Map"), width=360, autofocus=True)
+        src_field = ft.TextField(
+            label="Bild-URL oder lokaler Pfad",
+            hint_text="assets/Fragenpfad/waldmap_1.png, https://... oder data:image/...",
+            width=360,
+        )
+        overlay_ref = [None]
+
+        def close_dialog():
+            overlay = overlay_ref[0]
+            if overlay is not None:
+                close_page_dialog(page, overlay)
+            elif getattr(page, "dialog", None):
+                close_page_dialog(page, page.dialog)
+
+        def add_custom_map(e):
+            raw_src = str(src_field.value or "").strip().replace("\\", "/")
+            if not raw_src:
+                show_editor_message("Bitte ein Hintergrundbild angeben.", "#B91C1C")
+                return
+            src_value = raw_src
+            if not raw_src.startswith(("data:", "http://", "https://")):
+                normalized_src = raw_src[7:] if raw_src.startswith("assets/") else raw_src
+                normalized_src = normalized_src.lstrip("/")
+                local_candidates = [Path(normalized_src), Path("assets", *normalized_src.split("/"))]
+                existing = next((candidate for candidate in local_candidates if candidate.exists()), None)
+                if existing is None:
+                    show_editor_message("Bild nicht gefunden. Nutze assets/... oder eine Bild-URL.", "#B91C1C")
+                    return
+                try:
+                    with open(existing, "rb") as f:
+                        file_bytes = f.read()
+                except Exception:
+                    file_bytes = None
+                if file_bytes:
+                    src_value = f"data:image/png;base64,{base64.b64encode(file_bytes).decode('ascii')}"
+                else:
+                    src_value = Path(normalized_src).as_posix()
+            world["name"] = str(name_field.value or "").strip() or world.get("name", "Eigene Map")
+            world["background_preset"] = "custom"
+            world["background_image"] = src_value
+            persist_world()
+            close_dialog()
+            render_again()
+            show_editor_message(f"Eigene Map '{world['name']}' hinzugefügt.", "#166534")
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Eigene Map hinzufügen"),
+            content=ft.Container(
+                width=420,
+                content=ft.Column(
+                    [
+                        name_field,
+                        src_field,
+                        ft.Text("Tipp: Für lokale Dateien einfach assets/... angeben.", size=11, color="#6B7280"),
+                    ],
+                    spacing=10,
+                    tight=True,
+                ),
+            ),
+            actions=[
+                ft.TextButton("Abbrechen", on_click=lambda e: close_dialog()),
+                ft.TextButton("Hinzufügen", on_click=add_custom_map),
+            ],
+        )
+        overlay_ref[0] = dlg
+        open_page_dialog(page, dlg)
+
+    def scale_zoom_start(e):
+        state["_qpe_scale_start_zoom"] = zoom()
+
+    def scale_zoom_update(e):
+        scale = float(getattr(e, "scale", 1.0) or 1.0)
+        if abs(scale - 1.0) < 0.01:
+            return
+        now = time.time()
+        if now - float(state.get("_qpe_scale_last_update", 0.0) or 0.0) < 1 / 20:
+            return
+        state["_qpe_scale_last_update"] = now
+        set_zoom(float(state.get("_qpe_scale_start_zoom", zoom()) or zoom()) * scale)
+
+    def reset_view(e):
+        state[zoom_key] = fit_zoom
+        state[pan_x_key], state[pan_y_key] = 0.0, 0.0
+        sync_canvas_transform()
+
+    def pan_start(e):
+        state[pan_drag_key] = {"position": _gesture_position_xy(e), "delta": _gesture_delta_xy(e)}
+
+    def pan_map(e):
+        drag_info = state.get(pan_drag_key)
+        if not isinstance(drag_info, dict):
+            drag_info = {"position": None, "delta": (0.0, 0.0)}
+            state[pan_drag_key] = drag_info
+        position = _gesture_position_xy(e)
+        if position is not None and drag_info.get("position") is not None:
+            previous = drag_info.get("position")
+            dx = float(position[0]) - float(previous[0])
+            dy = float(position[1]) - float(previous[1])
+            drag_info["position"] = position
+        else:
+            delta = _gesture_delta_xy(e)
+            previous_delta = drag_info.get("delta") or (0.0, 0.0)
+            dx = float(delta[0]) - float(previous_delta[0])
+            dy = float(delta[1]) - float(previous_delta[1])
+            drag_info["delta"] = delta
+            if position is not None:
+                drag_info["position"] = position
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+        state[pan_x_key], state[pan_y_key] = clamp_pan(
+            float(state.get(pan_x_key, pan_x) or 0.0) + dx,
+            float(state.get(pan_y_key, pan_y) or 0.0) + dy,
+        )
+        sync_canvas_transform()
+
+    def pan_end(e):
+        state.pop(pan_drag_key, None)
+
+    def add_island(template_key: str):
+        cfg = _questions_path_editor_template_cfg(template_key, profile)
+        current_zoom = zoom()
+        center_x = (canvas_w / 2.0) - (float(state.get(pan_x_key, pan_x) or 0.0) / current_zoom)
+        center_y = (canvas_h / 2.0) - (float(state.get(pan_y_key, pan_y) or 0.0) / current_zoom)
+        island = {
+            "id": str(uuid.uuid4()),
+            "name": f"Insel {len(islands) + 1}",
+            "template": template_key,
+            "type": cfg.get("type", "shape"),
+            "src": cfg.get("src", ""),
+            "x": _questions_path_clamp_pct((center_x / canvas_w) * 100.0),
+            "y": _questions_path_clamp_pct((center_y / canvas_h) * 100.0),
+            "base_w": float(cfg.get("base_w") or canvas_w * float(cfg["w"]) / 100.0),
+            "base_h": float(cfg.get("base_h") or canvas_h * float(cfg["h"]) / 100.0),
+            "scale": DEFAULT_ISLAND_SCALE,
+        }
+        islands.append(island)
+        island_by_id[island["id"]] = island
+        world["islands"] = islands
+        state["_questions_path_editor_selected_island_id"] = island["id"]
+        persist_world()
+        island_layer.controls.append(island_control(island))
+        island_layer.update()
+        update_selection_ui()
+
+    def island_pixel_bounds(island: dict) -> tuple[float, float, float, float]:
+        base_width = max(40.0, float(island.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH))
+        base_height = max(40.0, float(island.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT))
+        island_scale = max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)))
+        width = base_width * island_scale
+        height = base_height * island_scale
+        left = canvas_w * float(island.get("x", 50.0)) / 100.0 - width / 2.0
+        top = canvas_h * float(island.get("y", 50.0)) / 100.0 - height / 2.0
+        return left, top, width, height
+
+    def island_drag_state_key(island_id: str) -> str:
+        return f"_qpe_island_drag_{island_id}"
+
+    def selected_island() -> dict | None:
+        return island_by_id.get(str(state.get("_questions_path_editor_selected_island_id") or ""))
+
+    def update_selection_ui():
+        selected = selected_island()
+        selection_text.value = str(selected.get("name")) if selected else "Keine Insel"
+        scale_value = float(selected.get("scale", DEFAULT_ISLAND_SCALE)) if selected else DEFAULT_ISLAND_SCALE
+        island_scale_label.value = f"{int(scale_value * 100)}%"
+        try:
+            island_scale_slider.value = scale_value
+        except Exception:
+            pass
+        try:
+            zoom_slider.value = zoom()
+        except Exception:
+            pass
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    def refresh_island_host(island_id: str, update_control: bool = True):
+        island = island_by_id.get(island_id)
+        host = island_hosts.get(island_id)
+        if island is None or host is None:
+            return
+        left, top, width, height = island_pixel_bounds(island)
+        host.left, host.top, host.width, host.height = left, top, width, height
+        selected = island_id == str(state.get("_questions_path_editor_selected_island_id") or "")
+        if isinstance(host.content, ft.GestureDetector):
+            host.content.content = island_shape(island, width, height, selected)
+        if update_control:
+            host.update()
+
+    def set_selected_island(item_id: str):
+        state["_questions_path_editor_selected_island_id"] = item_id
+        for known_id in island_hosts:
+            refresh_island_host(known_id, update_control=False)
+        island_layer.update()
+        update_selection_ui()
+
+    def island_drag_start(island_id: str, e):
+        state[island_drag_state_key(island_id)] = {
+            "position": _gesture_position_xy(e),
+            "delta": _gesture_delta_xy(e),
+            "last_update": 0.0,
+        }
+        if island_id != str(state.get("_questions_path_editor_selected_island_id") or ""):
+            set_selected_island(island_id)
+
+    def move_island(island_id: str, e, host: ft.Container):
+        delta = _gesture_delta_xy(e)
+        position = _gesture_position_xy(e)
+        drag_info = state.get(island_drag_state_key(island_id))
+        if not isinstance(drag_info, dict):
+            drag_info = {"position": None, "delta": (0.0, 0.0), "last_update": 0.0}
+            state[island_drag_state_key(island_id)] = drag_info
+
+        previous_position = drag_info.get("position")
+        if position is not None and previous_position is not None:
+            dx = float(position[0]) - float(previous_position[0])
+            dy = float(position[1]) - float(previous_position[1])
+            drag_info["position"] = position
+        else:
+            previous_delta = drag_info.get("delta") or (0.0, 0.0)
+            dx = float(delta[0]) - float(previous_delta[0])
+            dy = float(delta[1]) - float(previous_delta[1])
+            drag_info["delta"] = delta
+            if position is not None:
+                drag_info["position"] = position
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+        island = island_by_id.get(island_id)
+        if island is None:
+            return
+        island["x"] = _questions_path_clamp_pct(float(island.get("x", 50.0)) + ((dx / zoom()) / canvas_w) * 100.0)
+        island["y"] = _questions_path_clamp_pct(float(island.get("y", 50.0)) + ((dy / zoom()) / canvas_h) * 100.0)
+        now = time.time()
+        if now - float(drag_info.get("last_update", 0.0) or 0.0) < 1 / 30:
+            return
+        drag_info["last_update"] = now
+        host.left, host.top, host.width, host.height = island_pixel_bounds(island)
+        host.update()
+
+    def island_drag_end(island_id: str, e, host: ft.Container):
+        state.pop(island_drag_state_key(island_id), None)
+        host.update()
+        persist_world()
+
+    def delete_selected(e):
+        island = selected_island()
+        if island is None:
+            return
+        island_id = str(island.get("id"))
+        world["islands"] = [item for item in islands if str(item.get("id")) != island_id]
+        islands[:] = world["islands"]
+        island_by_id.pop(island_id, None)
+        host = island_hosts.pop(island_id, None)
+        if host is not None and host in island_layer.controls:
+            island_layer.controls.remove(host)
+            island_layer.update()
+        state.pop("_questions_path_editor_selected_island_id", None)
+        persist_world()
+        update_selection_ui()
+
+    def scale_selected_island(direction: int):
+        island = selected_island()
+        if island is None:
+            return
+        current_scale = float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)
+        next_scale = max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, current_scale + (ISLAND_SCALE_STEP * direction)))
+        if abs(next_scale - current_scale) < 0.001:
+            return
+        island["scale"] = next_scale
+        refresh_island_host(str(island.get("id")))
+        persist_world()
+        update_selection_ui()
+
+    def sync_canvas_transform():
+        canvas.left = (viewport_w - canvas_w) / 2.0 + float(state.get(pan_x_key, 0.0) or 0.0)
+        canvas.top = (viewport_h - canvas_h) / 2.0 + float(state.get(pan_y_key, 0.0) or 0.0)
+        canvas.scale = zoom()
+        try:
+            canvas.update()
+        except Exception:
+            pass
+
+    def island_shape(island: dict, width: float, height: float, selected: bool) -> ft.Control:
+        template = str(island.get("template", "circle"))
+        cfg = _questions_path_editor_template_cfg(template, profile)
+        if str(island.get("type") or cfg.get("type") or "shape") == "image":
+            return ft.Container(
+                width=width,
+                height=height,
+                bgcolor="transparent",
+                border=ft.border.Border.all(1.5, "#38BDF8") if selected else None,
+                shadow=ft.BoxShadow(blur_radius=12, color="#1838BDF8", offset=ft.Offset(0, 2)) if selected else None,
+                content=ft.Image(src=str(island.get("src") or cfg.get("src") or ""), fit=ft.BoxFit.CONTAIN, width=width, height=height),
+            )
+        radius = 999 if template in ("circle", "oval") else 8
+        shape_kwargs = {"shape": ft.BoxShape.CIRCLE} if template == "circle" else {"border_radius": radius}
+        return ft.Container(
+            width=width,
+            height=height,
+            bgcolor=cfg["fill"],
+            border=ft.border.Border.all(3 if selected else 2, "#FFFFFF" if selected else cfg["outline"]),
+            shadow=ft.BoxShadow(blur_radius=14, color="#33000000", offset=ft.Offset(0, 5)),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Text(str(island.get("name", "Insel"))[:10], size=11, weight="bold", color="#1F2937"),
+            **shape_kwargs,
+        )
+
+    def island_control(island: dict) -> ft.Control:
+        left, top, width, height = island_pixel_bounds(island)
+        island_id = str(island.get("id"))
+        selected = island_id == str(state.get("_questions_path_editor_selected_island_id") or "")
+        host = ft.Container(left=left, top=top, width=width, height=height)
+        island_hosts[island_id] = host
+        host.content = ft.GestureDetector(
+            drag_interval=16,
+            on_tap=lambda e, item_id=island_id: open_island_map_editor(item_id),
+            on_pan_start=lambda e, item_id=island_id: island_drag_start(item_id, e),
+            on_pan_update=lambda e, item_id=island_id, item_host=host: move_island(item_id, e, item_host),
+            on_pan_end=lambda e, item_id=island_id, item_host=host: island_drag_end(item_id, e, item_host),
+            on_scroll=scroll_pan_map,
+            content=island_shape(island, width, height, selected),
+        )
+        return host
+
+    map_background = ft.GestureDetector(
+        drag_interval=16,
+        on_pan_start=pan_start,
+        on_pan_update=pan_map,
+        on_pan_end=pan_end,
+        on_scroll=scroll_pan_map,
+        content=ft.Container(
+            width=canvas_w,
+            height=canvas_h,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            bgcolor="#FFFFFF",
+            border=ft.border.Border.all(1.5, "#D7DEE7"),
+            content=ft.Container(
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+                content=ft.Text(
+                    "",
+                    size=16,
+                    color="#6B7280",
+                    text_align=ft.TextAlign.CENTER,
+                ),
+            ),
+        ),
+    )
+
+    island_layer = ft.Stack(
+        [island_control(island) for island in islands],
+        width=canvas_w,
+        height=canvas_h,
+    )
+
+    canvas = ft.Container(
+        left=pan_x,
+        top=pan_y,
+        width=canvas_w,
+        height=canvas_h,
+        scale=current_zoom,
+        content=ft.Stack([map_background, island_layer], expand=True),
+    )
+    sync_canvas_transform()
+
+    image_presets = [template for template in editor_presets() if template.get("type") == "image"]
+
+    tile_size = 62 if sidebar_w < 260 else 66
+    image_tiles: list[ft.Control] = []
+    for template in image_presets:
+        image_tiles.append(
+            ft.Container(
+                width=tile_size,
+                height=tile_size,
+                border_radius=12,
+                bgcolor="#F8FAFC",
+                border=ft.border.Border.all(1.2, "#D7DEE7"),
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                shadow=ft.BoxShadow(blur_radius=8, color="#14000000", offset=ft.Offset(0, 2)),
+                padding=6,
+                on_click=lambda e, key=template["key"]: add_island(key),
+                content=ft.Image(src=str(template.get("src") or ""), fit=ft.BoxFit.CONTAIN),
+            )
+        )
+
+    selected_id = str(state.get("_questions_path_editor_selected_island_id") or "")
+    selected_name = next((str(item.get("name", "Insel")) for item in islands if str(item.get("id")) == selected_id), "Keine Insel")
+    compact_layout = page_w < 980
+    selection_text = ft.Text(selected_name, size=13, color="#374151")
+    selected_scale = float((selected_island() or {}).get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)
+    island_scale_label = ft.Text(f"{int(selected_scale * 100)}%", size=13, weight="bold", color="#111827")
+
+    def on_zoom_slider(e):
+        set_zoom(float(getattr(e.control, "value", zoom()) or zoom()))
+
+    def on_island_scale_slider(e):
+        scale = float(getattr(e.control, "value", selected_scale) or selected_scale)
+        island = selected_island()
+        if island is None:
+            return
+        current_scale = float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)
+        if abs(scale - current_scale) < 0.001:
+            return
+        island["scale"] = max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, scale))
+        refresh_island_host(str(island.get("id")))
+        persist_world()
+        update_selection_ui()
+
+    zoom_slider = ft.Slider(
+        min=min_zoom,
+        max=max_zoom,
+        value=zoom(),
+        divisions=120,
+        label="{value}x",
+        on_change=on_zoom_slider,
+        expand=True,
+    )
+    island_scale_slider = ft.Slider(
+        min=MIN_ISLAND_SCALE,
+        max=MAX_ISLAND_SCALE,
+        value=selected_scale,
+        divisions=52,
+        label="{value}x",
+        on_change=on_island_scale_slider,
+        expand=True,
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            bgcolor="#F3F5F7",
+            padding=14,
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            _game_menu_button("Zuruck", back_to_owned, "#64748B", width=130, height=38),
+                            ft.Text("Inselmenü", size=24, weight="bold", color="#20242A"),
+                            ft.Row(
+                                [
+                                    _game_menu_button("Reset", reset_view, "#64748B", width=90, height=38),
+                                    _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=110, height=38),
+                                ],
+                                spacing=8,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Row(
+                        [
+                            ft.Container(
+                                expand=True,
+                                height=viewport_h,
+                                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                                bgcolor="#FFFFFF",
+                                border=ft.border.Border.all(1.5, "#D7DEE7"),
+                                content=ft.KeyboardListener(
+                                    autofocus=True,
+                                    on_key_down=editor_key_down,
+                                    on_key_up=editor_key_up,
+                                    content=ft.GestureDetector(
+                                        on_scroll=scroll_pan_map,
+                                        on_scale_start=scale_zoom_start,
+                                        on_scale_update=scale_zoom_update,
+                                        trackpad_scroll_causes_scale=True,
+                                        content=ft.Stack([canvas], expand=True),
+                                    ),
+                                ),
+                            ),
+                            ft.Container(
+                                width=sidebar_w,
+                                height=viewport_h if not compact_layout else min(360, viewport_h),
+                                bgcolor="#FFFFFF",
+                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                padding=14,
+                                content=ft.Column(
+                                    [
+                                        ft.Text("Inseln", size=18, weight="bold", color="#111827"),
+                                        ft.Text(world.get("name", "Welt"), size=12, color="#6B7280"),
+                                        ft.Text("Tippe eine Insel an, um den getrennten Map-Editor zu oeffnen.", size=11, color="#6B7280"),
+                                        _game_menu_button("Eigene Insel hinzufügen", open_custom_island_dialog, "#0EA5E9", width=min(sidebar_w - 28, 240), height=38),
+                                        ft.Text("Map-Elemente", size=14, weight="bold", color="#111827"),
+                                        ft.Container(
+                                            content=ft.Row(image_tiles, wrap=True, spacing=8, run_spacing=8),
+                                        ),
+                                        ft.Container(height=8),
+                                        ft.Text("Zoom", size=14, weight="bold", color="#111827"),
+                                        zoom_slider,
+                                        ft.Container(height=8),
+                                        ft.Text("Auswahl", size=14, weight="bold", color="#111827"),
+                                        selection_text,
+                                        island_scale_slider,
+                                        ft.Container(height=4),
+                                        _game_menu_button("Loschen", delete_selected, "#DC2626", width=150, height=38),
+                                    ],
+                                    spacing=10,
+                                    scroll=ft.ScrollMode.AUTO,
+                                ),
+                            ),
+                        ],
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                        wrap=compact_layout,
+                    ),
+                ],
+                spacing=12,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_id: str | None, island_id: str | None):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    worlds = list(profile.get("worlds", []) or [])
+    world = next((entry for entry in worlds if str(entry.get("id")) == str(world_id)), None)
+    if world is None:
+        _questions_path_render_owned(page, state)
+        return
+
+    islands = _questions_path_editor_normalize_islands(world, profile)
+    world["islands"] = islands
+    island = next((entry for entry in islands if str(entry.get("id")) == str(island_id)), None)
+    if island is None:
+        island = islands[0] if islands else None
+    if island is None:
+        _questions_path_render_world_editor(page, state, world["id"])
+        return
+
+    def normalize_map_src(raw_src: str) -> str:
+        src = str(raw_src or "").strip().replace("\\", "/")
+        lower_src = src.lower()
+        if "/assets/" in lower_src:
+            src = src[lower_src.index("/assets/") + len("/assets/"):]
+        elif lower_src.startswith("assets/"):
+            src = src[7:]
+        if src.startswith(("data:", "http://", "https://")):
+            return src
+        if src and (os.path.exists(src) or os.path.exists(os.path.join("assets", src))):
+            return src
+        return "Fragenpfad/waldmap_1.png"
+
+    state["questions_path_scene"] = "editor_map"
+    state["questions_path_selected_world_id"] = world["id"]
+    state["_questions_path_editor_selected_island_id"] = str(island.get("id"))
+    map_src = normalize_map_src(world.get("background_image") or "Fragenpfad/waldmap_1.png")
+    points = list(island.get("points", []) or [])
+    island["points"] = points
+    world["points"] = [dict(point) for point in points]
+
+    page_w, page_h = _page_size(page)
+    sidebar_w = 320 if page_w >= 960 else max(250, min(320, int(page_w * 0.9)))
+    map_w = max(520, min(980, int(page_w * 0.62)))
+    map_h = max(420, min(760, int(page_h * 0.72)))
+    viewport_h = max(420, int(page_h - 92))
+    canvas_w, canvas_h = QUESTIONS_PATH_EDITOR_CANVAS_W, QUESTIONS_PATH_EDITOR_CANVAS_H
+    compact_layout = page_w < 980
+    drag_key_prefix = f"_qpe_point_drag_{world['id']}_{island['id']}_"
+
+    def persist_points():
+        island["points"] = points
+        world["points"] = [dict(point) for point in points]
+        _questions_path_save_world(state, world)
+
+    def render_again():
+        _questions_path_render_island_map_editor(page, state, world["id"], str(island.get("id")))
+
+    def back_to_islands(e):
+        state["questions_path_scene"] = "editor"
+        _questions_path_render_world_editor(e.page, state, world["id"])
+
+    def show_editor_message(message: str, color: str | None = None):
+        page.snack_bar = ft.SnackBar(content=ft.Text(message), bgcolor=color)
+        page.snack_bar.open = True
+        page.update()
+
+    def point_pixel_bounds(point: dict) -> tuple[float, float, float, float]:
+        size = 28.0
+        left = (map_w * float(point.get("x", 50.0)) / 100.0) - size / 2.0
+        top = (map_h * float(point.get("y", 50.0)) / 100.0) - size / 2.0
+        return left, top, size, size
+
+    def open_point_dialog(point_index: int):
+        if not (0 <= point_index < len(points)):
+            return
+        point = points[point_index]
+        point_name_field = ft.TextField(label="Punktname", value=str(point.get("name", "")), width=360, autofocus=True)
+        question_field = ft.TextField(label="Frage", value=str(point.get("question", "")), width=360, min_lines=3, max_lines=6, multiline=True)
+        answer_values = _questions_path_normalize_answers(point.get("answers", []))
+        answer_fields = [ft.TextField(label=f"Antwort {ANSWER_LETTERS[idx]}", value=answer_values[idx], width=360) for idx in range(4)]
+        correct_dropdown = ft.Dropdown(
+            label="Richtige Antwort",
+            value=str(point.get("correct", 0)),
+            width=220,
+            options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)],
+        )
+        dialog_ref = [None]
+
+        def close_dialog():
+            dialog = dialog_ref[0]
+            if dialog is not None:
+                close_page_dialog(page, dialog)
+
+        def save_point(e):
+            point["name"] = str(point_name_field.value or "").strip() or f"Punkt {point_index + 1}"
+            point["question"] = str(question_field.value or "").strip()
+            point["answers"] = [str(field.value or "").strip() for field in answer_fields]
+            while len(point["answers"]) < 4:
+                point["answers"].append("")
+            point["correct"] = max(0, min(3, int(correct_dropdown.value or 0)))
+            persist_points()
+            close_dialog()
+            render_again()
+
+        def delete_point(e):
+            if 0 <= point_index < len(points):
+                points.pop(point_index)
+                state["_questions_path_editor_selected_point"] = max(0, min(point_index - 1, len(points) - 1))
+                persist_points()
+            close_dialog()
+            render_again()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Pfadpunkt {point_index + 1} bearbeiten"),
+            content=ft.Container(
+                width=420,
+                content=ft.Column(
+                    [point_name_field, question_field, ft.Text("Antworten", size=13, weight="bold", color="#111827"), *answer_fields, correct_dropdown],
+                    spacing=10,
+                    tight=True,
+                ),
+            ),
+            actions=[
+                ft.TextButton("Loeschen", on_click=delete_point),
+                ft.TextButton("Abbrechen", on_click=lambda e: close_dialog()),
+                ft.TextButton("Speichern", on_click=save_point),
+            ],
+        )
+        dialog_ref[0] = dialog
+        open_page_dialog(page, dialog)
+
+    def add_path_point(e):
+        new_point = _questions_path_default_point(len(points))
+        # Spread new points around the center so they are always visible,
+        # even when there is already a point at the middle.
+        candidate_offsets = [
+            (0.0, 0.0),
+            (8.0, 0.0),
+            (-8.0, 0.0),
+            (0.0, 8.0),
+            (0.0, -8.0),
+            (8.0, 8.0),
+            (-8.0, 8.0),
+            (8.0, -8.0),
+            (-8.0, -8.0),
+            (16.0, 0.0),
+            (-16.0, 0.0),
+            (0.0, 16.0),
+            (0.0, -16.0),
+        ]
+        existing_positions = {
+            (round(float(point.get("x", 50.0)), 1), round(float(point.get("y", 50.0)), 1))
+            for point in points
+        }
+        for dx, dy in candidate_offsets:
+            candidate_x = _questions_path_clamp_pct(50.0 + dx)
+            candidate_y = _questions_path_clamp_pct(50.0 + dy)
+            if (round(candidate_x, 1), round(candidate_y, 1)) not in existing_positions:
+                new_point["x"] = candidate_x
+                new_point["y"] = candidate_y
+                break
+        else:
+            new_point["x"] = _questions_path_clamp_pct(50.0 + (len(points) % 5) * 6.0)
+            new_point["y"] = _questions_path_clamp_pct(50.0 + (len(points) % 3) * 6.0)
+        points.append(new_point)
+        state["_questions_path_editor_selected_point"] = len(points) - 1
+        persist_points()
+        render_again()
+        show_editor_message("Pfadpunkt hinzugefuegt.", "#166534")
+
+    def point_drag_start(point_index: int, e):
+        state[f"{drag_key_prefix}{point_index}"] = {"position": _gesture_position_xy(e), "delta": _gesture_delta_xy(e)}
+        state["_questions_path_editor_selected_point"] = point_index
+
+    def move_point(point_index: int, e, host: ft.Container):
+        if not (0 <= point_index < len(points)):
+            return
+        drag_key = f"{drag_key_prefix}{point_index}"
+        drag_info = state.get(drag_key)
+        if not isinstance(drag_info, dict):
+            drag_info = {"position": None, "delta": (0.0, 0.0)}
+            state[drag_key] = drag_info
+        position = _gesture_position_xy(e)
+        if position is not None and drag_info.get("position") is not None:
+            previous = drag_info.get("position")
+            dx = float(position[0]) - float(previous[0])
+            dy = float(position[1]) - float(previous[1])
+            drag_info["position"] = position
+        else:
+            delta = _gesture_delta_xy(e)
+            previous_delta = drag_info.get("delta") or (0.0, 0.0)
+            dx = float(delta[0]) - float(previous_delta[0])
+            dy = float(delta[1]) - float(previous_delta[1])
+            drag_info["delta"] = delta
+            if position is not None:
+                drag_info["position"] = position
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+        point = points[point_index]
+        point["x"] = _questions_path_clamp_pct(float(point.get("x", 50.0)) + (dx / map_w) * 100.0)
+        point["y"] = _questions_path_clamp_pct(float(point.get("y", 50.0)) + (dy / map_h) * 100.0)
+        host.left, host.top, host.width, host.height = point_pixel_bounds(point)
+        host.update()
+
+    def point_drag_end(point_index: int, e):
+        state.pop(f"{drag_key_prefix}{point_index}", None)
+        persist_points()
+
+    def point_control(point_index: int, point: dict) -> ft.Control:
+        left, top, width, height = point_pixel_bounds(point)
+        selected = point_index == int(state.get("_questions_path_editor_selected_point", -1) or -1)
+        marker_size = 24 if selected else 20
+        marker_color = "#38BDF8" if selected else "#2563EB"
+        host = ft.Container(left=left, top=top, width=width, height=height)
+        host.content = ft.Stack(
+            [
+                ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Container(
+                        width=marker_size,
+                        height=marker_size,
+                        shape=ft.BoxShape.CIRCLE,
+                        bgcolor=marker_color,
+                        border=ft.border.Border.all(3 if selected else 2, "#FFFFFF" if selected else "#BFDBFE"),
+                        shadow=ft.BoxShadow(blur_radius=16 if selected else 10, color="#552563EB", offset=ft.Offset(0, 3)),
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Text(str(point_index + 1), size=10, weight="bold", color="white"),
+                    ),
+                ),
+                ft.GestureDetector(
+                    drag_interval=16,
+                    on_tap=lambda e, idx=point_index: open_point_dialog(idx),
+                    on_pan_start=lambda e, idx=point_index: point_drag_start(idx, e),
+                    on_pan_update=lambda e, idx=point_index, item_host=host: move_point(idx, e, item_host),
+                    on_pan_end=lambda e, idx=point_index: point_drag_end(idx, e),
+                    content=ft.Container(expand=True, bgcolor="#00000000"),
+                ),
+            ],
+            expand=True,
+        )
+        return host
+
+    point_list_controls = []
+    for idx, point in enumerate(points):
+        point_name = str(point.get("name", f"Punkt {idx + 1}")).strip() or f"Punkt {idx + 1}"
+        point_list_controls.append(
+            ft.Container(
+                border_radius=14,
+                bgcolor="#F8FAFC",
+                border=ft.border.Border.all(1.2, "#D7DEE7"),
+                padding=10,
+                content=ft.Row(
+                    [
+                        ft.Text(point_name, size=13, weight="bold", color="#111827", expand=True),
+                        _game_menu_button("Bearbeiten", lambda e, point_idx=idx: open_point_dialog(point_idx), "#475569", width=110, height=34),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+            )
+        )
+
+    map_stack = ft.Stack(
+        [
+            ft.Container(
+                width=map_w,
+                height=map_h,
+                border_radius=18,
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                border=ft.border.Border.all(1.5, "#D7DEE7"),
+                content=ft.Image(src=map_src, fit=ft.BoxFit.COVER, expand=True),
+            ),
+            *[point_control(idx, point) for idx, point in enumerate(points)],
+        ],
+        width=map_w,
+        height=map_h,
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            bgcolor="#F3F5F7",
+            padding=14,
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            _game_menu_button("Zuruck", back_to_islands, "#64748B", width=130, height=38),
+                            ft.Text("Map-Editor", size=24, weight="bold", color="#20242A"),
+                            ft.Row(
+                                [
+                                    _game_menu_button("Pfadpunkt hinzufuegen", add_path_point, theme["accent"], width=180, height=38),
+                                    _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=110, height=38),
+                                ],
+                                spacing=8,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Row(
+                        [
+                            ft.Container(
+                                expand=True,
+                                height=viewport_h,
+                                bgcolor="#FFFFFF",
+                                border_radius=20,
+                                border=ft.border.Border.all(1.5, "#D7DEE7"),
+                                padding=12,
+                                content=map_stack,
+                            ),
+                            ft.Container(
+                                width=sidebar_w,
+                                height=viewport_h if not compact_layout else min(360, viewport_h),
+                                bgcolor="#FFFFFF",
+                                border_radius=20,
+                                border=ft.border.Border.all(1.5, "#E5E7EB"),
+                                padding=14,
+                                content=ft.Column(
+                                    [
+                                        ft.Text("Maps", size=18, weight="bold", color="#111827"),
+                                        ft.Container(
+                                            height=140,
+                                            border_radius=14,
+                                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                            border=ft.border.Border.all(1.2, "#D7DEE7"),
+                                            content=ft.Image(src=map_src, fit=ft.BoxFit.COVER, expand=True),
+                                        ),
+                                        ft.Text(str(island.get("name", "Insel")), size=13, color="#6B7280"),
+                                        ft.Container(height=6),
+                                        _game_menu_button("Pfadpunkt hinzufuegen", add_path_point, theme["accent"], width=min(sidebar_w - 28, 220), height=38),
+                                        ft.Text("Pfadpunkte", size=16, weight="bold", color="#111827"),
+                                        ft.Text("Klicke einen Kreis auf der Karte oder 'Bearbeiten' in der Liste.", size=11, color="#6B7280"),
+                                        *(point_list_controls or [ft.Text("Noch keine Pfadpunkte vorhanden.", size=12, color="#6B7280")]),
+                                    ],
+                                    spacing=10,
+                                    scroll=ft.ScrollMode.AUTO,
+                                ),
+                            ),
+                        ],
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                        wrap=compact_layout,
+                    ),
+                ],
+                spacing=12,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
 if __name__ == "__main__":
     ft.run(main, assets_dir="assets", upload_dir="assets")
-

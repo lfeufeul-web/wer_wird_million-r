@@ -67,7 +67,7 @@ echo [INFO] Schliesse das App-Fenster, um die App zu beenden.
 echo        Druecke STRG+R im App-Fenster zum Aktualisieren.
 echo ---------------------------------------------------
 
-"%PYTHON_EXE%" main.py
+"%PYTHON_EXE%" main-DESKTOP-3SJ00FD.py
 
 echo.
 echo [!] App geschlossen. Druecke eine Taste zum Neustarten oder schliesse das Konsolenfenster...

@@ -1,5 +1,21 @@
+# Sensible Konfiguration – NIEMALS ins Repository!
 .env
 firebase-service-account.json
+
+# Lokale Nutzerdatenbank
+user_data.json
+
+# Python
 __pycache__/
 *.pyc
-user_data.json
+*.pyo
+
+# Einmalige Entwickler-Hilfsskripte
+fix_align.py
+
+# Lokale Start-Skripte (können lokale Pfade enthalten)
+*.bat
+
+# OS
+.DS_Store
+Thumbs.db
