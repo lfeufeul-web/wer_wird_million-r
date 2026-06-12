@@ -1,22 +1,17 @@
 ﻿import flet as ft
 import asyncio
-import copy
 import inspect
 import json
 import math
 import os
 import random
 import re
-import urllib.request
 import time
 import shutil
 from datetime import datetime, date, timezone
 import uuid
-import smtplib
-import ssl
 import base64
 import io
-from email.message import EmailMessage
 
 import requests
 import unicodedata
@@ -57,7 +52,6 @@ except ImportError:
 # ---------- Persistent Database ----------
 DB_FILE = "user_data.json"
 ENV_FILE = ".env"
-CODE_REQUEST_COOLDOWN_SECONDS = 10
 FIREBASE_SERVICE_ACCOUNT_FILE = "firebase-service-account.json"
 FIREBASE_WEB_API_KEY_ENV = "FIREBASE_WEB_API_KEY"
 FIREBASE_APP_COLLECTION = "_app"
@@ -155,88 +149,6 @@ def load_env_file():
 
 load_env_file()
 
-
-def get_smtp_config():
-    host = os.getenv("SMTP_HOST", "").strip()
-    port_raw = os.getenv("SMTP_PORT", "587").strip() or "587"
-    try:
-        port = int(port_raw)
-    except ValueError:
-        port = 587
-    username = os.getenv("SMTP_USER", "").strip()
-    password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip()
-    sender = os.getenv("SMTP_FROM", username).strip()
-    use_ssl = os.getenv("SMTP_SSL", "false").strip().lower() in ("1", "true", "yes", "on")
-    use_tls = os.getenv("SMTP_TLS", "true").strip().lower() in ("1", "true", "yes", "on")
-    app_name = os.getenv("APP_NAME", "Wer wird Millionär").strip() or "Wer wird Millionär"
-
-    missing = []
-    if not host:
-        missing.append("SMTP_HOST")
-    if not username:
-        missing.append("SMTP_USER")
-    if not password:
-        missing.append("SMTP_PASSWORD")
-    if not sender:
-        missing.append("SMTP_FROM")
-
-    return {
-        "host": host,
-        "port": port,
-        "username": username,
-        "password": password,
-        "sender": sender,
-        "use_ssl": use_ssl,
-        "use_tls": use_tls,
-        "app_name": app_name,
-        "missing": missing,
-    }
-
-
-def send_verification_email(recipient: str, code: str):
-    config = get_smtp_config()
-    if config["missing"]:
-        raise RuntimeError("E-Mail-Versand ist noch nicht eingerichtet. Bitte SMTP-Daten in .env eintragen.")
-
-    msg = EmailMessage()
-    msg["Subject"] = f"Dein Login-Code für {config['app_name']}"
-    msg["From"] = config["sender"]
-    msg["To"] = recipient
-    msg.set_content(
-        f"Hallo,\n\n"
-        f"dein 6-stelliger Bestätigungscode lautet: {code}\n\n"
-        f"Der Code ist 10 Minuten gültig.\n\n"
-        f"Wenn du dich nicht anmelden wolltest, kannst du diese E-Mail ignorieren.\n"
-    )
-    msg.add_alternative(
-        f"""
-        <html>
-          <body style="font-family: Arial, sans-serif; color: #1f1f1f;">
-            <h2>{config['app_name']}</h2>
-            <p>Dein 6-stelliger Bestätigungscode lautet:</p>
-            <p style="font-size: 28px; font-weight: bold; letter-spacing: 4px;">{code}</p>
-            <p>Der Code ist 10 Minuten gültig.</p>
-            <p style="color: #666;">Wenn du dich nicht anmelden wolltest, kannst du diese E-Mail ignorieren.</p>
-          </body>
-        </html>
-        """,
-        subtype="html",
-    )
-
-    context = ssl.create_default_context()
-    if config["use_ssl"]:
-        with smtplib.SMTP_SSL(config["host"], config["port"], context=context, timeout=20) as server:
-            server.login(config["username"], config["password"])
-            server.send_message(msg)
-        return
-
-    with smtplib.SMTP(config["host"], config["port"], timeout=20) as server:
-        server.ehlo()
-        if config["use_tls"]:
-            server.starttls(context=context)
-            server.ehlo()
-        server.login(config["username"], config["password"])
-        server.send_message(msg)
 
 def load_db() -> dict:
     if not os.path.exists(DB_FILE):
@@ -1528,14 +1440,6 @@ def avatar_scene(theme_key: str) -> str:
     }.get(theme_key, "🎮 Quiz-Studio")
 
 
-def avatar_base_emoji(gender: str) -> str:
-    return {
-        "male": "🧑‍💼",
-        "female": "👩‍💼",
-        "diverse": "🧑‍🎤",
-    }.get(gender, "🧑")
-
-
 def _resolve_avatar_base_image(gender: str) -> str | None:
     male_tokens = ["avatar_männlich", "avatar_maennlich", "avatarmannlich", "avatar_male", "avatar"]
     female_tokens = ["avatar_weiblich", "avatar_female", "avatar_frau", "avatar_männlich", "avatar_maennlich", "avatar"]
@@ -1704,17 +1608,6 @@ def _sync_page_route(page: ft.Page, route: str):
         pass
 
 
-def _settings_button(page: ft.Page, state: dict, size: int = 16) -> ft.Container:
-    return ft.Container(
-        content=ft.Icon(ft.Icons.SETTINGS, size=size, color="white"),
-        bgcolor="#0000008f",
-        border_radius=14,
-        padding=ft.Padding(8, 6, 8, 6),
-        on_click=lambda e: show_settings_view(page, state),
-        tooltip="Einstellungen",
-    )
-
-
 def _go_route_or_render(page: ft.Page, route: str, renderer, state: dict):
     if route in {"/points", "/path"}:
         renderer(page, state)
@@ -1744,10 +1637,6 @@ def _theme_key_from_theme(theme: dict | None) -> str | None:
         if entry.get("label") == label:
             return key
     return None
-
-
-def _is_themed_video_theme(theme: dict | None) -> bool:
-    return (_theme_key_from_theme(theme) or "") in THEME_BG_CONFIG
 
 
 def _resolve_theme_background(theme_key: str, role: str, allow_video: bool = True) -> str | None:
@@ -5835,45 +5724,6 @@ def build_joker_tile(
     return tile
 
 
-def build_joker_slot_row(
-    picked_ids: list[str],
-    theme: dict,
-    *,
-    slot_size: int = 58,
-    empty_label: str = "?",
-    on_joker_click=None,
-) -> ft.Row:
-    slots = []
-    for i in range(JOKER_SELECT_COUNT):
-        if i < len(picked_ids):
-            jid = picked_ids[i]
-            joker = get_joker(jid)
-            if joker:
-                slots.append(
-                    build_joker_tile(
-                        joker,
-                        theme,
-                        selected=True,
-                        size=slot_size,
-                        show_name=True,
-                        on_click=(lambda e, j=jid: on_joker_click(j)) if on_joker_click else None,
-                    )
-                )
-                continue
-        slots.append(
-            ft.Container(
-                content=ft.Text(empty_label, size=18, color=theme_txt(theme, "muted"), weight="bold"),
-                width=slot_size,
-                height=slot_size,
-                border_radius=12,
-                bgcolor=theme.get("question_bg", "#FFFFFF"),
-                border=ft.border.Border.all(2, theme["border"]),
-                alignment=ft.Alignment(0, 0),
-            )
-        )
-    return ft.Row(slots, spacing=10, alignment=ft.MainAxisAlignment.CENTER)
-
-
 def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | None = None) -> ft.Control:
     """Separate white row with the 4 chosen jokers."""
     selected = state.get("selected_jokers", [])[:JOKER_SELECT_COUNT]
@@ -7210,17 +7060,6 @@ QUESTIONS_PATH_WORLD_LAYOUTS = {
 }
 
 
-def _questions_path_point_template() -> list[tuple[int, int]]:
-    return [(10, 62), (20, 48), (31, 32), (42, 22), (55, 28), (67, 44), (77, 60), (69, 76), (51, 82), (32, 74)]
-
-
-def _questions_path_points_for_count(count: int) -> list[dict]:
-    labels = ["Start", "Tor", "Pfad", "Brücke", "Hain", "Lichtung", "Bucht", "Gipfel", "Finale", "Ziel"]
-    template = _questions_path_point_template()
-    count = max(1, min(len(template), int(count or 1)))
-    return _path_nodes(template[:count], labels[:count])
-
-
 def _questions_path_custom_map(raw_island: dict, index: int) -> dict:
     theme = QUESTIONS_PATH_CREATIVE_THEMES[index % len(QUESTIONS_PATH_CREATIVE_THEMES)]
     questions = [_path_question_to_dict(q) for q in list(raw_island.get("questions", []) or [])]
@@ -7918,14 +7757,6 @@ def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
 
 
 # ---------- Avatar ----------
-def _avatar_piece_icon(user: dict, slot: str) -> str:
-    catalog = _avatar_catalog_by_id()
-    ensure_avatar_defaults(user)
-    item_id = user["avatar"]["equipped"].get(slot, AVATAR_BASE_EQUIPPED[slot])
-    item = catalog.get(item_id) or catalog.get(AVATAR_BASE_EQUIPPED[slot]) or {}
-    return str(item.get("icon", "•"))
-
-
 def _avatar_preview_text(user: dict, theme: dict) -> str:
     ensure_avatar_defaults(user)
     gender = user["avatar"].get("gender", "diverse")
@@ -7933,20 +7764,6 @@ def _avatar_preview_text(user: dict, theme: dict) -> str:
     scene = avatar_scene(theme_key)
     gender_label = {"male": "Männlich", "female": "Weiblich", "diverse": "Divers"}.get(gender, "Divers")
     return f"Avatar bald verfügbar\n{scene}\nTyp: {gender_label}"
-
-
-def _avatar_piece_color(item_id: str, theme: dict, fallback: str) -> str:
-    item_id = str(item_id or "")
-    item_id_l = item_id.lower()
-    if "royal" in item_id_l or "crown" in item_id_l or "chain" in item_id_l:
-        return "#F2C94C"
-    if "neon" in item_id_l or "glasses" in item_id_l:
-        return "#22D3EE"
-    if "ocean" in item_id_l or "diver" in item_id_l:
-        return "#38BDF8"
-    if "dark" in item_id_l:
-        return "#334155"
-    return fallback
 
 
 def _avatar_outfit_style(user: dict, theme: dict) -> dict:
@@ -8908,17 +8725,6 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         expand=True,
         content=stack,
         alignment=ft.Alignment(0, 0)
-    )
-
-
-def _menu_button(label: str, on_click, color: str) -> ft.Control:
-    return ft.Container(
-        content=ft.Text(label, size=18, weight="bold", color="white"),
-        on_click=on_click,
-        bgcolor=color,
-        border_radius=50,
-        padding=ft.Padding(40, 14, 40, 14),
-        shadow=ft.BoxShadow(blur_radius=12, color="#40000000"),
     )
 
 
@@ -13376,12 +13182,6 @@ def render_game_screen(page: ft.Page, state: dict):
     page.add(ft.Container(expand=True, content=ft.Stack(layers, expand=True)))
     _start_question_timer(page, state)
     page.update()
-
-
-def show_next_question_themed(page: ft.Page, state: dict):
-    render_game_screen(page, state)
-
-
 def show_next_question(page: ft.Page, state: dict):
     """Display active question with timer and jokers."""
     if state["question_index"] >= len(state["questions"]):
@@ -13400,85 +13200,6 @@ def show_next_question(page: ft.Page, state: dict):
 
     render_game_screen(page, state)
     page.run_task(_sync_bg_music_async, page, state)
-
-
-def show_exit_confirmation(page: ft.Page, state: dict):
-    theme = get_theme(state)
-    db = load_db()
-    email = state.get("current_user_email")
-    logged_in = email and email in db["users"]
-
-    if logged_in:
-        info_text = "Möchtest du das aktuelle Spiel wirklich beenden? Dein Fortschritt wird gespeichert und du kannst das Spiel jederzeit im Hauptmenü fortsetzen."
-    else:
-        info_text = "Möchtest du das aktuelle Spiel wirklich beenden?\n\n⚠️ Da du als Gast spielst, wird dein Spielstand nicht gespeichert und dein Fortschritt geht verloren!"
-
-    def on_confirm_exit(e):
-        if logged_in:
-            save_current_game(state)
-            db_current = load_db()
-            if email in db_current["users"]:
-                db_current["users"][email]["saved_game"] = {
-                    "money": state.get("money", "0 €"),
-                    "questions_answered": state.get("questions_answered", 0),
-                    "correct": state.get("correct", 0),
-                    "jokers_used": state.get("jokers_used", 0),
-                    "question_index": state.get("question_index", 0),
-                    "questions": state.get("questions", []),
-                    "is_custom_game": state.get("is_custom_game", False),
-                    "custom_quiz_id": state.get("custom_quiz_id"),
-                    "custom_quiz_title": state.get("custom_quiz_title"),
-                    "selected_jokers": state.get("selected_jokers", []),
-                    "jokers_used_ids": state.get("jokers_used_ids", []),
-                    "time_left": max(0, int(state.get("time_left", QUESTION_TIME_SEC))),
-                    "hidden_answers": state.get("hidden_answers", []),
-                    "time_pressure_enabled": bool(state.get("time_pressure_enabled", True)),
-                    "question_time_sec": int(state.get("question_time_sec", QUESTION_TIME_SEC)),
-                    "phone_until": state.get("phone_until"),
-                    "friend_until": state.get("friend_until"),
-                }
-                save_db(db_current)
-        _go_home(e.page, state)
-
-    def on_resume_game(e):
-        show_next_question(e.page, state)
-
-    page.controls.clear()
-    page.add(
-        ft.Container(
-            expand=True,
-            content=ft.Stack(
-                [
-                    _themed_screen_background(page, theme, "#00000096"),
-                    ft.Container(
-                        expand=True,
-                        alignment=ft.Alignment(0, 0),
-                        content=ft.Column([
-                            ft.Container(
-                                content=ft.Column([
-                                    ft.Text("Spiel unterbrechen?", size=24, weight="bold", color="white", text_align="center"),
-                                    ft.Container(height=10),
-                                    ft.Text(info_text, size=16, color=theme_txt(theme, "secondary"), text_align="center"),
-                                    ft.Container(height=20),
-                                    ft.Row([
-                                        _theme_action_button("Ja, beenden", theme, on_confirm_exit, width=170, bg=theme.get("danger", "#C0392B")),
-                                        _theme_action_button("Nein, weiter", theme, on_resume_game, width=170, bg=theme.get("success", "#2ECC71")),
-                                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=16),
-                                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-                                bgcolor=theme.get("panel", "#1A0A30"),
-                                border_radius=20,
-                                padding=30,
-                                border=ft.border.Border.all(2, theme.get("border", "#9B59B6")),
-                                width=420,
-                            )
-                        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    ),
-                ],
-                expand=True,
-            ),
-        )
-    )
-    page.update()
 
 
 # ---------- Result Screens ----------
@@ -13722,215 +13443,6 @@ def _show_win_screen(page: ft.Page, state: dict):
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                spacing=12),
-        )
-    )
-    page.update()
-
-
-# ---------- Authentication & Profile Views ----------
-def show_legacy_email_code_login_view(page: ft.Page, state: dict):
-    db = load_db()
-    
-    email_input = ft.TextField(
-        label="E-Mail-Adresse",
-        width=300,
-        bgcolor="#1A0A30",
-        border_color="#9B59B6",
-        color="white",
-    )
-    
-    code_input = ft.TextField(
-        label="6-stelliger Bestätigungscode",
-        width=300,
-        bgcolor="#1A0A30",
-        border_color="#9B59B6",
-        color="white",
-        visible=False,
-    )
-    
-    cooldown_text = ft.Text("", color="#FF4D4D", size=13, text_align="center", visible=False)
-    status_text = ft.Text("", color="red", size=14, text_align="center")
-    code_display_box = ft.Container(visible=False)
-    
-    verification_data = {"email": "", "code": "", "time": 0.0}
-    request_state = {"last_request_time": 0.0}
-
-    def show_cooldown_message(seconds_left: int):
-        message = f"Bitte warte noch {seconds_left} Sekunden."
-        cooldown_text.value = message
-        cooldown_text.visible = True
-        page.update()
-
-        async def hide_message():
-            await asyncio.sleep(2.0)
-            if cooldown_text.value == message:
-                cooldown_text.value = ""
-                cooldown_text.visible = False
-                page.update()
-
-        page.run_task(hide_message)
-    
-    def on_request_code(e):
-        email = email_input.value.strip()
-        if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
-            status_text.value = "⚠️ Bitte eine gültige E-Mail eingeben."
-            status_text.color = "red"
-            page.update()
-            return
-
-        elapsed = time.time() - request_state["last_request_time"]
-        if elapsed < CODE_REQUEST_COOLDOWN_SECONDS:
-            remaining = int(CODE_REQUEST_COOLDOWN_SECONDS - elapsed + 0.999)
-            show_cooldown_message(remaining)
-            return
-            
-        code = f"{random.randint(100000, 999999)}"
-        request_state["last_request_time"] = time.time()
-        request_btn.disabled = True
-        status_text.value = "Code wird per E-Mail gesendet..."
-        status_text.color = "#FFD700"
-        cooldown_text.value = ""
-        cooldown_text.visible = False
-        code_display_box.visible = False
-        page.update()
-
-        try:
-            send_verification_email(email, code)
-        except Exception as ex:
-            verification_data["email"] = ""
-            verification_data["code"] = ""
-            verification_data["time"] = 0.0
-            code_input.visible = False
-            submit_btn.visible = False
-            code_display_box.visible = False
-            request_btn.disabled = False
-            status_text.value = f"E-Mail konnte nicht gesendet werden: {ex}"
-            status_text.color = "red"
-            page.update()
-            return
-        
-        code_display_box.content = ft.Container(
-            content=ft.Column([
-                ft.Text("E-Mail gesendet!", weight="bold", color="#FFD700"),
-                ft.Text("Bitte pruefe dein Postfach und gib den 6-stelligen Code ein.", size=14, color="white", text_align="center"),
-                ft.Text("(Code ist 10 Minuten gültig)", size=12, color="#E0D0F0"),
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=16,
-            bgcolor="#2C1654",
-            border_radius=12,
-            border=ft.border.Border.all(1, "#9B59B6"),
-        )
-        verification_data["email"] = email
-        verification_data["code"] = code
-        verification_data["time"] = time.time()
-        code_display_box.visible = True
-        code_input.visible = True
-        submit_btn.visible = True
-        request_btn.disabled = False
-        request_btn.content.value = "Neuen Code anfordern"
-        status_text.value = "✓ Code gesendet! Bitte unten eingeben."
-        status_text.color = "#2ECC71"
-        page.update()
-        
-    def on_login(e):
-        entered_code = code_input.value.strip()
-        if not entered_code:
-            status_text.value = "⚠️ Bitte gib den Code ein."
-            status_text.color = "red"
-            page.update()
-            return
-            
-        if time.time() - verification_data["time"] > 600:
-            status_text.value = "❌ Code abgelaufen! Bitte neuen anfordern."
-            status_text.color = "red"
-            page.update()
-            return
-            
-        if entered_code != verification_data["code"]:
-            status_text.value = "❌ Falscher Code. Bitte erneut eingeben."
-            status_text.color = "red"
-            page.update()
-            return
-            
-        email = verification_data["email"]
-        db = load_db()
-        state["current_user_email"] = email
-        if email not in db["users"]:
-            default_name = email.split("@")[0].capitalize()
-            db["users"][email] = {
-                "name": default_name,
-                "settings": DEFAULT_USER_SETTINGS.copy(),
-                "stats": {
-                    "games_played": 0,
-                    "correct_answers": 0,
-                    "questions_answered": 0,
-                    "highest_money": "0 €",
-                    "highest_money_level": -1
-                }
-            }
-        ensure_user_settings(db, email)
-        save_db(db)
-        show_stats(page, state)
-        
-    request_btn = ft.Container(
-        content=ft.Text("Code anfordern", size=16, weight="bold", color="white"),
-        on_click=on_request_code,
-        bgcolor="#9B59B6",
-        border_radius=30,
-        padding=ft.Padding(30, 12, 30, 12),
-        alignment=ft.Alignment(0, 0),
-        width=220,
-    )
-    
-    submit_btn = ft.Container(
-        content=ft.Text("Einloggen", size=16, weight="bold", color="white"),
-        on_click=on_login,
-        visible=False,
-        bgcolor="#2ECC71",
-        border_radius=30,
-        padding=ft.Padding(30, 12, 30, 12),
-        alignment=ft.Alignment(0, 0),
-        width=220,
-    )
-    
-    page.controls.clear()
-    page.add(
-        ft.Container(
-            expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=["#2C1654", "#6B2FA0", "#C2185B"],
-            ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("🔑 Anmelden", size=30, weight="bold", color="white"),
-                ft.Container(height=10),
-                ft.Container(
-                    content=ft.Column([
-                        email_input,
-                        request_btn,
-                        code_display_box,
-                        code_input,
-                        submit_btn,
-                        cooldown_text,
-                        status_text,
-                    ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor="#1A0A30",
-                    border_radius=16,
-                    padding=24,
-                    border=ft.border.Border.all(2, "#9B59B6"),
-                    width=360,
-                ),
-                ft.Container(height=10),
-                ft.TextButton(
-                    "← Zurück",
-                    on_click=lambda e: show_stats(e.page, state),
-                    style=ft.ButtonStyle(color="white"),
-                )
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=14)
         )
     )
     page.update()
@@ -14416,37 +13928,6 @@ def force_close_all_dialogs(page: ft.Page):
         page.update()
     except Exception:
         pass
-
-
-def _close_overlay(page: ft.Page, overlay):
-    if isinstance(overlay, ft.AlertDialog):
-        close_page_dialog(page, overlay)
-        return
-    if hasattr(page, "close"):
-        try:
-            page.close(overlay)
-            page.update()
-            return
-        except Exception:
-            pass
-    overlay.open = False
-    page.update()
-
-
-def close_all_dialogs(page: ft.Page):
-    """Close all open dialogs on the page."""
-    # Close dialog if set
-    if hasattr(page, "dialog") and page.dialog:
-        close_page_dialog(page, page.dialog)
-    
-    # Close all AlertDialog overlays
-    overlays_to_remove = []
-    for overlay in page.overlay:
-        if isinstance(overlay, ft.AlertDialog):
-            overlays_to_remove.append(overlay)
-    
-    for overlay in overlays_to_remove:
-        close_page_dialog(page, overlay)
 
 
 def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
@@ -15615,135 +15096,6 @@ def show_edit_profile_view(page: ft.Page, state: dict):
 
 
 # ---------- Statistics Screen ----------
-def show_stats_legacy(page: ft.Page, state: dict):
-    db = load_db()
-    theme = get_theme(state)
-    page_width = page.width or page.window.width or 1100
-    is_mobile = page_width < 720
-    card_width = None if is_mobile else 320
-    
-    g_stats = db.get("global_stats", {})
-    g_games = g_stats.get("games_played", 0)
-    g_correct = g_stats.get("correct_answers", 0)
-    g_answered = g_stats.get("questions_answered", 0)
-    g_money = g_stats.get("highest_money", "0 €")
-    g_rate = f"{int(g_correct / g_answered * 100)}%" if g_answered > 0 else "0%"
-    
-    global_card = ft.Container(
-        content=ft.Column([
-            ft.Text("🌍 Globale Statistik", size=18, weight="bold", color=theme["gold"]),
-            ft.Divider(color=theme["border"], thickness=1),
-            _stat_row("🎮 Spiele gesamt", str(g_games)),
-            _stat_row("📝 Beantwortete Fragen", str(g_answered)),
-            _stat_row("✅ Richtige Antworten", f"{g_correct} ({g_rate})"),
-            _stat_row("🏆 Höchster Gewinn", g_money),
-        ], spacing=12),
-        bgcolor=theme["panel"],
-        border_radius=16,
-        padding=20,
-        border=ft.border.Border.all(2, theme["border"]),
-        width=card_width,
-    )
-    
-    email = state.get("current_user_email")
-    if email and email in db["users"]:
-        u_info = db["users"][email]
-        u_name = u_info.get("name", email)
-        u_stats = u_info.get("stats", {})
-        u_games = u_stats.get("games_played", 0)
-        u_correct = u_stats.get("correct_answers", 0)
-        u_answered = u_stats.get("questions_answered", 0)
-        u_money = u_stats.get("highest_money", "0 €")
-        u_rate = f"{int(u_correct / u_answered * 100)}%" if u_answered > 0 else "0%"
-        
-        personal_card = ft.Container(
-            content=ft.Column([
-                ft.Text(f"👤 Statistik: {u_name}", size=18, weight="bold", color="#2ECC71"),
-                ft.Text(email, size=11, color="#E0D0F0"),
-                ft.Divider(color="#2ECC71", thickness=1),
-                _stat_row("🎮 Deine Spiele", str(u_games)),
-                _stat_row("📝 Beantwortete Fragen", str(u_answered)),
-                _stat_row("✅ Richtige Antworten", f"{u_correct} ({u_rate})"),
-                _stat_row("🏆 Dein Rekord", u_money),
-            ], spacing=12),
-            bgcolor=theme["panel"],
-            border_radius=16,
-            padding=20,
-            border=ft.border.Border.all(2, theme["success"]),
-            width=card_width,
-        )
-    else:
-        personal_card = ft.Container(
-            content=ft.Column([
-                ft.Text("👤 Persönliche Statistik", size=18, weight="bold", color="#CCCCCC"),
-                ft.Divider(color="#CCCCCC", thickness=1),
-                ft.Text(
-                    "Melde dich im Hauptmenü an, um deine persönlichen Statistiken dauerhaft zu sichern!",
-                    size=13,
-                    color="#CCCCCC",
-                    text_align="center",
-                ),
-                ft.Container(height=10),
-                ft.Container(
-                    content=ft.Text("🔑 Anmelden", size=16, weight="bold", color="white"),
-                    on_click=lambda e: show_login_view(e.page, state),
-                    bgcolor=theme["accent"],
-                    visible=False,
-                    border_radius=30,
-                    padding=ft.Padding(30, 12, 30, 12),
-                    alignment=ft.Alignment(0, 0),
-                    width=200,
-                ),
-            ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=theme["panel"],
-            border_radius=16,
-            padding=20,
-            border=ft.border.Border.all(2, "#CCCCCC"),
-            width=card_width,
-        )
-        
-    stats_cards = ft.Column(
-        [global_card, personal_card],
-        spacing=14,
-        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-    ) if is_mobile else ft.Row([
-        global_card,
-        ft.Container(width=16),
-        personal_card,
-    ], alignment=ft.MainAxisAlignment.CENTER)
-
-    page.controls.clear()
-    page.add(
-        ft.Container(
-            expand=True,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, -1),
-                end=ft.Alignment(1, 1),
-                colors=theme["gradient"],
-            ),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Column([
-                ft.Text("📊 Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
-                ft.Container(height=10),
-                stats_cards,
-                ft.Container(height=20),
-                ft.Container(
-                    content=ft.Text("← Zurück", size=16, weight="bold", color="white"),
-                    on_click=lambda e: open_main_menu(e.page, state),
-                    bgcolor=theme["accent"],
-                    border_radius=50,
-                    padding=ft.Padding(30, 12, 30, 12),
-                ),
-            ], alignment=ft.MainAxisAlignment.CENTER,
-               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=14,
-               scroll=ft.ScrollMode.AUTO),
-            padding=ft.Padding(12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20),
-        )
-    )
-    page.update()
-
-
 def _pct(part: int, total: int) -> str:
     return f"{int(part / total * 100)}%" if total else "0%"
 
@@ -16414,10 +15766,6 @@ def _questions_path_level_background_asset() -> str:
     return os.path.join("Fragenpfad", "level_insel_1.png")
 
 
-def _questions_path_level_start_asset() -> str:
-    return os.path.join("Fragenpfad", "level_start.png")
-
-
 def _questions_path_profile_cards(page: ft.Page, state: dict, profiles: list[dict]):
     theme = get_theme(state)
     cards = []
@@ -16524,15 +15872,6 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
         state["_questions_path_level_complete"] = False
         show_questions_path_hub(e.page, state)
 
-    def open_creator(e):
-        refreshed = get_questions_path_profiles(state)
-        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
-        if not list(profile.get("custom_islands", []) or []):
-            profile["custom_islands"] = [_questions_path_default_custom_island(0)]
-            save_active_profile(profile)
-        state["questions_path_scene"] = "creator"
-        show_questions_path_hub(e.page, state)
-
     def open_custom_menu(e):
         refreshed = get_questions_path_profiles(state)
         profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
@@ -16565,24 +15904,6 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
         persist_questions_path_profiles(state, current_profiles)
         state["questions_path_profiles"] = current_profiles
         set_questions_path_profile_index(state, len(current_profiles) - 1)
-        _questions_path_render_profiles(e.page, state)
-
-    def remove_profile(e):
-        current_profiles = get_questions_path_profiles(state)
-        current_index = get_questions_path_profile_index(state)
-        if len(current_profiles) <= QUESTIONS_PATH_PROFILE_MIN:
-            e.page.snack_bar = ft.SnackBar(content=ft.Text("Mindestens ein Profil muss bleiben."), open=True)
-            e.page.update()
-            return
-        current_profiles.pop(current_index)
-        for idx, profile in enumerate(current_profiles):
-            if isinstance(profile, dict):
-                default_name = f"{QUESTIONS_PATH_DEFAULT_PROFILE_NAME} {idx + 1}"
-                if str(profile.get("name", "")).startswith(QUESTIONS_PATH_DEFAULT_PROFILE_NAME):
-                    profile["name"] = default_name
-        persist_questions_path_profiles(state, current_profiles)
-        state["questions_path_profiles"] = current_profiles
-        set_questions_path_profile_index(state, min(current_index, len(current_profiles) - 1))
         _questions_path_render_profiles(e.page, state)
 
     page.controls.clear()
@@ -16781,12 +16102,6 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         current_profiles[active_index] = current_profile
         persist_questions_path_profiles(state, current_profiles)
         state["questions_path_profiles"] = current_profiles
-
-    def update_profile(mutator):
-        current_profiles = get_questions_path_profiles(state)
-        current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
-        mutator(current_profile)
-        persist(current_profile)
 
     def update_selected(mutator, rerender_page=None):
         current_profiles = get_questions_path_profiles(state)
@@ -17084,18 +16399,6 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         state["_questions_path_active_point_index"] = new_index
         state["_questions_path_question_dialog_open"] = False
         update_selected(_mutate, e.page)
-
-    def remove_question(question_index: int):
-        def _handler(e):
-            def _mutate(island):
-                questions = list(island.get("questions", []) or [])
-                if len(questions) > 1 and question_index < len(questions):
-                    questions.pop(question_index)
-                island["questions"] = questions
-
-            update_selected(_mutate, e.page)
-
-        return _handler
 
     def save_question(question_index: int, question_ref, answer_refs, correct_ref):
         def _handler(e):
