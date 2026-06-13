@@ -1,17 +1,22 @@
 import flet as ft
 import asyncio
+import copy
 import inspect
 import json
 import math
 import os
 import random
 import re
+import urllib.request
 import time
 import shutil
 from datetime import datetime, date, timezone
 import uuid
+import smtplib
+import ssl
 import base64
 import io
+from email.message import EmailMessage
 
 import requests
 import unicodedata
@@ -52,6 +57,7 @@ except ImportError:
 # ---------- Persistent Database ----------
 DB_FILE = "user_data.json"
 ENV_FILE = ".env"
+CODE_REQUEST_COOLDOWN_SECONDS = 10
 FIREBASE_SERVICE_ACCOUNT_FILE = "firebase-service-account.json"
 FIREBASE_WEB_API_KEY_ENV = "FIREBASE_WEB_API_KEY"
 FIREBASE_APP_COLLECTION = "_app"
@@ -100,6 +106,9 @@ EXTRA_STATS_DEFAULTS = {
     "points_quiz_questions_judged": 0,
     "points_quiz_finished_games": 0,
 }
+# ---------- Answer Letters Constant ----------
+ANSWER_LETTERS = ["A", "B", "C", "D"]
+
 ACHIEVEMENT_DEFINITIONS = [
     {"id": "first_game", "name": "Erster Schritt", "desc": "Dein erstes Spiel abschließen."},
     {"id": "quiz_fan", "name": "Quiz-Fan", "desc": "5 Spiele insgesamt spielen."},
@@ -149,6 +158,88 @@ def load_env_file():
 
 load_env_file()
 
+
+def get_smtp_config():
+    host = os.getenv("SMTP_HOST", "").strip()
+    port_raw = os.getenv("SMTP_PORT", "587").strip() or "587"
+    try:
+        port = int(port_raw)
+    except ValueError:
+        port = 587
+    username = os.getenv("SMTP_USER", "").strip()
+    password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip()
+    sender = os.getenv("SMTP_FROM", username).strip()
+    use_ssl = os.getenv("SMTP_SSL", "false").strip().lower() in ("1", "true", "yes", "on")
+    use_tls = os.getenv("SMTP_TLS", "true").strip().lower() in ("1", "true", "yes", "on")
+    app_name = os.getenv("APP_NAME", "Wer wird Millionär").strip() or "Wer wird Millionär"
+
+    missing = []
+    if not host:
+        missing.append("SMTP_HOST")
+    if not username:
+        missing.append("SMTP_USER")
+    if not password:
+        missing.append("SMTP_PASSWORD")
+    if not sender:
+        missing.append("SMTP_FROM")
+
+    return {
+        "host": host,
+        "port": port,
+        "username": username,
+        "password": password,
+        "sender": sender,
+        "use_ssl": use_ssl,
+        "use_tls": use_tls,
+        "app_name": app_name,
+        "missing": missing,
+    }
+
+
+def send_verification_email(recipient: str, code: str):
+    config = get_smtp_config()
+    if config["missing"]:
+        raise RuntimeError("E-Mail-Versand ist noch nicht eingerichtet. Bitte SMTP-Daten in .env eintragen.")
+
+    msg = EmailMessage()
+    msg["Subject"] = f"Dein Login-Code für {config['app_name']}"
+    msg["From"] = config["sender"]
+    msg["To"] = recipient
+    msg.set_content(
+        f"Hallo,\n\n"
+        f"dein 6-stelliger Bestätigungscode lautet: {code}\n\n"
+        f"Der Code ist 10 Minuten gültig.\n\n"
+        f"Wenn du dich nicht anmelden wolltest, kannst du diese E-Mail ignorieren.\n"
+    )
+    msg.add_alternative(
+        f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; color: #1f1f1f;">
+            <h2>{config['app_name']}</h2>
+            <p>Dein 6-stelliger Bestätigungscode lautet:</p>
+            <p style="font-size: 28px; font-weight: bold; letter-spacing: 4px;">{code}</p>
+            <p>Der Code ist 10 Minuten gültig.</p>
+            <p style="color: #666;">Wenn du dich nicht anmelden wolltest, kannst du diese E-Mail ignorieren.</p>
+          </body>
+        </html>
+        """,
+        subtype="html",
+    )
+
+    context = ssl.create_default_context()
+    if config["use_ssl"]:
+        with smtplib.SMTP_SSL(config["host"], config["port"], context=context, timeout=20) as server:
+            server.login(config["username"], config["password"])
+            server.send_message(msg)
+        return
+
+    with smtplib.SMTP(config["host"], config["port"], timeout=20) as server:
+        server.ehlo()
+        if config["use_tls"]:
+            server.starttls(context=context)
+            server.ehlo()
+        server.login(config["username"], config["password"])
+        server.send_message(msg)
 
 def load_db() -> dict:
     if not os.path.exists(DB_FILE):
@@ -986,9 +1077,6 @@ QUESTIONS_PATH_LEVEL_ORDER = [
     "matheklippen",
     "wissenschaftsriff",
     "wirtschaftshafen",
-    "island_escape",
-    "city_patrol",
-    "school_detective",
 ]
 QUESTIONS_PATH_DEFAULT_PROFILE_NAME = "Profil"
 
@@ -1443,6 +1531,14 @@ def avatar_scene(theme_key: str) -> str:
     }.get(theme_key, "🎮 Quiz-Studio")
 
 
+def avatar_base_emoji(gender: str) -> str:
+    return {
+        "male": "🧑‍💼",
+        "female": "👩‍💼",
+        "diverse": "🧑‍🎤",
+    }.get(gender, "🧑")
+
+
 def _resolve_avatar_base_image(gender: str) -> str | None:
     male_tokens = ["avatar_männlich", "avatar_maennlich", "avatarmannlich", "avatar_male", "avatar"]
     female_tokens = ["avatar_weiblich", "avatar_female", "avatar_frau", "avatar_männlich", "avatar_maennlich", "avatar"]
@@ -1611,6 +1707,17 @@ def _sync_page_route(page: ft.Page, route: str):
         pass
 
 
+def _settings_button(page: ft.Page, state: dict, size: int = 16) -> ft.Container:
+    return ft.Container(
+        content=ft.Icon(ft.Icons.SETTINGS, size=size, color="white"),
+        bgcolor="#0000008f",
+        border_radius=14,
+        padding=ft.Padding(8, 6, 8, 6),
+        on_click=lambda e: show_settings_view(page, state),
+        tooltip="Einstellungen",
+    )
+
+
 def _go_route_or_render(page: ft.Page, route: str, renderer, state: dict):
     if route in {"/points", "/path"}:
         renderer(page, state)
@@ -1640,6 +1747,10 @@ def _theme_key_from_theme(theme: dict | None) -> str | None:
         if entry.get("label") == label:
             return key
     return None
+
+
+def _is_themed_video_theme(theme: dict | None) -> bool:
+    return (_theme_key_from_theme(theme) or "") in THEME_BG_CONFIG
 
 
 def _resolve_theme_background(theme_key: str, role: str, allow_video: bool = True) -> str | None:
@@ -5727,6 +5838,45 @@ def build_joker_tile(
     return tile
 
 
+def build_joker_slot_row(
+    picked_ids: list[str],
+    theme: dict,
+    *,
+    slot_size: int = 58,
+    empty_label: str = "?",
+    on_joker_click=None,
+) -> ft.Row:
+    slots = []
+    for i in range(JOKER_SELECT_COUNT):
+        if i < len(picked_ids):
+            jid = picked_ids[i]
+            joker = get_joker(jid)
+            if joker:
+                slots.append(
+                    build_joker_tile(
+                        joker,
+                        theme,
+                        selected=True,
+                        size=slot_size,
+                        show_name=True,
+                        on_click=(lambda e, j=jid: on_joker_click(j)) if on_joker_click else None,
+                    )
+                )
+                continue
+        slots.append(
+            ft.Container(
+                content=ft.Text(empty_label, size=18, color=theme_txt(theme, "muted"), weight="bold"),
+                width=slot_size,
+                height=slot_size,
+                border_radius=12,
+                bgcolor=theme.get("question_bg", "#FFFFFF"),
+                border=ft.border.Border.all(2, theme["border"]),
+                alignment=ft.Alignment(0, 0),
+            )
+        )
+    return ft.Row(slots, spacing=10, alignment=ft.MainAxisAlignment.CENTER)
+
+
 def build_game_joker_bar(page: ft.Page, state: dict, theme: dict, ctx: dict | None = None) -> ft.Control:
     """Separate white row with the 4 chosen jokers."""
     selected = state.get("selected_jokers", [])[:JOKER_SELECT_COUNT]
@@ -6968,56 +7118,6 @@ QUESTIONS_PATH_MAPS = {
             ["Markt", "Budget", "Preis", "Rabatt", "Kasse", "Währung", "Handel", "Lager", "Chance", "Ziel"],
         ),
     },
-    "island_escape": {
-        "title": "Island Escape",
-        "subtitle": "Level 1: The Beach",
-        "topic": "custom",
-        "icon": "🌴",
-        "accent": "#34D399",
-        "panel": "#0A1712E8",
-        "border": "#38BDF8",
-        "line": "#86EFAC",
-        "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuDujYeVOIbjHkAOgwaWo1l43M9PdBhcp_Tz6uDLFmu1NLafK-PLEkC0vDKCFYzUpw17iVPc1y1fNeT3T4pAgWo36rp32MPs9EyRZ6vq0AGXhjdiu8UNMtjLz-iHYZSbjaJmYlcLOYLxuNBeaFNRs71Owjo0nU-EsMadqASfgzM9aAA80sQBA43I2uUuuKNx-GjueU5h1sMIU3JZeBVLChZmMcCBmVjAMS5svthvFwu5w1sGbNcCkcUezc_YJQIDcqTxCc-tocuH8GzV",
-        "points": [{"x": 38.3, "y": 41.5, "label": "Punkt 1"}, {"x": 54.0, "y": 53.0, "label": "Punkt 2"}, {"x": 73.5, "y": 59.5, "label": "Punkt 3"}, {"x": 82.0, "y": 47.0, "label": "Punkt 4"}],
-        "questions": [
-            {"question": "Was ist das Hauptmerkmal dieser mystischen Waldregion?", "answers": ["Kakaobäume", "Fruchtbare Vulkanerde", "Dichte Nadelwälder & Teiche", "Unterseeische Riffe"], "correct_idx": 2},
-            {"question": "Welches magische Reittier haust der Legende nach am Ufer des glitzernden Teichs?", "answers": ["Der Smaragdfrosch", "Der Moos-Hirsch", "Die Nebel-Schildkröte", "Das Silberfischchen"], "correct_idx": 0},
-            {"question": "Wer hat das rote Abenteurerzelt im östlichen Außenposten aufgeschlagen?", "answers": ["Die QuestMapper Gilde", "Eine Gruppe Naturforscher", "Verlorene Holzfäller", "Ein mürrischer Einsiedler"], "correct_idx": 1},
-            {"question": "Durch welches Element ist der Teich gegenüber dem Pfad an der Ostgrenze gesichert?", "answers": ["Ein massives Holztor", "Einen antiken Steinkreis", "Eine charmante Bogenbrücke", "Einen tiefen Graben"], "correct_idx": 2}
-        ]
-    },
-    "city_patrol": {
-        "title": "Metropolis Mission",
-        "subtitle": "Level 2: City Streets",
-        "topic": "custom",
-        "icon": "🏙️",
-        "accent": "#38BDF8",
-        "panel": "#0A1712E8",
-        "border": "#38BDF8",
-        "line": "#86EFAC",
-        "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuDfspSd7Wwcnu0lQLSC2lVPDEYSdC4-GTaDqJlMm6PMNBKbcRWouRydApMgIvd7l0m1xYRC7grM44qJTuz5xjKZ-Itgc-eSBQYIMc0uNzD9HXlqRsmDkUUjw_DRjsiNDcq0_NkBeTBbjheWT4uV5DQp4CYtDc1EpASZr12rH5kRYNqFj2LiuwDYfknWs3GVHnEpMFzkNNxyxbb_pEI4zM3Jj7xbIWlgxNhaGzDEyhTeO0i4Ho9njkOXRkf6HQmvVt4PWvh3E2FwmV96",
-        "points": [{"x": 30.0, "y": 45.0, "label": "Punkt 1"}, {"x": 65.0, "y": 35.0, "label": "Punkt 2"}],
-        "questions": [
-            {"question": "Welcher Architekturstil prägt die isometrischen Hochhäuser im Stadtzentrum?", "answers": ["Klassizismus", "Brutalistisch-Modern", "Retro-Futuristisch", "Gotisch"], "correct_idx": 2},
-            {"question": "Wie viele Grünstreifen säumen die Hauptverkehrsstraßen dieser Miniaturstadt?", "answers": ["Keine, alles ist asphaltiert", "Jede Straße ist doppelspurig begrünt", "Einige ausgewählte Alleenhälften", "Nur der zentrale Stadtpark"], "correct_idx": 1}
-        ]
-    },
-    "school_detective": {
-        "title": "Akademie Rätsel",
-        "subtitle": "Level 1: Flurgang",
-        "topic": "custom",
-        "icon": "🏫",
-        "accent": "#F59E0B",
-        "panel": "#0A1712E8",
-        "border": "#38BDF8",
-        "line": "#86EFAC",
-        "image": "https://lh3.googleusercontent.com/aida-public/AB6AXuCj9Z2m4Wtvdm5wtPsCQhSh9WHcLV1H1Jp6u78BHSaDfPJMeRhAgQ47gUl0_k38dR7BhUe2MFs8wvzOK7zfMC9GhuoIR2MI-ckFINWZ8QF7n1qtSYSt8BJuPXpykiH3xYZXETYRvNZVlhtgLIJSzneLMFiAviPxwta5y8kjXQS9UdVkt8bf90MgL-gk1MJ-oRp-m4DEyJAVKKLY8cpFebn5uNiSzvxKG4CvMRAwNlVpJchuZP1zD-0e1lM1oXE7uD0rr0I05mJJaQKp",
-        "points": [{"x": 40.0, "y": 50.0, "label": "Punkt 1"}, {"x": 72.0, "y": 60.0, "label": "Punkt 2"}],
-        "questions": [
-            {"question": "Welche Farbe hat das geöffnete Spind, in dem die Questnotiz versteckt ist?", "answers": ["Signalgelb", "Himmelblau", "Türkis", "Pastellrosa"], "correct_idx": 2},
-            {"question": "Welches Fachgebiet wird auf dem Hauptplakat neben dem Trinkbrunnen beworben?", "answers": ["Astronomie-AG", "Chemie-Laborversuche", "Mathematik-Zirkel", "Kunst & Freihandzeichnen"], "correct_idx": 0}
-        ]
-    }
 }
 
 
@@ -7111,6 +7211,17 @@ QUESTIONS_PATH_WORLD_LAYOUTS = {
     "spiral": {"label": "Spiralroute", "points": _path_nodes([(18, 18), (34, 18), (50, 26), (62, 40), (65, 56), (58, 69), (45, 76), (31, 72), (22, 60), (24, 42)], ["Start", "Tor", "Kurve", "Bogen", "Mitte", "Schleife", "Wende", "Rückweg", "Finale", "Ziel"])},
     "coast": {"label": "Küstenweg", "points": _path_nodes([(10, 70), (18, 60), (30, 54), (43, 48), (56, 44), (69, 40), (79, 33), (84, 24), (74, 18), (58, 16)], ["Hafen", "Steg", "Bucht", "Düne", "Pfad", "Klippe", "Leuchtturm", "Welle", "Finale", "Ziel"])},
 }
+
+
+def _questions_path_point_template() -> list[tuple[int, int]]:
+    return [(10, 62), (20, 48), (31, 32), (42, 22), (55, 28), (67, 44), (77, 60), (69, 76), (51, 82), (32, 74)]
+
+
+def _questions_path_points_for_count(count: int) -> list[dict]:
+    labels = ["Start", "Tor", "Pfad", "Brücke", "Hain", "Lichtung", "Bucht", "Gipfel", "Finale", "Ziel"]
+    template = _questions_path_point_template()
+    count = max(1, min(len(template), int(count or 1)))
+    return _path_nodes(template[:count], labels[:count])
 
 
 def _questions_path_custom_map(raw_island: dict, index: int) -> dict:
@@ -7322,10 +7433,6 @@ def build_questions_path_questions(age: str, map_key: str, state: dict | None = 
 
     bank = build_level_question_bank(age)
     map_cfg = QUESTIONS_PATH_MAPS.get(map_key) or QUESTIONS_PATH_MAPS["waldpfad"]
-    
-    if map_cfg.get("questions"):
-        return [_path_question_to_dict(q) for q in map_cfg["questions"]]
-        
     total_nodes = len(map_cfg["points"])
     target_topic = _questions_path_map_topic(map_key)
     recent_prompts = []
@@ -7814,6 +7921,14 @@ def build_money_ladder(state: dict, compact: bool = False) -> ft.Control:
 
 
 # ---------- Avatar ----------
+def _avatar_piece_icon(user: dict, slot: str) -> str:
+    catalog = _avatar_catalog_by_id()
+    ensure_avatar_defaults(user)
+    item_id = user["avatar"]["equipped"].get(slot, AVATAR_BASE_EQUIPPED[slot])
+    item = catalog.get(item_id) or catalog.get(AVATAR_BASE_EQUIPPED[slot]) or {}
+    return str(item.get("icon", "•"))
+
+
 def _avatar_preview_text(user: dict, theme: dict) -> str:
     ensure_avatar_defaults(user)
     gender = user["avatar"].get("gender", "diverse")
@@ -7821,6 +7936,20 @@ def _avatar_preview_text(user: dict, theme: dict) -> str:
     scene = avatar_scene(theme_key)
     gender_label = {"male": "Männlich", "female": "Weiblich", "diverse": "Divers"}.get(gender, "Divers")
     return f"Avatar bald verfügbar\n{scene}\nTyp: {gender_label}"
+
+
+def _avatar_piece_color(item_id: str, theme: dict, fallback: str) -> str:
+    item_id = str(item_id or "")
+    item_id_l = item_id.lower()
+    if "royal" in item_id_l or "crown" in item_id_l or "chain" in item_id_l:
+        return "#F2C94C"
+    if "neon" in item_id_l or "glasses" in item_id_l:
+        return "#22D3EE"
+    if "ocean" in item_id_l or "diver" in item_id_l:
+        return "#38BDF8"
+    if "dark" in item_id_l:
+        return "#334155"
+    return fallback
 
 
 def _avatar_outfit_style(user: dict, theme: dict) -> dict:
@@ -8782,6 +8911,17 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
         expand=True,
         content=stack,
         alignment=ft.Alignment(0, 0)
+    )
+
+
+def _menu_button(label: str, on_click, color: str) -> ft.Control:
+    return ft.Container(
+        content=ft.Text(label, size=18, weight="bold", color="white"),
+        on_click=on_click,
+        bgcolor=color,
+        border_radius=50,
+        padding=ft.Padding(40, 14, 40, 14),
+        shadow=ft.BoxShadow(blur_radius=12, color="#40000000"),
     )
 
 
@@ -13239,6 +13379,12 @@ def render_game_screen(page: ft.Page, state: dict):
     page.add(ft.Container(expand=True, content=ft.Stack(layers, expand=True)))
     _start_question_timer(page, state)
     page.update()
+
+
+def show_next_question_themed(page: ft.Page, state: dict):
+    render_game_screen(page, state)
+
+
 def show_next_question(page: ft.Page, state: dict):
     """Display active question with timer and jokers."""
     if state["question_index"] >= len(state["questions"]):
@@ -13257,6 +13403,85 @@ def show_next_question(page: ft.Page, state: dict):
 
     render_game_screen(page, state)
     page.run_task(_sync_bg_music_async, page, state)
+
+
+def show_exit_confirmation(page: ft.Page, state: dict):
+    theme = get_theme(state)
+    db = load_db()
+    email = state.get("current_user_email")
+    logged_in = email and email in db["users"]
+
+    if logged_in:
+        info_text = "Möchtest du das aktuelle Spiel wirklich beenden? Dein Fortschritt wird gespeichert und du kannst das Spiel jederzeit im Hauptmenü fortsetzen."
+    else:
+        info_text = "Möchtest du das aktuelle Spiel wirklich beenden?\n\n⚠️ Da du als Gast spielst, wird dein Spielstand nicht gespeichert und dein Fortschritt geht verloren!"
+
+    def on_confirm_exit(e):
+        if logged_in:
+            save_current_game(state)
+            db_current = load_db()
+            if email in db_current["users"]:
+                db_current["users"][email]["saved_game"] = {
+                    "money": state.get("money", "0 €"),
+                    "questions_answered": state.get("questions_answered", 0),
+                    "correct": state.get("correct", 0),
+                    "jokers_used": state.get("jokers_used", 0),
+                    "question_index": state.get("question_index", 0),
+                    "questions": state.get("questions", []),
+                    "is_custom_game": state.get("is_custom_game", False),
+                    "custom_quiz_id": state.get("custom_quiz_id"),
+                    "custom_quiz_title": state.get("custom_quiz_title"),
+                    "selected_jokers": state.get("selected_jokers", []),
+                    "jokers_used_ids": state.get("jokers_used_ids", []),
+                    "time_left": max(0, int(state.get("time_left", QUESTION_TIME_SEC))),
+                    "hidden_answers": state.get("hidden_answers", []),
+                    "time_pressure_enabled": bool(state.get("time_pressure_enabled", True)),
+                    "question_time_sec": int(state.get("question_time_sec", QUESTION_TIME_SEC)),
+                    "phone_until": state.get("phone_until"),
+                    "friend_until": state.get("friend_until"),
+                }
+                save_db(db_current)
+        _go_home(e.page, state)
+
+    def on_resume_game(e):
+        show_next_question(e.page, state)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000096"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Column([
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text("Spiel unterbrechen?", size=24, weight="bold", color="white", text_align="center"),
+                                    ft.Container(height=10),
+                                    ft.Text(info_text, size=16, color=theme_txt(theme, "secondary"), text_align="center"),
+                                    ft.Container(height=20),
+                                    ft.Row([
+                                        _theme_action_button("Ja, beenden", theme, on_confirm_exit, width=170, bg=theme.get("danger", "#C0392B")),
+                                        _theme_action_button("Nein, weiter", theme, on_resume_game, width=170, bg=theme.get("success", "#2ECC71")),
+                                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=16),
+                                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                                bgcolor=theme.get("panel", "#1A0A30"),
+                                border_radius=20,
+                                padding=30,
+                                border=ft.border.Border.all(2, theme.get("border", "#9B59B6")),
+                                width=420,
+                            )
+                        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
 
 
 # ---------- Result Screens ----------
@@ -13500,6 +13725,215 @@ def _show_win_screen(page: ft.Page, state: dict):
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                spacing=12),
+        )
+    )
+    page.update()
+
+
+# ---------- Authentication & Profile Views ----------
+def show_legacy_email_code_login_view(page: ft.Page, state: dict):
+    db = load_db()
+    
+    email_input = ft.TextField(
+        label="E-Mail-Adresse",
+        width=300,
+        bgcolor="#1A0A30",
+        border_color="#9B59B6",
+        color="white",
+    )
+    
+    code_input = ft.TextField(
+        label="6-stelliger Bestätigungscode",
+        width=300,
+        bgcolor="#1A0A30",
+        border_color="#9B59B6",
+        color="white",
+        visible=False,
+    )
+    
+    cooldown_text = ft.Text("", color="#FF4D4D", size=13, text_align="center", visible=False)
+    status_text = ft.Text("", color="red", size=14, text_align="center")
+    code_display_box = ft.Container(visible=False)
+    
+    verification_data = {"email": "", "code": "", "time": 0.0}
+    request_state = {"last_request_time": 0.0}
+
+    def show_cooldown_message(seconds_left: int):
+        message = f"Bitte warte noch {seconds_left} Sekunden."
+        cooldown_text.value = message
+        cooldown_text.visible = True
+        page.update()
+
+        async def hide_message():
+            await asyncio.sleep(2.0)
+            if cooldown_text.value == message:
+                cooldown_text.value = ""
+                cooldown_text.visible = False
+                page.update()
+
+        page.run_task(hide_message)
+    
+    def on_request_code(e):
+        email = email_input.value.strip()
+        if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
+            status_text.value = "⚠️ Bitte eine gültige E-Mail eingeben."
+            status_text.color = "red"
+            page.update()
+            return
+
+        elapsed = time.time() - request_state["last_request_time"]
+        if elapsed < CODE_REQUEST_COOLDOWN_SECONDS:
+            remaining = int(CODE_REQUEST_COOLDOWN_SECONDS - elapsed + 0.999)
+            show_cooldown_message(remaining)
+            return
+            
+        code = f"{random.randint(100000, 999999)}"
+        request_state["last_request_time"] = time.time()
+        request_btn.disabled = True
+        status_text.value = "Code wird per E-Mail gesendet..."
+        status_text.color = "#FFD700"
+        cooldown_text.value = ""
+        cooldown_text.visible = False
+        code_display_box.visible = False
+        page.update()
+
+        try:
+            send_verification_email(email, code)
+        except Exception as ex:
+            verification_data["email"] = ""
+            verification_data["code"] = ""
+            verification_data["time"] = 0.0
+            code_input.visible = False
+            submit_btn.visible = False
+            code_display_box.visible = False
+            request_btn.disabled = False
+            status_text.value = f"E-Mail konnte nicht gesendet werden: {ex}"
+            status_text.color = "red"
+            page.update()
+            return
+        
+        code_display_box.content = ft.Container(
+            content=ft.Column([
+                ft.Text("E-Mail gesendet!", weight="bold", color="#FFD700"),
+                ft.Text("Bitte pruefe dein Postfach und gib den 6-stelligen Code ein.", size=14, color="white", text_align="center"),
+                ft.Text("(Code ist 10 Minuten gültig)", size=12, color="#E0D0F0"),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=16,
+            bgcolor="#2C1654",
+            border_radius=12,
+            border=ft.border.Border.all(1, "#9B59B6"),
+        )
+        verification_data["email"] = email
+        verification_data["code"] = code
+        verification_data["time"] = time.time()
+        code_display_box.visible = True
+        code_input.visible = True
+        submit_btn.visible = True
+        request_btn.disabled = False
+        request_btn.content.value = "Neuen Code anfordern"
+        status_text.value = "✓ Code gesendet! Bitte unten eingeben."
+        status_text.color = "#2ECC71"
+        page.update()
+        
+    def on_login(e):
+        entered_code = code_input.value.strip()
+        if not entered_code:
+            status_text.value = "⚠️ Bitte gib den Code ein."
+            status_text.color = "red"
+            page.update()
+            return
+            
+        if time.time() - verification_data["time"] > 600:
+            status_text.value = "❌ Code abgelaufen! Bitte neuen anfordern."
+            status_text.color = "red"
+            page.update()
+            return
+            
+        if entered_code != verification_data["code"]:
+            status_text.value = "❌ Falscher Code. Bitte erneut eingeben."
+            status_text.color = "red"
+            page.update()
+            return
+            
+        email = verification_data["email"]
+        db = load_db()
+        state["current_user_email"] = email
+        if email not in db["users"]:
+            default_name = email.split("@")[0].capitalize()
+            db["users"][email] = {
+                "name": default_name,
+                "settings": DEFAULT_USER_SETTINGS.copy(),
+                "stats": {
+                    "games_played": 0,
+                    "correct_answers": 0,
+                    "questions_answered": 0,
+                    "highest_money": "0 €",
+                    "highest_money_level": -1
+                }
+            }
+        ensure_user_settings(db, email)
+        save_db(db)
+        show_stats(page, state)
+        
+    request_btn = ft.Container(
+        content=ft.Text("Code anfordern", size=16, weight="bold", color="white"),
+        on_click=on_request_code,
+        bgcolor="#9B59B6",
+        border_radius=30,
+        padding=ft.Padding(30, 12, 30, 12),
+        alignment=ft.Alignment(0, 0),
+        width=220,
+    )
+    
+    submit_btn = ft.Container(
+        content=ft.Text("Einloggen", size=16, weight="bold", color="white"),
+        on_click=on_login,
+        visible=False,
+        bgcolor="#2ECC71",
+        border_radius=30,
+        padding=ft.Padding(30, 12, 30, 12),
+        alignment=ft.Alignment(0, 0),
+        width=220,
+    )
+    
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=["#2C1654", "#6B2FA0", "#C2185B"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("🔑 Anmelden", size=30, weight="bold", color="white"),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Column([
+                        email_input,
+                        request_btn,
+                        code_display_box,
+                        code_input,
+                        submit_btn,
+                        cooldown_text,
+                        status_text,
+                    ], spacing=16, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor="#1A0A30",
+                    border_radius=16,
+                    padding=24,
+                    border=ft.border.Border.all(2, "#9B59B6"),
+                    width=360,
+                ),
+                ft.Container(height=10),
+                ft.TextButton(
+                    "← Zurück",
+                    on_click=lambda e: show_stats(e.page, state),
+                    style=ft.ButtonStyle(color="white"),
+                )
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14)
         )
     )
     page.update()
@@ -13985,6 +14419,37 @@ def force_close_all_dialogs(page: ft.Page):
         page.update()
     except Exception:
         pass
+
+
+def _close_overlay(page: ft.Page, overlay):
+    if isinstance(overlay, ft.AlertDialog):
+        close_page_dialog(page, overlay)
+        return
+    if hasattr(page, "close"):
+        try:
+            page.close(overlay)
+            page.update()
+            return
+        except Exception:
+            pass
+    overlay.open = False
+    page.update()
+
+
+def close_all_dialogs(page: ft.Page):
+    """Close all open dialogs on the page."""
+    # Close dialog if set
+    if hasattr(page, "dialog") and page.dialog:
+        close_page_dialog(page, page.dialog)
+    
+    # Close all AlertDialog overlays
+    overlays_to_remove = []
+    for overlay in page.overlay:
+        if isinstance(overlay, ft.AlertDialog):
+            overlays_to_remove.append(overlay)
+    
+    for overlay in overlays_to_remove:
+        close_page_dialog(page, overlay)
 
 
 def show_friend_profile_popup(page: ft.Page, state: dict, friend_email: str):
@@ -15153,6 +15618,135 @@ def show_edit_profile_view(page: ft.Page, state: dict):
 
 
 # ---------- Statistics Screen ----------
+def show_stats_legacy(page: ft.Page, state: dict):
+    db = load_db()
+    theme = get_theme(state)
+    page_width = page.width or page.window.width or 1100
+    is_mobile = page_width < 720
+    card_width = None if is_mobile else 320
+    
+    g_stats = db.get("global_stats", {})
+    g_games = g_stats.get("games_played", 0)
+    g_correct = g_stats.get("correct_answers", 0)
+    g_answered = g_stats.get("questions_answered", 0)
+    g_money = g_stats.get("highest_money", "0 €")
+    g_rate = f"{int(g_correct / g_answered * 100)}%" if g_answered > 0 else "0%"
+    
+    global_card = ft.Container(
+        content=ft.Column([
+            ft.Text("🌍 Globale Statistik", size=18, weight="bold", color=theme["gold"]),
+            ft.Divider(color=theme["border"], thickness=1),
+            _stat_row("🎮 Spiele gesamt", str(g_games)),
+            _stat_row("📝 Beantwortete Fragen", str(g_answered)),
+            _stat_row("✅ Richtige Antworten", f"{g_correct} ({g_rate})"),
+            _stat_row("🏆 Höchster Gewinn", g_money),
+        ], spacing=12),
+        bgcolor=theme["panel"],
+        border_radius=16,
+        padding=20,
+        border=ft.border.Border.all(2, theme["border"]),
+        width=card_width,
+    )
+    
+    email = state.get("current_user_email")
+    if email and email in db["users"]:
+        u_info = db["users"][email]
+        u_name = u_info.get("name", email)
+        u_stats = u_info.get("stats", {})
+        u_games = u_stats.get("games_played", 0)
+        u_correct = u_stats.get("correct_answers", 0)
+        u_answered = u_stats.get("questions_answered", 0)
+        u_money = u_stats.get("highest_money", "0 €")
+        u_rate = f"{int(u_correct / u_answered * 100)}%" if u_answered > 0 else "0%"
+        
+        personal_card = ft.Container(
+            content=ft.Column([
+                ft.Text(f"👤 Statistik: {u_name}", size=18, weight="bold", color="#2ECC71"),
+                ft.Text(email, size=11, color="#E0D0F0"),
+                ft.Divider(color="#2ECC71", thickness=1),
+                _stat_row("🎮 Deine Spiele", str(u_games)),
+                _stat_row("📝 Beantwortete Fragen", str(u_answered)),
+                _stat_row("✅ Richtige Antworten", f"{u_correct} ({u_rate})"),
+                _stat_row("🏆 Dein Rekord", u_money),
+            ], spacing=12),
+            bgcolor=theme["panel"],
+            border_radius=16,
+            padding=20,
+            border=ft.border.Border.all(2, theme["success"]),
+            width=card_width,
+        )
+    else:
+        personal_card = ft.Container(
+            content=ft.Column([
+                ft.Text("👤 Persönliche Statistik", size=18, weight="bold", color="#CCCCCC"),
+                ft.Divider(color="#CCCCCC", thickness=1),
+                ft.Text(
+                    "Melde dich im Hauptmenü an, um deine persönlichen Statistiken dauerhaft zu sichern!",
+                    size=13,
+                    color="#CCCCCC",
+                    text_align="center",
+                ),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Text("🔑 Anmelden", size=16, weight="bold", color="white"),
+                    on_click=lambda e: show_login_view(e.page, state),
+                    bgcolor=theme["accent"],
+                    visible=False,
+                    border_radius=30,
+                    padding=ft.Padding(30, 12, 30, 12),
+                    alignment=ft.Alignment(0, 0),
+                    width=200,
+                ),
+            ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor=theme["panel"],
+            border_radius=16,
+            padding=20,
+            border=ft.border.Border.all(2, "#CCCCCC"),
+            width=card_width,
+        )
+        
+    stats_cards = ft.Column(
+        [global_card, personal_card],
+        spacing=14,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+    ) if is_mobile else ft.Row([
+        global_card,
+        ft.Container(width=16),
+        personal_card,
+    ], alignment=ft.MainAxisAlignment.CENTER)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, -1),
+                end=ft.Alignment(1, 1),
+                colors=theme["gradient"],
+            ),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Column([
+                ft.Text("📊 Statistiken", size=28 if is_mobile else 32, weight="bold", color="white"),
+                ft.Container(height=10),
+                stats_cards,
+                ft.Container(height=20),
+                ft.Container(
+                    content=ft.Text("← Zurück", size=16, weight="bold", color="white"),
+                    on_click=lambda e: open_main_menu(e.page, state),
+                    bgcolor=theme["accent"],
+                    border_radius=50,
+                    padding=ft.Padding(30, 12, 30, 12),
+                ),
+            ], alignment=ft.MainAxisAlignment.CENTER,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+               spacing=14,
+               scroll=ft.ScrollMode.AUTO),
+            padding=ft.Padding(12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20, 12 if is_mobile else 20),
+        )
+    )
+    page.update()
+
+
 def _pct(part: int, total: int) -> str:
     return f"{int(part / total * 100)}%" if total else "0%"
 
@@ -15823,6 +16417,10 @@ def _questions_path_level_background_asset() -> str:
     return os.path.join("Fragenpfad", "level_insel_1.png")
 
 
+def _questions_path_level_start_asset() -> str:
+    return os.path.join("Fragenpfad", "level_start.png")
+
+
 def _questions_path_profile_cards(page: ft.Page, state: dict, profiles: list[dict]):
     theme = get_theme(state)
     cards = []
@@ -15929,6 +16527,15 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
         state["_questions_path_level_complete"] = False
         show_questions_path_hub(e.page, state)
 
+    def open_creator(e):
+        refreshed = get_questions_path_profiles(state)
+        profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
+        if not list(profile.get("custom_islands", []) or []):
+            profile["custom_islands"] = [_questions_path_default_custom_island(0)]
+            save_active_profile(profile)
+        state["questions_path_scene"] = "creator"
+        show_questions_path_hub(e.page, state)
+
     def open_custom_menu(e):
         refreshed = get_questions_path_profiles(state)
         profile = dict(refreshed[active_index] if active_index < len(refreshed) else active_profile)
@@ -15961,6 +16568,24 @@ def _questions_path_render_profiles(page: ft.Page, state: dict):
         persist_questions_path_profiles(state, current_profiles)
         state["questions_path_profiles"] = current_profiles
         set_questions_path_profile_index(state, len(current_profiles) - 1)
+        _questions_path_render_profiles(e.page, state)
+
+    def remove_profile(e):
+        current_profiles = get_questions_path_profiles(state)
+        current_index = get_questions_path_profile_index(state)
+        if len(current_profiles) <= QUESTIONS_PATH_PROFILE_MIN:
+            e.page.snack_bar = ft.SnackBar(content=ft.Text("Mindestens ein Profil muss bleiben."), open=True)
+            e.page.update()
+            return
+        current_profiles.pop(current_index)
+        for idx, profile in enumerate(current_profiles):
+            if isinstance(profile, dict):
+                default_name = f"{QUESTIONS_PATH_DEFAULT_PROFILE_NAME} {idx + 1}"
+                if str(profile.get("name", "")).startswith(QUESTIONS_PATH_DEFAULT_PROFILE_NAME):
+                    profile["name"] = default_name
+        persist_questions_path_profiles(state, current_profiles)
+        state["questions_path_profiles"] = current_profiles
+        set_questions_path_profile_index(state, min(current_index, len(current_profiles) - 1))
         _questions_path_render_profiles(e.page, state)
 
     page.controls.clear()
@@ -16159,6 +16784,12 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         current_profiles[active_index] = current_profile
         persist_questions_path_profiles(state, current_profiles)
         state["questions_path_profiles"] = current_profiles
+
+    def update_profile(mutator):
+        current_profiles = get_questions_path_profiles(state)
+        current_profile = dict(current_profiles[active_index] if active_index < len(current_profiles) else profile)
+        mutator(current_profile)
+        persist(current_profile)
 
     def update_selected(mutator, rerender_page=None):
         current_profiles = get_questions_path_profiles(state)
@@ -16456,6 +17087,18 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
         state["_questions_path_active_point_index"] = new_index
         state["_questions_path_question_dialog_open"] = False
         update_selected(_mutate, e.page)
+
+    def remove_question(question_index: int):
+        def _handler(e):
+            def _mutate(island):
+                questions = list(island.get("questions", []) or [])
+                if len(questions) > 1 and question_index < len(questions):
+                    questions.pop(question_index)
+                island["questions"] = questions
+
+            update_selected(_mutate, e.page)
+
+        return _handler
 
     def save_question(question_index: int, question_ref, answer_refs, correct_ref):
         def _handler(e):
@@ -18683,6 +19326,274 @@ def render_questions_path_complete(page: ft.Page, state: dict):
     page.run_task(_sync_bg_music_async, page, state)
 
 
+# ========================================
+# ENHANCED MAP EDITOR - NEW HELPER FUNCTIONS
+# ========================================
+
+def _create_modern_marker(idx: int, point: dict, point_index: int, is_dragging: bool = False, 
+                          on_click=None, on_pan_start=None, on_pan_update=None, 
+                          on_pan_end=None) -> ft.Container:
+    """
+    Erstellt einen modernen, visuell ansprechenden Marker für einen Pfadpunkt.
+    Features:
+    - Schatten für Tiefenwirkung
+    - Hover-Effekt (Skalierung und Farbwechsel)
+    - Klare Sichtbarkeit auf verschiedenen Hintergründen
+    - Animierte Übergänge
+    """
+    is_active = idx == point_index
+    
+    # Farben basierend auf Zustand
+    bg_color = "#EC4899" if is_active else "#0EA5E9"
+    border_color = "#FCE7F3" if is_active else "#DBEAFE"
+    shadow_color = "#EC4899" if is_active else "#0EA5E9"
+    
+    # Größe anpassen basierend auf Zustand
+    marker_size = 72 if is_active else 64
+    
+    return ft.Container(
+        padding=8,
+        border_radius=999,
+        # Schatten-Effekt
+        bgcolor="#00000020",
+        shadow=ft.BoxShadow(
+            blur_radius=12,
+            spread_radius=2,
+            color=shadow_color if is_active else "#00000040",
+            offset=ft.Offset(0, 4)
+        ),
+        content=ft.GestureDetector(
+            on_pan_start=on_pan_start,
+            on_pan_update=on_pan_update,
+            on_pan_end=on_pan_end,
+            on_tap=on_click,
+            drag_interval=1,
+            mouse_cursor=ft.MouseCursor.MOVE,
+            content=ft.Container(
+                width=marker_size,
+                height=marker_size,
+                border_radius=999,
+                bgcolor=bg_color,
+                border=ft.border.Border.all(3, border_color),
+                alignment=ft.Alignment(0, 0),
+                # Animierte Skalierung bei Hover
+                animate_scale=ft.animation.Animation(200, "easeOut"),
+                scale=1.1 if is_active else 1.0,
+                content=ft.Text(
+                    str(idx + 1),
+                    size=22 if is_active else 20,
+                    weight="bold",
+                    color="white"
+                ),
+            )
+        ),
+    )
+
+
+def _create_point_label(point: dict, idx: int) -> ft.Container:
+    """Erstellt ein ansprechendes Label für einen Pfadpunkt"""
+    return ft.Container(
+        padding=ft.Padding(8, 4, 8, 4),
+        border_radius=8,
+        bgcolor="#08131D",
+        border=ft.border.Border.all(1, "#334155"),
+        content=ft.Text(
+            point.get("label", f"Punkt {idx + 1}"),
+            size=10,
+            weight="bold",
+            color="white",
+            text_align=ft.TextAlign.CENTER,
+            max_lines=2,
+            overflow=ft.TextOverflow.ELLIPSIS
+        )
+    )
+
+
+def _questions_path_default_custom_question_enhanced(idx: int) -> dict:
+    """
+    Erstellt eine neue Frage mit Unterstützung für mehrfache richtige Antworten
+    """
+    return {
+        "question": "",
+        "answers": ["", "", "", ""],
+        "correct_answers": ["A"],  # NEU: Liste statt einzelner Index
+        # Fallback für Kompatibilität
+        "correct_idx": 0,
+    }
+
+
+def _ensure_backward_compatibility(question: dict) -> dict:
+    """
+    Konvertiert alte Fragendaten zu neuem Format
+    Fallback für alte Spieledaten
+    """
+    q = dict(question)
+    
+    # Wenn noch alte Struktur
+    if "correct_idx" in q and "correct_answers" not in q:
+        correct_idx = int(q.get("correct_idx", 0))
+        if 0 <= correct_idx < 4:
+            q["correct_answers"] = [ANSWER_LETTERS[correct_idx]]
+        else:
+            q["correct_answers"] = [ANSWER_LETTERS[0]]
+    
+    # Stelle sicher, dass correct_answers immer eine Liste ist
+    if "correct_answers" not in q:
+        q["correct_answers"] = [ANSWER_LETTERS[0]]
+    
+    return q
+
+
+def _create_question_editor_modal(page: ft.Page, state: dict, point_index: int, 
+                                  points: list, current_questions: list, 
+                                  on_save=None, on_close=None) -> ft.AlertDialog:
+    """
+    Erstellt ein modales Fenster zur Bearbeitung von Fragen und Antworten.
+    Features:
+    - Checkboxen für mehrfache korrekte Antworten
+    - Moderne UI mit guter Übersichtlichkeit
+    - Live-Speicherung
+    """
+    
+    if point_index >= len(current_questions):
+        current_questions.append(_questions_path_default_custom_question_enhanced(point_index))
+    
+    active_question = dict(current_questions[point_index])
+    active_answers = list(active_question.get("answers", []) or [])
+    while len(active_answers) < 4:
+        active_answers.append("")
+    
+    # Mehrfache korrekte Antworten
+    correct_answers = set(active_question.get("correct_answers", []))
+    if not correct_answers and "correct_idx" in active_question:
+        # Fallback für alte Daten
+        correct_idx = int(active_question.get("correct_idx", 0))
+        if 0 <= correct_idx < 4:
+            correct_answers = {ANSWER_LETTERS[correct_idx]}
+    
+    question_ref = ft.Ref[ft.TextField]()
+    answer_refs = [ft.Ref[ft.TextField]() for _ in range(4)]
+    checkbox_refs = [ft.Ref[ft.Checkbox]() for _ in range(4)]
+    
+    def save_question_data(e):
+        """Speichert die Fragendaten mit Mehrfachauswahl"""
+        if on_save:
+            q_data = {
+                "question": str(question_ref.current.value or "").strip() or 
+                           active_question.get("question", "Frage"),
+                "answers": [
+                    str(answer_refs[i].current.value or "").strip() or 
+                    active_answers[i] or f"Antwort {ANSWER_LETTERS[i]}"
+                    for i in range(4)
+                ],
+                "correct_answers": [ANSWER_LETTERS[i] for i in range(4) 
+                                   if checkbox_refs[i].current.value],
+            }
+            # Fallback: Wenn keine korrekte Antwort ausgewählt ist, Standard setzen
+            if not q_data["correct_answers"]:
+                q_data["correct_answers"] = [ANSWER_LETTERS[0]]
+            
+            on_save(point_index, q_data)
+        
+        if on_close:
+            on_close(e)
+    
+    # Erstelle Antwort-Zeilen mit Checkboxen
+    answer_rows = []
+    for i in range(4):
+        answer_rows.append(
+            ft.Container(
+                padding=ft.Padding(12, 8, 12, 8),
+                border_radius=12,
+                bgcolor="#0F1823",
+                border=ft.border.Border.all(1, "#334155"),
+                content=ft.Row(
+                    [
+                        ft.Checkbox(
+                            ref=checkbox_refs[i],
+                            value=ANSWER_LETTERS[i] in correct_answers,
+                            label=f"Korrekt",
+                            fill_color="#0EA5E9",
+                            check_color="white",
+                        ),
+                        ft.TextField(
+                            ref=answer_refs[i],
+                            value=active_answers[i],
+                            label=f"Antwort {ANSWER_LETTERS[i]}",
+                            bgcolor="#111827",
+                            color="white",
+                            border_color="#334155",
+                            filled=False,
+                            expand=True,
+                        ),
+                    ],
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+        )
+    
+    content = ft.Container(
+        width=600,
+        padding=20,
+        content=ft.Column(
+            [
+                ft.Text("Frage bearbeiten", size=20, weight="bold", color="white"),
+                ft.Divider(color="#334155"),
+                
+                ft.Text("Frage:", size=12, weight="bold", color="#A8C0D2"),
+                ft.TextField(
+                    ref=question_ref,
+                    value=active_question.get("question", ""),
+                    label="Gib die Frage ein...",
+                    bgcolor="#111827",
+                    color="white",
+                    border_color="#334155",
+                    min_lines=2,
+                ),
+                
+                ft.Text("Antworten (markiere alle korrekten):", size=12, weight="bold", 
+                       color="#A8C0D2"),
+                ft.Column(answer_rows, spacing=10),
+                
+                ft.Divider(color="#334155"),
+                
+                ft.Row(
+                    [
+                        ft.TextButton(
+                            "Abbrechen",
+                            icon=ft.icons.CLOSE,
+                            style=ft.ButtonStyle(color="#A8C0D2"),
+                            on_click=on_close,
+                        ),
+                        ft.ElevatedButton(
+                            "Speichern",
+                            icon=ft.icons.SAVE,
+                            style=ft.ButtonStyle(
+                                bgcolor="#0EA5E9",
+                                color="white",
+                            ),
+                            on_click=save_question_data,
+                        ),
+                    ],
+                    spacing=10,
+                    alignment=ft.MainAxisAlignment.END,
+                ),
+            ],
+            spacing=12,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+    )
+    
+    dialog = ft.AlertDialog(
+        modal=True,
+        bgcolor="#07101A",
+        content=content,
+    )
+    
+    return dialog
+
+
 def _questions_path_render_editor(page: ft.Page, state: dict):
     theme = get_theme(state)
     profiles = get_questions_path_profiles(state)
@@ -18729,9 +19640,6 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
     state["_questions_path_editor_point_index"] = point_index
     active_point = dict(points[point_index])
 
-    question_ref = ft.Ref[ft.TextField]()
-    answer_refs = [ft.Ref[ft.TextField]() for _ in range(4)]
-    correct_ref = ft.Ref[ft.Dropdown]()
     map_title_ref = ft.Ref[ft.TextField]()
     map_subtitle_ref = ft.Ref[ft.TextField]()
     point_marker_refs: dict[int, ft.Ref[ft.Container]] = {}
@@ -18917,32 +19825,47 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
     def pick_custom_map(e):
         e.page.run_task(pick_custom_map_task, e.page)
 
+    def _open_question_editor_modal(pg: ft.Page, st: dict, pt_idx: int, pts: list, q_list: list):
+        """Öffnet das Modal zur Fragenbearbeitung"""
+        def save_question(point_idx: int, q_data: dict):
+            def _mutate(raw_map):
+                raw_questions = list(raw_map.get("questions", []) or [])
+                while len(raw_questions) < len(raw_map.get("points", [])):
+                    raw_questions.append(_questions_path_default_custom_question_enhanced(len(raw_questions)))
+                if point_idx < len(raw_questions):
+                    raw_questions[point_idx] = _ensure_backward_compatibility(q_data)
+                raw_map["questions"] = raw_questions
+            
+            save_target(_mutate)
+            # Schließe Dialog
+            if pg.dialog:
+                pg.dialog.open = False
+            pg.update()
+            _questions_path_render_editor(pg, st)
+        
+        def close_dialog(e):
+            if pg.dialog:
+                pg.dialog.open = False
+            pg.update()
+        
+        dlg = _create_question_editor_modal(
+            pg, st, pt_idx, pts, q_list,
+            on_save=save_question,
+            on_close=close_dialog
+        )
+        pg.dialog = dlg
+        dlg.open = True
+        pg.update()
+
     def save_point_details(e):
         def _mutate(raw_map):
             raw_points = ensure_points_list(raw_map)
             idx = max(0, min(int(state.get("_questions_path_editor_point_index", 0) or 0), len(raw_points) - 1))
-            raw_questions = list(raw_map.get("questions", []) or [])
-            while len(raw_questions) < len(raw_points):
-                raw_questions.append(_questions_path_default_custom_question(len(raw_questions)))
             if idx < len(raw_points):
                 raw_points[idx]["label"] = str(map_title_ref.current.value or raw_points[idx].get("label", f"Punkt {idx + 1}")).strip() or f"Punkt {idx + 1}"
                 raw_points[idx]["x"] = max(2, min(96, int(raw_points[idx].get("x", 10) or 10)))
                 raw_points[idx]["y"] = max(2, min(96, int(raw_points[idx].get("y", 10) or 10)))
             raw_map["points"] = raw_points
-            if idx < len(raw_questions):
-                q = dict(raw_questions[idx])
-                q["question"] = str(question_ref.current.value or q.get("question", "")).strip() or q.get("question", "Frage")
-                answers = []
-                existing_answers = list(q.get("answers", []) or [])
-                while len(existing_answers) < 4:
-                    existing_answers.append("")
-                for answer_idx, ref in enumerate(answer_refs):
-                    value = str(ref.current.value or "").strip() if ref.current else ""
-                    answers.append(value or existing_answers[answer_idx] or f"Antwort {ANSWER_LETTERS[answer_idx]}")
-                q["answers"] = answers[:4]
-                q["correct_idx"] = int(correct_ref.current.value or q.get("correct_idx", 0)) if correct_ref.current else int(q.get("correct_idx", 0))
-                raw_questions[idx] = q
-            raw_map["questions"] = raw_questions
 
         save_target(_mutate)
         _questions_path_render_editor(e.page, state)
@@ -19082,36 +20005,27 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
         top = point_top_from_percent(point["y"])
         marker_ref = ft.Ref[ft.Container]()
         point_marker_refs[idx] = marker_ref
+        
         point_markers.append(
             ft.Container(
                 ref=marker_ref,
                 left=left,
                 top=top,
                 width=100,
-                height=94,
-                content=ft.GestureDetector(
-                    on_pan_start=point_drag_start(idx),
-                    on_pan_update=point_drag_update(idx),
-                    on_pan_end=point_drag_end(idx),
-                    on_tap=set_active_point(idx),
-                    drag_interval=1,
-                    mouse_cursor=ft.MouseCursor.MOVE,
-                    content=ft.Column(
-                        [
-                            ft.Container(
-                                width=64,
-                                height=64,
-                                border_radius=999,
-                                bgcolor="#EC4899" if idx == point_index else "#0EA5E9",
-                                border=ft.border.Border.all(3, "#FCE7F3" if idx == point_index else "#DBEAFE"),
-                                alignment=ft.Alignment(0, 0),
-                                content=ft.Text(str(idx + 1), size=20, weight="bold", color="#08131F"),
-                            ),
-                            ft.Text(point.get("label", f"Punkt {idx + 1}"), size=10, color="white", text_align=ft.TextAlign.CENTER, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                        ],
-                        spacing=4,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
+                height=110,
+                content=ft.Column(
+                    [
+                        _create_modern_marker(
+                            idx, point, point_index,
+                            on_click=set_active_point(idx),
+                            on_pan_start=point_drag_start(idx),
+                            on_pan_update=point_drag_update(idx),
+                            on_pan_end=point_drag_end(idx),
+                        ),
+                        _create_point_label(point, idx),
+                    ],
+                    spacing=4,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             )
         )
@@ -19187,18 +20101,94 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
                                     _game_menu_button("Punkt löschen", remove_point, "#7C2D12", width=130, height=40),
                                 ], spacing=10),
                                 ft.Divider(color="#243244"),
+                                
+                                # Punkt-Info Header
+                                ft.Container(
+                                    padding=ft.Padding(12, 10, 12, 10),
+                                    border_radius=12,
+                                    bgcolor="#0F1823",
+                                    border=ft.border.Border.all(1, "#334155"),
+                                    content=ft.Row(
+                                        [
+                                            ft.Container(
+                                                width=40,
+                                                height=40,
+                                                border_radius=999,
+                                                bgcolor="#0EA5E9",
+                                                alignment=ft.Alignment(0, 0),
+                                                content=ft.Text(str(point_index + 1), size=16, weight="bold", color="white")
+                                            ),
+                                            ft.Column(
+                                                [
+                                                    ft.Text(active_point.get("label", ""), size=14, weight="bold", color="white"),
+                                                    ft.Text(f"Punkt {point_index + 1}", size=11, color="#A8C0D2"),
+                                                ],
+                                                spacing=2,
+                                                expand=True
+                                            ),
+                                        ],
+                                        spacing=12,
+                                    ),
+                                ),
+                                
+                                ft.Divider(color="#243244"),
+                                
                                 ft.TextField(ref=map_title_ref, value=active_point.get("label", ""), label="Punktname", bgcolor="#111827", color="white", border_color="#334155"),
-                                ft.TextField(ref=question_ref, value=active_question.get("question", ""), label="Frage", bgcolor="#111827", color="white", border_color="#334155"),
-                                ft.Row([
-                                    ft.TextField(ref=answer_refs[0], value=active_answers[0], label="Antwort A", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                    ft.TextField(ref=answer_refs[1], value=active_answers[1], label="Antwort B", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                ], spacing=8),
-                                ft.Row([
-                                    ft.TextField(ref=answer_refs[2], value=active_answers[2], label="Antwort C", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                    ft.TextField(ref=answer_refs[3], value=active_answers[3], label="Antwort D", bgcolor="#111827", color="white", border_color="#334155", expand=True),
-                                ], spacing=8),
-                                ft.Dropdown(ref=correct_ref, value=str(int(active_question.get("correct_idx", 0) or 0)), label="Richtige Antwort", bgcolor="#111827", color="white", border_color="#334155", options=[ft.dropdown.Option(str(i), text=f"{ANSWER_LETTERS[i]}") for i in range(4)]),
-                                _game_menu_button("Speichern", save_point_details, "#0F766E", width=180, height=42),
+                                
+                                ft.Divider(color="#243244", height=1),
+                                
+                                # Button um Modal zu öffnen
+                                ft.ElevatedButton(
+                                    "Frage bearbeiten",
+                                    icon=ft.icons.EDIT,
+                                    style=ft.ButtonStyle(
+                                        bgcolor="#0EA5E9",
+                                        color="white",
+                                    ),
+                                    width=280,
+                                    height=44,
+                                    on_click=lambda e: _open_question_editor_modal(page, state, point_index, points, current_questions),
+                                ),
+                                
+                                # Fragen-Vorschau
+                                ft.Container(
+                                    padding=ft.Padding(12, 12, 12, 12),
+                                    border_radius=12,
+                                    bgcolor="#0F1823",
+                                    border=ft.border.Border.all(1, "#334155"),
+                                    content=ft.Column(
+                                        [
+                                            ft.Text("Fragen-Vorschau:", size=12, weight="bold", color="#A8C0D2"),
+                                            ft.Text(
+                                                active_question.get("question", "Keine Frage"),
+                                                size=11, color="white", max_lines=3,
+                                                overflow=ft.TextOverflow.ELLIPSIS
+                                            ),
+                                            ft.Divider(color="#334155", height=1),
+                                            *[
+                                                ft.Row(
+                                                    [
+                                                        ft.Checkbox(
+                                                            value=ANSWER_LETTERS[i] in active_question.get("correct_answers", []),
+                                                            disabled=True,
+                                                            fill_color="#0EA5E9",
+                                                        ),
+                                                        ft.Text(
+                                                            f"{ANSWER_LETTERS[i]}: " + active_answers[i],
+                                                            size=10, color="white", expand=True,
+                                                            overflow=ft.TextOverflow.ELLIPSIS,
+                                                        ),
+                                                    ],
+                                                    spacing=8,
+                                                )
+                                                for i in range(4)
+                                            ],
+                                        ],
+                                        spacing=8,
+                                    ),
+                                ),
+                                
+                                _game_menu_button("Speichern (Punkt)", save_point_details, "#0F766E", width=280, height=42),
                             ],
                             spacing=10,
                             scroll=ft.ScrollMode.AUTO,
@@ -19394,4 +20384,3 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.run(main, assets_dir="assets", upload_dir="assets")
-
