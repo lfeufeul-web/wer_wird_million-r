@@ -17738,7 +17738,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                         padding=ft.Padding(0, 0, 28, 0),
                         content=ft.Column(
                             [
-                                ft.Row(
+                                ft.Column(
                                     [
                                         ft.Container(
                                             width=58,
@@ -17750,19 +17750,21 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                         ),
                                         ft.Column(
                                             [
-                                                ft.Text(cfg.get("title", f"Insel {idx + 1}"), size=16, weight="bold", color="white", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                                                ft.Text(QUESTIONS_PATH_WORLD_LAYOUTS.get(cfg.get("world_layout", "classic"), QUESTIONS_PATH_WORLD_LAYOUTS["classic"])["label"], size=11, color="#A8C0D2"),
+                                                ft.Text(cfg.get("title", f"Insel {idx + 1}"), size=16, weight="bold", color="white", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER),
+                                                ft.Text(QUESTIONS_PATH_WORLD_LAYOUTS.get(cfg.get("world_layout", "classic"), QUESTIONS_PATH_WORLD_LAYOUTS["classic"])["label"], size=11, color="#A8C0D2", text_align=ft.TextAlign.CENTER),
                                             ],
                                             spacing=4,
                                             expand=True,
                                         ),
                                     ],
                                     spacing=10,
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                 ),
-                                ft.Text(cfg.get("subtitle", ""), size=12, color="#D5E3EE", max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
-                                ft.Text(f"{len(cfg.get('questions', []))} Fragen", size=12, color=cfg.get("accent", "#34D399"), weight="bold"),
+                                ft.Text(cfg.get("subtitle", ""), size=12, color="#D5E3EE", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER),
+                                ft.Text(f"{len(cfg.get('questions', []))} Fragen", size=12, color=cfg.get("accent", "#34D399"), weight="bold", text_align=ft.TextAlign.CENTER),
                             ],
                             spacing=10,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                     ),
                     ft.Container(
@@ -18146,7 +18148,7 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                                         ],
                                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     ),
-                                    ft.Text("Wähle ein Standarddesign oder füge rechts einen eigenen Bildpfad / eine Bild-URL hinzu.", size=13, color="#B8CBD8"),
+                                    ft.Text("Wähle ein Standarddesign oder öffne direkt die Bildergalerie von deinem Gerät für ein eigenes Inselbild.", size=13, color="#B8CBD8"),
                                     ft.Row(preset_cards, wrap=True, spacing=12, alignment=ft.MainAxisAlignment.CENTER),
                                     ft.Container(height=8),
                                     ft.Row(
@@ -18215,13 +18217,12 @@ def _questions_path_render_creator(page: ft.Page, state: dict):
                             content=ft.Column(
                                 [
                                     ft.Text("Eigenes Design hinzufügen", size=28, weight="bold", color="white"),
-                                    ft.Text("Für maximale Kompatibilität nutze bitte einen Bildpfad aus dem Projekt, eine direkte HTTPS-Bild-URL oder wähle eine Datei aus.", size=13, color="#B8CBD8"),
-                                    ft.TextField(ref=custom_design_ref, value="", label="Bildpfad oder Bild-URL", bgcolor="#111827", color="white", border_color="#334155"),
+                                    ft.Text("Wähle direkt ein Bild aus deinem Ordner oder der Galerie aus. URLs und manuelle Pfade sind hier deaktiviert.", size=13, color="#B8CBD8"),
                                     ft.Row(
                                         [
                                             _game_menu_button("Abbrechen", lambda e: (state.pop("_questions_path_choose_custom_design", None), _questions_path_render_creator(e.page, state)), "#475569", width=180, height=42),
                                             _game_menu_button("Bild auswählen", pick_custom_design, "#1D4ED8", width=180, height=42),
-                                            _game_menu_button("Design speichern", add_custom_design, "#0F766E", width=220, height=42),
+                                            _game_menu_button("Bild öffnen", add_custom_design, "#0F766E", width=220, height=42),
                                         ],
                                         alignment=ft.MainAxisAlignment.CENTER,
                                         spacing=12,
@@ -19309,7 +19310,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                                     alignment=ft.MainAxisAlignment.CENTER,
                                                 ),
                                             ],
-                                            spacing=18,
+                                            spacing=24,
                                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                             alignment=ft.MainAxisAlignment.CENTER,
                                         ),
@@ -19408,7 +19409,7 @@ def _questions_path_render_islands(page: ft.Page, state: dict):
                                             alignment=ft.MainAxisAlignment.CENTER,
                                         ),
                                     ],
-                                    spacing=18,
+                                    spacing=24,
                                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                     alignment=ft.MainAxisAlignment.CENTER,
                                 ),
