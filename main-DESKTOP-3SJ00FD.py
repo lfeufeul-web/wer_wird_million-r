@@ -19872,6 +19872,7 @@ def _questions_path_editor_normalize_islands(world: dict, profile: dict | None =
                     ),
                 ),
                 "scale": max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE))),
+                "points": _questions_path_normalize_points(island.get("points", [])),
             }
         )
     world["islands"] = normalized
