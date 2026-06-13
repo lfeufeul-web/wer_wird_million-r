@@ -54,6 +54,17 @@ except ImportError:
     credentials = None
     firestore = None
 
+
+def is_production_environment() -> bool:
+    return os.getenv("RENDER", "").lower() == "true" or bool(os.getenv("RENDER_SERVICE_ID"))
+
+
+def configure_flet_server_port():
+    port = os.getenv("PORT", "").strip()
+    if port:
+        os.environ.setdefault("FLET_SERVER_PORT", port)
+    os.environ.setdefault("FLET_SERVER_IP", "0.0.0.0")
+
 # ---------- Persistent Database ----------
 DB_FILE = "user_data.json"
 ENV_FILE = ".env"
@@ -552,7 +563,7 @@ def play_tts(page: ft.Page, text: str, state: dict | None = None):
                 page.overlay.append(audio)
                 page.update()
             except AttributeError:
-                print("ft.Audio not available - TTS audio playback disabled")
+                return
         except Exception as e:
             print(f"TTS Error: {e}")
 
@@ -574,7 +585,6 @@ def init_bg_music(page: ft.Page):
     try:
         audio_cls = getattr(ft, "Audio", None)
         if audio_cls is None:
-            print("ft.Audio not available in this Flet version - audio disabled")
             return None
         audio_kwargs = {
             "autoplay": True,
@@ -604,7 +614,6 @@ def init_bg_music(page: ft.Page):
             pass  # ignore on read-only filesystems
         return bg
     except AttributeError:
-        print("ft.Audio not available in this Flet version - audio disabled")
         return None
 
 
@@ -655,7 +664,7 @@ def get_firestore_client():
 
             if service_account_json:
                 cred = credentials.Certificate(json.loads(service_account_json))
-            elif os.path.exists(service_account_file):
+            elif not is_production_environment() and os.path.exists(service_account_file):
                 cred = credentials.Certificate(service_account_file)
             else:
                 return None
@@ -900,7 +909,7 @@ async def restore_remembered_login(page: ft.Page, state: dict):
     email = await storage_get(page, AUTH_EMAIL_KEY)
     uid = await storage_get(page, AUTH_UID_KEY)
 
-    print(f"[auto-login] token={'yes' if refresh_token else 'no'}, email={email}, uid={uid}")
+    print(f"[auto-login] token={'yes' if refresh_token else 'no'}")
 
     if not refresh_token or not email or not uid:
         print("[auto-login] No stored credentials – showing guest menu.")
@@ -923,10 +932,10 @@ async def restore_remembered_login(page: ft.Page, state: dict):
         # Persist updated tokens back to storage.
         await storage_set(page, AUTH_UID_KEY, new_uid)
         await storage_set(page, AUTH_REFRESH_TOKEN_KEY, new_token)
-        print(f"[auto-login] Success – logged in as {email}")
+        print("[auto-login] Success – logged in from stored session.")
         open_main_menu(page, state)
     except Exception as e:
-        print(f"[auto-login] Token refresh failed: {e} – showing guest menu.")
+        print(f"[auto-login] Token refresh failed: {type(e).__name__} – showing guest menu.")
         open_main_menu(page, state)
 
 
@@ -20515,4 +20524,5 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
+    configure_flet_server_port()
     ft.run(main, assets_dir="assets", upload_dir="assets")

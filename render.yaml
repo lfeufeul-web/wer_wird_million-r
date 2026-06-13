@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: sh -c 'flet run main-DESKTOP-3SJ00FD.py --web --host 0.0.0.0 --port "$PORT"'
+    startCommand: sh -c 'export FLET_SERVER_PORT="${PORT:-8000}"; export FLET_SERVER_IP=0.0.0.0; python main.py'
     envVars:
       - key: APP_NAME
         value: Wer wird Millionär
