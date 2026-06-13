@@ -20678,6 +20678,12 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
         page.snack_bar.open = True
         page.update()
 
+    def set_selected_point(point_index: int | None):
+        if point_index is None:
+            state.pop("_questions_path_editor_selected_point", None)
+            return
+        state["_questions_path_editor_selected_point"] = max(0, min(int(point_index), max(0, len(points) - 1)))
+
     def point_pixel_bounds(point: dict) -> tuple[float, float, float, float]:
         size = 28.0
         left = (map_w * float(point.get("x", 50.0)) / 100.0) - size / 2.0
@@ -20687,6 +20693,7 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
     def open_point_dialog(point_index: int):
         if not (0 <= point_index < len(points)):
             return
+        set_selected_point(point_index)
         point = points[point_index]
         point_name_field = ft.TextField(label="Punktname", value=str(point.get("name", "")), width=360, autofocus=True)
         question_field = ft.TextField(label="Frage", value=str(point.get("question", "")), width=360, min_lines=3, max_lines=6, multiline=True)
@@ -20736,7 +20743,7 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
                 ),
             ),
             actions=[
-                ft.TextButton("Loeschen", on_click=delete_point),
+                ft.TextButton("Löschen", on_click=delete_point),
                 ft.TextButton("Abbrechen", on_click=lambda e: close_dialog()),
                 ft.TextButton("Speichern", on_click=save_point),
             ],
@@ -20744,10 +20751,15 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
         dialog_ref[0] = dialog
         open_page_dialog(page, dialog)
 
+    def clear_point_selection(e):
+        set_selected_point(None)
+        render_again()
+
     def add_path_point(e):
+        if len(points) >= 20:
+            show_editor_message("Maximal 20 Pfadpunkte sind möglich.", "#B91C1C")
+            return
         new_point = _questions_path_default_point(len(points))
-        # Spread new points around the center so they are always visible,
-        # even when there is already a point at the middle.
         candidate_offsets = [
             (0.0, 0.0),
             (8.0, 0.0),
@@ -20778,14 +20790,15 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
             new_point["x"] = _questions_path_clamp_pct(50.0 + (len(points) % 5) * 6.0)
             new_point["y"] = _questions_path_clamp_pct(50.0 + (len(points) % 3) * 6.0)
         points.append(new_point)
-        state["_questions_path_editor_selected_point"] = len(points) - 1
+        new_index = len(points) - 1
+        set_selected_point(new_index)
         persist_points()
         render_again()
-        show_editor_message("Pfadpunkt hinzugefuegt.", "#166534")
+        open_point_dialog(new_index)
 
     def point_drag_start(point_index: int, e):
         state[f"{drag_key_prefix}{point_index}"] = {"position": _gesture_position_xy(e), "delta": _gesture_delta_xy(e)}
-        state["_questions_path_editor_selected_point"] = point_index
+        set_selected_point(point_index)
 
     def move_point(point_index: int, e, host: ft.Container):
         if not (0 <= point_index < len(points)):
@@ -20883,6 +20896,7 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
                 border_radius=18,
                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                 border=ft.border.Border.all(1.5, "#D7DEE7"),
+                on_click=clear_point_selection,
                 content=ft.Image(src=map_src, fit=ft.BoxFit.COVER, expand=True),
             ),
             *[point_control(idx, point) for idx, point in enumerate(points)],
@@ -20901,11 +20915,11 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
                 [
                     ft.Row(
                         [
-                            _game_menu_button("Zuruck", back_to_islands, "#64748B", width=130, height=38),
+                            _game_menu_button("Zurück", back_to_islands, "#64748B", width=130, height=38),
                             ft.Text("Map-Editor", size=24, weight="bold", color="#20242A"),
                             ft.Row(
                                 [
-                                    _game_menu_button("Pfadpunkt hinzufuegen", add_path_point, theme["accent"], width=180, height=38),
+                                    _game_menu_button("Pfadpunkt hinzufügen", add_path_point, theme["accent"], width=190, height=38),
                                     _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=110, height=38),
                                 ],
                                 spacing=8,
@@ -20943,7 +20957,7 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
                                         ),
                                         ft.Text(str(island.get("name", "Insel")), size=13, color="#6B7280"),
                                         ft.Container(height=6),
-                                        _game_menu_button("Pfadpunkt hinzufuegen", add_path_point, theme["accent"], width=min(sidebar_w - 28, 220), height=38),
+                                        _game_menu_button("Pfadpunkt hinzufügen", add_path_point, theme["accent"], width=min(sidebar_w - 28, 230), height=38),
                                         ft.Text("Pfadpunkte", size=16, weight="bold", color="#111827"),
                                         ft.Text("Klicke einen Kreis auf der Karte oder 'Bearbeiten' in der Liste.", size=11, color="#6B7280"),
                                         *(point_list_controls or [ft.Text("Noch keine Pfadpunkte vorhanden.", size=12, color="#6B7280")]),
