@@ -20073,28 +20073,140 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             show_editor_message("Keine Inselbilder in assets/islands gefunden.", "#B91C1C")
         render_again()
 
-    async def pick_custom_island_task(page_obj: ft.Page):
-        preset = await _questions_path_pick_custom_island_asset(page_obj)
-        if not preset:
-            return
-        profiles = list(get_questions_path_profiles(state))
-        active_index = get_questions_path_profile_index(state)
-        if active_index >= len(profiles):
-            return
-        active_profile = dict(profiles[active_index] or {})
-        custom_presets = list(active_profile.get("custom_island_presets", []) or [])
-        custom_presets.append(preset)
-        normalized_presets = _questions_path_normalize_custom_island_presets(custom_presets)
-        active_profile["custom_island_presets"] = normalized_presets
-        profiles[active_index] = active_profile
-        state["questions_path_profiles"] = profiles
-        profile["custom_island_presets"] = normalized_presets
-        persist_questions_path_profiles(state, profiles)
-        add_island(preset["key"])
-        show_editor_message(f"Eigene Insel '{preset.get('label', 'Bild')}' hinzugefügt.", "#166534")
-
     def open_custom_island_dialog(e):
-        e.page.run_task(pick_custom_island_task, e.page)
+        name_field = ft.TextField(
+            label="Inselname",
+            width=420,
+            autofocus=True,
+            bgcolor="#F8FAFC",
+            border_color="#CBD5E1",
+            focused_border_color=theme["accent"],
+            color="#111827",
+        )
+        src_field = ft.TextField(
+            label="Bild-URL oder assets-Pfad",
+            hint_text="assets/islands/dein_bild.png oder https://...",
+            width=420,
+            bgcolor="#F8FAFC",
+            border_color="#CBD5E1",
+            focused_border_color=theme["accent"],
+            color="#111827",
+        )
+        overlay_ref = [None]
+
+        def close_dialog():
+            overlay = overlay_ref[0]
+            if overlay is not None:
+                try:
+                    while overlay in page.overlay:
+                        page.overlay.remove(overlay)
+                except Exception:
+                    pass
+            page.update()
+
+        def open_assets_folder(e):
+            folder_path = Path("assets") / "islands"
+            try:
+                folder_path.mkdir(parents=True, exist_ok=True)
+                resolved = folder_path.resolve()
+                if os.name == "nt":
+                    os.startfile(str(resolved))
+                    show_editor_message(f"Ordner geöffnet: {resolved}", "#166534")
+                else:
+                    show_editor_message("Lege eigene Bilder in assets/islands ab und trage danach den Pfad ein.", "#166534")
+            except Exception:
+                show_editor_message("Der Insel-Ordner konnte nicht geöffnet werden.", "#B91C1C")
+
+        def add_custom_island(e):
+            raw_src = str(src_field.value or "").strip().replace("\\", "/")
+            if not raw_src:
+                show_editor_message("Bitte ein Bild angeben.", "#B91C1C")
+                return
+            src_value = raw_src
+            if not raw_src.startswith(("data:", "http://", "https://")):
+                normalized_src = raw_src[7:] if raw_src.startswith("assets/") else raw_src
+                normalized_src = normalized_src.lstrip("/")
+                local_candidates = [Path(normalized_src), Path("assets", *normalized_src.split("/"))]
+                existing = next((candidate for candidate in local_candidates if candidate.exists()), None)
+                if existing is None:
+                    show_editor_message("Bild nicht gefunden. Nutze assets/... oder eine Bild-URL.", "#B91C1C")
+                    return
+                try:
+                    with open(existing, "rb") as f:
+                        file_bytes = f.read()
+                except Exception:
+                    file_bytes = None
+                if file_bytes:
+                    src_value = f"data:{_questions_path_island_mime_type(existing.name)};base64,{base64.b64encode(file_bytes).decode('ascii')}"
+                else:
+                    src_value = Path(normalized_src).as_posix()
+
+            island_name = str(name_field.value or "").strip() or Path(str(raw_src).split("?")[0]).stem.replace("_", " ").replace("-", " ").strip() or f"Insel {len(islands) + 1}"
+            preset = {
+                "key": f"custom_island_{_sanitize_filename_part(island_name.lower())}_{int(time.time() * 1000)}",
+                "label": island_name,
+                "type": "image",
+                "src": src_value,
+                "base_w": DEFAULT_IMAGE_ISLAND_BASE_WIDTH,
+                "base_h": DEFAULT_IMAGE_ISLAND_BASE_HEIGHT,
+                "fill": "#E5E7EB",
+                "outline": "#94A3B8",
+                "is_custom": True,
+            }
+
+            profiles = list(get_questions_path_profiles(state))
+            active_index = get_questions_path_profile_index(state)
+            if active_index >= len(profiles):
+                return
+            active_profile = dict(profiles[active_index] or {})
+            custom_presets = list(active_profile.get("custom_island_presets", []) or [])
+            custom_presets.append(preset)
+            normalized_presets = _questions_path_normalize_custom_island_presets(custom_presets)
+            active_profile["custom_island_presets"] = normalized_presets
+            profiles[active_index] = active_profile
+            state["questions_path_profiles"] = profiles
+            profile["custom_island_presets"] = normalized_presets
+            persist_questions_path_profiles(state, profiles)
+            close_dialog()
+            add_island(preset["key"])
+            show_editor_message(f"Eigene Insel '{island_name}' hinzugefügt.", "#166534")
+
+        overlay = ft.Container(
+            expand=True,
+            bgcolor="#00000088",
+            alignment=ft.Alignment(0, 0),
+            content=ft.Container(
+                width=min(540, max(360, int(_page_size(page)[0] - 30))),
+                padding=24,
+                border_radius=18,
+                bgcolor="#FFFFFF",
+                border=ft.border.Border.all(1.5, "#D7DEE7"),
+                shadow=ft.BoxShadow(blur_radius=30, color="#66000000", spread_radius=2),
+                content=ft.Column(
+                    [
+                        ft.Text("Eigene Insel hinzufügen", size=24, weight="bold", color="#111827"),
+                        ft.Text("Nutze eine Bild-URL oder ein Bild aus assets/islands.", size=12, color="#64748B"),
+                        name_field,
+                        src_field,
+                        ft.Row(
+                            [
+                                _game_menu_button("Ordner öffnen", open_assets_folder, "#64748B", width=150, height=40),
+                                _game_menu_button("Abbrechen", lambda e: close_dialog(), "#64748B", width=140, height=40),
+                                _game_menu_button("Hinzufügen", add_custom_island, theme["accent"], width=150, height=40),
+                            ],
+                            spacing=10,
+                            alignment=ft.MainAxisAlignment.END,
+                            wrap=True,
+                        ),
+                    ],
+                    spacing=12,
+                    tight=True,
+                ),
+            ),
+        )
+        overlay_ref[0] = overlay
+        page.overlay.append(overlay)
+        page.update()
 
     def set_world_background(preset_key: str | None = None, image_src: str | None = None):
         if preset_key:
@@ -20383,6 +20495,38 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         persist_world()
         update_selection_ui()
 
+    point_list_drag_key = f"_qpe_point_list_drag_{world['id']}_{island['id']}"
+
+    def point_list_drag_start(point_index: int, e):
+        state[point_list_drag_key] = {
+            "start_index": point_index,
+            "total_y": 0.0,
+        }
+        set_selected_point(point_index)
+
+    def point_list_drag_update(point_index: int, e):
+        drag_info = state.get(point_list_drag_key)
+        if not isinstance(drag_info, dict) or int(drag_info.get("start_index", -1)) != point_index:
+            return
+        drag_info["total_y"] = float(drag_info.get("total_y", 0.0) or 0.0) + float(getattr(e, "delta_y", 0.0) or 0.0)
+        state[point_list_drag_key] = drag_info
+
+    def point_list_drag_end(point_index: int, e):
+        drag_info = state.pop(point_list_drag_key, None)
+        if not isinstance(drag_info, dict):
+            return
+        start_index = int(drag_info.get("start_index", point_index) or point_index)
+        total_y = float(drag_info.get("total_y", 0.0) or 0.0)
+        row_height = 56.0
+        target_index = max(0, min(len(points) - 1, start_index + int(round(total_y / row_height))))
+        if target_index == start_index or not (0 <= start_index < len(points)):
+            return
+        moved_point = points.pop(start_index)
+        points.insert(target_index, moved_point)
+        set_selected_point(target_index)
+        persist_points()
+        render_again()
+
     def scale_selected_island(direction: int):
         island = selected_island()
         if island is None:
@@ -20408,6 +20552,18 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     def island_shape(island: dict, width: float, height: float, selected: bool) -> ft.Control:
         template = str(island.get("template", "circle"))
         cfg = _questions_path_editor_template_cfg(template, profile)
+        island_label = str(island.get("name", "Insel")).strip() or "Insel"
+        label_chip = ft.Container(
+            left=8,
+            right=8,
+            bottom=8,
+            padding=ft.Padding(8, 4, 8, 4),
+            border_radius=999,
+            bgcolor="#F8FAFCE6",
+            border=ft.border.Border.all(1.0, "#CBD5E1"),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Text(island_label, size=11, weight="bold", color="#111827", text_align=ft.TextAlign.CENTER, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+        )
         if str(island.get("type") or cfg.get("type") or "shape") == "image":
             return ft.Container(
                 width=width,
@@ -20415,19 +20571,33 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                 bgcolor="transparent",
                 border=ft.border.Border.all(1.5, "#38BDF8") if selected else None,
                 shadow=ft.BoxShadow(blur_radius=12, color="#1838BDF8", offset=ft.Offset(0, 2)) if selected else None,
-                content=ft.Image(src=str(island.get("src") or cfg.get("src") or ""), fit=ft.BoxFit.CONTAIN, width=width, height=height),
+                content=ft.Stack(
+                    [
+                        ft.Image(src=str(island.get("src") or cfg.get("src") or ""), fit=ft.BoxFit.CONTAIN, width=width, height=height),
+                        label_chip,
+                    ],
+                    expand=True,
+                ),
             )
         radius = 999 if template in ("circle", "oval") else 8
         shape_kwargs = {"shape": ft.BoxShape.CIRCLE} if template == "circle" else {"border_radius": radius}
         return ft.Container(
             width=width,
             height=height,
-            bgcolor=cfg["fill"],
-            border=ft.border.Border.all(3 if selected else 2, "#FFFFFF" if selected else cfg["outline"]),
-            shadow=ft.BoxShadow(blur_radius=14, color="#33000000", offset=ft.Offset(0, 5)),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Text(str(island.get("name", "Insel"))[:10], size=11, weight="bold", color="#1F2937"),
-            **shape_kwargs,
+            content=ft.Stack(
+                [
+                    ft.Container(
+                        expand=True,
+                        bgcolor=cfg["fill"],
+                        border=ft.border.Border.all(3 if selected else 2, "#FFFFFF" if selected else cfg["outline"]),
+                        shadow=ft.BoxShadow(blur_radius=14, color="#33000000", offset=ft.Offset(0, 5)),
+                        alignment=ft.Alignment(0, 0),
+                        **shape_kwargs,
+                    ),
+                    label_chip,
+                ],
+                expand=True,
+            ),
         )
 
     def island_control(island: dict) -> ft.Control:
@@ -20919,17 +21089,51 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
         state["_questions_path_pending_point_dialog"] = new_index
         render_again()
 
-    def move_point_order(point_index: int, direction: int):
-        target_index = point_index + direction
-        if not (0 <= point_index < len(points)) or not (0 <= target_index < len(points)):
+    point_list_drag_state_key = f"_questions_path_point_list_drag_{world['id']}_{island['id']}"
+
+    def point_list_drag_start(point_index: int, e):
+        state[point_list_drag_state_key] = {
+            "start_index": point_index,
+            "position": _gesture_position_xy(e),
+            "delta": _gesture_delta_xy(e),
+            "total_y": 0.0,
+        }
+        set_selected_point(point_index)
+
+    def point_list_drag_update(point_index: int, e):
+        drag_info = state.get(point_list_drag_state_key)
+        if not isinstance(drag_info, dict) or int(drag_info.get("start_index", -1)) != point_index:
             return
-        points[point_index], points[target_index] = points[target_index], points[point_index]
+        position = _gesture_position_xy(e)
+        if position is not None and drag_info.get("position") is not None:
+            previous = drag_info.get("position")
+            dy = float(position[1]) - float(previous[1])
+            drag_info["position"] = position
+        else:
+            delta = _gesture_delta_xy(e)
+            previous_delta = drag_info.get("delta") or (0.0, 0.0)
+            dy = float(delta[1]) - float(previous_delta[1])
+            drag_info["delta"] = delta
+            if position is not None:
+                drag_info["position"] = position
+        drag_info["total_y"] = float(drag_info.get("total_y", 0.0) or 0.0) + dy
+
+    def point_list_drag_end(point_index: int, e):
+        drag_info = state.pop(point_list_drag_state_key, None)
+        if not isinstance(drag_info, dict) or int(drag_info.get("start_index", -1)) != point_index:
+            return
+        if not (0 <= point_index < len(points)):
+            return
+        row_height = 78.0
+        total_y = float(drag_info.get("total_y", 0.0) or 0.0)
+        target_index = max(0, min(len(points) - 1, point_index + int(round(total_y / row_height))))
+        if target_index == point_index:
+            return
+        moved_point = points.pop(point_index)
+        points.insert(target_index, moved_point)
         set_selected_point(target_index)
         persist_points()
         render_again()
-
-    def move_point_order_handler(point_index: int, direction: int):
-        return lambda e: move_point_order(point_index, direction)
 
     def point_drag_start(point_index: int, e):
         state[f"{drag_key_prefix}{point_index}"] = {"position": _gesture_position_xy(e), "delta": _gesture_delta_xy(e)}
@@ -21007,20 +21211,44 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
     point_list_controls = []
     for idx, point in enumerate(points):
         point_name = str(point.get("name", f"Punkt {idx + 1}")).strip() or f"Punkt {idx + 1}"
+        question_preview = str(point.get("question") or "").strip() or "Tippen zum Bearbeiten, halten und ziehen zum Verschieben."
+        is_selected_point = idx == int(state.get("_questions_path_editor_selected_point", -1) or -1)
         point_list_controls.append(
-            ft.Container(
-                border_radius=14,
-                bgcolor="#F8FAFC",
-                border=ft.border.Border.all(1.2, "#D7DEE7"),
-                padding=10,
-                content=ft.Row(
-                    [
-                        ft.Text(point_name, size=13, weight="bold", color="#111827", expand=True),
-                        _game_menu_button("↑", move_point_order_handler(idx, -1), "#64748B", width=38, height=34),
-                        _game_menu_button("↓", move_point_order_handler(idx, 1), "#64748B", width=38, height=34),
-                        _game_menu_button("Bearbeiten", lambda e, point_idx=idx: open_point_dialog(point_idx), "#475569", width=110, height=34),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ft.GestureDetector(
+                drag_interval=16,
+                on_tap=lambda e, point_idx=idx: open_point_dialog(point_idx),
+                on_pan_start=lambda e, point_idx=idx: point_list_drag_start(point_idx, e),
+                on_pan_update=lambda e, point_idx=idx: point_list_drag_update(point_idx, e),
+                on_pan_end=lambda e, point_idx=idx: point_list_drag_end(point_idx, e),
+                content=ft.Container(
+                    border_radius=14,
+                    bgcolor="#EFF6FF" if is_selected_point else "#F8FAFC",
+                    border=ft.border.Border.all(1.4, "#38BDF8" if is_selected_point else "#D7DEE7"),
+                    padding=10,
+                    content=ft.Row(
+                        [
+                            ft.Container(
+                                width=34,
+                                height=34,
+                                border_radius=10,
+                                bgcolor="#DBEAFE" if is_selected_point else "#E2E8F0",
+                                alignment=ft.Alignment(0, 0),
+                                content=ft.Text("?", size=16, weight="bold", color="#475569"),
+                            ),
+                            ft.Column(
+                                [
+                                    ft.Text(f"{idx + 1}. {point_name}", size=13, weight="bold", color="#111827"),
+                                    ft.Text(question_preview, size=11, color="#64748B", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                                ],
+                                spacing=2,
+                                expand=True,
+                                tight=True,
+                            ),
+                            ft.Text("Bearbeiten", size=11, weight="bold", color=theme["accent"]),
+                        ],
+                        alignment=ft.MainAxisAlignment.START,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
                 ),
             )
         )
