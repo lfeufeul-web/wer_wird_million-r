@@ -20495,38 +20495,6 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         persist_world()
         update_selection_ui()
 
-    point_list_drag_key = f"_qpe_point_list_drag_{world['id']}_{island['id']}"
-
-    def point_list_drag_start(point_index: int, e):
-        state[point_list_drag_key] = {
-            "start_index": point_index,
-            "total_y": 0.0,
-        }
-        set_selected_point(point_index)
-
-    def point_list_drag_update(point_index: int, e):
-        drag_info = state.get(point_list_drag_key)
-        if not isinstance(drag_info, dict) or int(drag_info.get("start_index", -1)) != point_index:
-            return
-        drag_info["total_y"] = float(drag_info.get("total_y", 0.0) or 0.0) + float(getattr(e, "delta_y", 0.0) or 0.0)
-        state[point_list_drag_key] = drag_info
-
-    def point_list_drag_end(point_index: int, e):
-        drag_info = state.pop(point_list_drag_key, None)
-        if not isinstance(drag_info, dict):
-            return
-        start_index = int(drag_info.get("start_index", point_index) or point_index)
-        total_y = float(drag_info.get("total_y", 0.0) or 0.0)
-        row_height = 56.0
-        target_index = max(0, min(len(points) - 1, start_index + int(round(total_y / row_height))))
-        if target_index == start_index or not (0 <= start_index < len(points)):
-            return
-        moved_point = points.pop(start_index)
-        points.insert(target_index, moved_point)
-        set_selected_point(target_index)
-        persist_points()
-        render_again()
-
     def scale_selected_island(direction: int):
         island = selected_island()
         if island is None:
