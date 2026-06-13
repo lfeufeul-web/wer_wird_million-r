@@ -20741,12 +20741,17 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
             color="#111827",
             options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)],
         )
-        dialog_ref = [None]
+        overlay_ref = [None]
 
         def close_dialog():
-            dialog = dialog_ref[0]
-            if dialog is not None:
-                close_page_dialog(page, dialog)
+            overlay = overlay_ref[0]
+            if overlay is not None:
+                try:
+                    while overlay in page.overlay:
+                        page.overlay.remove(overlay)
+                except Exception:
+                    pass
+            page.update()
 
         def save_point(e):
             point["name"] = str(point_name_field.value or "").strip() or f"Punkt {point_index + 1}"
@@ -20795,12 +20800,17 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
             alignment=ft.MainAxisAlignment.END,
         )
 
-        dialog = ft.AlertDialog(
-            modal=True,
-            bgcolor="#FFFFFF",
+        overlay = ft.Container(
+            expand=True,
+            bgcolor="#00000088",
+            alignment=ft.Alignment(0, 0),
             content=ft.Container(
                 width=500,
-                padding=ft.Padding(4, 2, 4, 0),
+                padding=24,
+                border_radius=18,
+                bgcolor="#FFFFFF",
+                border=ft.border.Border.all(1.5, "#D7DEE7"),
+                shadow=ft.BoxShadow(blur_radius=30, color="#66000000", spread_radius=2),
                 content=ft.Column(
                     [
                         ft.Text(f"Pfadpunkt {point_index + 1} bearbeiten", size=24, weight="bold", color="#111827"),
@@ -20818,8 +20828,9 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
                 ),
             ),
         )
-        dialog_ref[0] = dialog
-        open_page_dialog(page, dialog)
+        overlay_ref[0] = overlay
+        page.overlay.append(overlay)
+        page.update()
 
     def clear_point_selection(e):
         set_selected_point(None)
