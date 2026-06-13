@@ -20073,18 +20073,28 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
             show_editor_message("Keine Inselbilder in assets/islands gefunden.", "#B91C1C")
         render_again()
 
+    async def pick_custom_island_task(page_obj: ft.Page):
+        preset = await _questions_path_pick_custom_island_asset(page_obj)
+        if not preset:
+            return
+        profiles = list(get_questions_path_profiles(state))
+        active_index = get_questions_path_profile_index(state)
+        if active_index >= len(profiles):
+            return
+        active_profile = dict(profiles[active_index] or {})
+        custom_presets = list(active_profile.get("custom_island_presets", []) or [])
+        custom_presets.append(preset)
+        normalized_presets = _questions_path_normalize_custom_island_presets(custom_presets)
+        active_profile["custom_island_presets"] = normalized_presets
+        profiles[active_index] = active_profile
+        state["questions_path_profiles"] = profiles
+        profile["custom_island_presets"] = normalized_presets
+        persist_questions_path_profiles(state, profiles)
+        add_island(preset["key"])
+        show_editor_message(f"Eigene Insel '{preset.get('label', 'Bild')}' hinzugefügt.", "#166534")
+
     def open_custom_island_dialog(e):
-        folder_path = Path("assets") / "islands"
-        try:
-            folder_path.mkdir(parents=True, exist_ok=True)
-            resolved = folder_path.resolve()
-            if os.name == "nt":
-                os.startfile(str(resolved))
-            else:
-                page.launch_url(resolved.as_uri())
-            show_editor_message(f"Ordner geoeffnet: {resolved}", "#166534")
-        except Exception:
-            show_editor_message("Der Insel-Ordner konnte nicht geoeffnet werden.", "#B91C1C")
+        e.page.run_task(pick_custom_island_task, e.page)
 
     def set_world_background(preset_key: str | None = None, image_src: str | None = None):
         if preset_key:
@@ -20257,9 +20267,23 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     def selected_island() -> dict | None:
         return island_by_id.get(str(state.get("_questions_path_editor_selected_island_id") or ""))
 
+    island_name_field_ref = ft.Ref[ft.TextField]()
+
+    def save_selected_island_name(e):
+        island = selected_island()
+        if island is None:
+            return
+        raw_name = str(island_name_field_ref.current.value or "").strip() if island_name_field_ref.current else ""
+        island["name"] = raw_name or str(island.get("name") or "Insel")
+        refresh_island_host(str(island.get("id")))
+        persist_world()
+        update_selection_ui()
+
     def update_selection_ui():
         selected = selected_island()
         selection_text.value = str(selected.get("name")) if selected else "Keine Insel"
+        if island_name_field_ref.current:
+            island_name_field_ref.current.value = str(selected.get("name")) if selected else ""
         scale_value = float(selected.get("scale", DEFAULT_ISLAND_SCALE)) if selected else DEFAULT_ISLAND_SCALE
         island_scale_label.value = f"{int(scale_value * 100)}%"
         try:
@@ -20591,6 +20615,18 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                                         ft.Container(height=8),
                                         ft.Text("Auswahl", size=14, weight="bold", color="#111827"),
                                         selection_text,
+                                        ft.TextField(
+                                            ref=island_name_field_ref,
+                                            label="Inselname",
+                                            value=selected_name if selected_island() else "",
+                                            width=min(sidebar_w - 28, 240),
+                                            bgcolor="#F8FAFC",
+                                            border_color="#CBD5E1",
+                                            focused_border_color=theme["accent"],
+                                            color="#111827",
+                                            on_submit=save_selected_island_name,
+                                        ),
+                                        _game_menu_button("Name speichern", save_selected_island_name, theme["accent"], width=min(sidebar_w - 28, 180), height=36),
                                         island_scale_slider,
                                         ft.Container(height=4),
                                         _game_menu_button("Loschen", delete_selected, "#DC2626", width=150, height=38),
@@ -20649,7 +20685,10 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
     state["questions_path_selected_world_id"] = world["id"]
     state["_questions_path_editor_selected_island_id"] = str(island.get("id"))
     map_src = normalize_map_src(world.get("background_image") or "Fragenpfad/waldmap_1.png")
-    points = list(island.get("points", []) or [])
+    raw_points = island.get("points", [])
+    if not raw_points and isinstance(world.get("points"), list):
+        raw_points = world.get("points", [])
+    points = _questions_path_normalize_points(raw_points)
     island["points"] = points
     world["points"] = [dict(point) for point in points]
 
@@ -20663,8 +20702,10 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
     drag_key_prefix = f"_qpe_point_drag_{world['id']}_{island['id']}_"
 
     def persist_points():
-        island["points"] = points
-        world["points"] = [dict(point) for point in points]
+        normalized_points = _questions_path_normalize_points(points)
+        points[:] = normalized_points
+        island["points"] = [dict(point) for point in normalized_points]
+        world["points"] = [dict(point) for point in normalized_points]
         _questions_path_save_world(state, world)
 
     def render_again():
@@ -20875,8 +20916,20 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
         new_index = len(points) - 1
         set_selected_point(new_index)
         persist_points()
+        state["_questions_path_pending_point_dialog"] = new_index
         render_again()
-        open_point_dialog(new_index)
+
+    def move_point_order(point_index: int, direction: int):
+        target_index = point_index + direction
+        if not (0 <= point_index < len(points)) or not (0 <= target_index < len(points)):
+            return
+        points[point_index], points[target_index] = points[target_index], points[point_index]
+        set_selected_point(target_index)
+        persist_points()
+        render_again()
+
+    def move_point_order_handler(point_index: int, direction: int):
+        return lambda e: move_point_order(point_index, direction)
 
     def point_drag_start(point_index: int, e):
         state[f"{drag_key_prefix}{point_index}"] = {"position": _gesture_position_xy(e), "delta": _gesture_delta_xy(e)}
@@ -20963,6 +21016,8 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
                 content=ft.Row(
                     [
                         ft.Text(point_name, size=13, weight="bold", color="#111827", expand=True),
+                        _game_menu_button("↑", move_point_order_handler(idx, -1), "#64748B", width=38, height=34),
+                        _game_menu_button("↓", move_point_order_handler(idx, 1), "#64748B", width=38, height=34),
                         _game_menu_button("Bearbeiten", lambda e, point_idx=idx: open_point_dialog(point_idx), "#475569", width=110, height=34),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -21059,6 +21114,12 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
         )
     )
     page.update()
+    pending_point_dialog = state.pop("_questions_path_pending_point_dialog", None)
+    if pending_point_dialog is not None:
+        try:
+            open_point_dialog(int(pending_point_dialog))
+        except Exception:
+            pass
     page.run_task(_sync_bg_music_async, page, state)
 
 
