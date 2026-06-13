@@ -8994,9 +8994,14 @@ def _game_menu_button(
     width: int = CUSTOM_QUIZ_BTN_WIDTH,
     height: int = CUSTOM_QUIZ_BTN_HEIGHT,
 ) -> ft.Container:
+    display_label = str(label or "")
+    display_label = display_label.replace("hinzufuegen", "hinzuf\u00fcgen")
+    display_label = display_label.replace("Hinzufuegen", "Hinzuf\u00fcgen")
+    display_label = display_label.replace("hinzufÃ¼gen", "hinzuf\u00fcgen")
+    display_label = display_label.replace("HinzufÃ¼gen", "Hinzuf\u00fcgen")
     btn = ft.Container(
         content=ft.Text(
-            label, size=14, weight="bold", color="white",
+            display_label, size=14, weight="bold", color="white",
             text_align=ft.TextAlign.CENTER, max_lines=2, no_wrap=False,
         ),
         on_click=on_click,
@@ -19775,6 +19780,14 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
         persist_questions_path_profiles(state, refreshed_profiles)
         state["questions_path_profiles"] = refreshed_profiles
 
+    def live_editor_map() -> dict:
+        refreshed_profiles = get_questions_path_profiles(state)
+        refreshed_profile = dict(refreshed_profiles[active_index] if active_index < len(refreshed_profiles) else active_profile)
+        islands = [dict(item) for item in list(refreshed_profile.get("custom_islands", []) or []) if isinstance(item, dict)]
+        if creative_mode and editing_island_index is not None and editing_island_index < len(islands):
+            return normalize_map_payload(_questions_path_custom_map(islands[editing_island_index], editing_island_index))
+        return normalize_map_payload(_questions_path_editor_map_lookup(refreshed_profile, selected_map_key))
+
     def apply_template(map_key: str):
         def _handler(e):
             if creative_mode and editing_island_index is not None:
@@ -19817,18 +19830,47 @@ def _questions_path_render_editor(page: ft.Page, state: dict):
         return pts or _path_nodes([(50, 55)], ["Start"])
 
     def add_point(e):
+        current_map = live_editor_map()
+        current_points = _questions_path_copy_points(current_map.get("points", []))
+        if len(current_points) >= 20:
+            e.page.snack_bar = ft.SnackBar(content=ft.Text("Maximal 20 Pfadpunkte sind möglich."), open=True)
+            e.page.update()
+            return
+        new_index = len(current_points)
+
         def _mutate(raw_map):
             raw_points = ensure_points_list(raw_map)
-            raw_points.append({"x": 50 if not raw_points else max(8, min(92, raw_points[-1]["x"] + 6)), "y": 55 if not raw_points else max(8, min(92, raw_points[-1]["y"] + 4)), "label": f"Punkt {len(raw_points) + 1}"})
+            if raw_points:
+                anchor = raw_points[-1]
+                new_x = max(8, min(92, int(anchor.get("x", 50) or 50) + 8))
+                new_y = max(8, min(92, int(anchor.get("y", 55) or 55) + 6))
+                if any(abs(int(p.get("x", 0) or 0) - new_x) < 3 and abs(int(p.get("y", 0) or 0) - new_y) < 3 for p in raw_points):
+                    new_x = max(8, min(92, new_x + 8 if new_x <= 84 else new_x - 12))
+                    new_y = max(8, min(92, new_y + 6 if new_y <= 86 else new_y - 10))
+            else:
+                new_x = 50
+                new_y = 55
+            raw_points.append({"x": new_x, "y": new_y, "label": f"Punkt {len(raw_points) + 1}"})
             raw_map["points"] = raw_points[:20]
             raw_questions = list(raw_map.get("questions", []) or [])
-            raw_questions.append(_questions_path_default_custom_question(len(raw_questions)))
-            raw_map["questions"] = raw_questions[:20]
+            while len(raw_questions) < len(raw_points):
+                raw_questions.append(_questions_path_default_custom_question_enhanced(len(raw_questions)))
+            raw_map["questions"] = raw_questions[: len(raw_points)]
 
         save_target(_mutate)
-        state["_questions_path_editor_point_index"] = min(19, len(points))
+        refreshed_map = live_editor_map()
+        refreshed_points = _questions_path_copy_points(refreshed_map.get("points", []))
+        refreshed_questions = _questions_path_copy_questions(refreshed_map.get("questions", []))
+        state["_questions_path_editor_point_index"] = max(0, min(new_index, len(refreshed_points) - 1))
         state["_questions_path_editor_selection_visible"] = True
         _questions_path_render_editor(e.page, state)
+        _open_question_editor_modal(
+            e.page,
+            state,
+            state["_questions_path_editor_point_index"],
+            refreshed_points,
+            refreshed_questions,
+        )
 
     def remove_point(e):
         def _mutate(raw_map):
