@@ -38,6 +38,23 @@ type DragState =
   | { kind: 'world-pan'; startX: number; startY: number; originX: number; originY: number }
   | { kind: 'island'; islandId: string; startX: number; startY: number; originX: number; originY: number }
   | { kind: 'point'; islandId: string; pointId: string; startX: number; startY: number; originX: number; originY: number }
+  | {
+      kind: 'point-list';
+      islandId: string;
+      pointId: string;
+      pointerId: number;
+      startX: number;
+      startY: number;
+      currentX: number;
+      currentY: number;
+      grabOffsetX: number;
+      grabOffsetY: number;
+      sourceIndex: number;
+      insertionIndex: number;
+      itemWidth: number;
+      itemHeight: number;
+      dragged: boolean;
+    }
   | null;
 
 function cloneWorld(world: QuestPathWorld) {
@@ -114,6 +131,16 @@ function makeDefaultPoint(title: string, x: number, y: number): QuestPoint {
   };
 }
 
+function reorderPoints(points: QuestPoint[], pointId: string, insertionIndex: number) {
+  const currentIndex = points.findIndex((point) => point.id === pointId);
+  if (currentIndex < 0) return points;
+  const next = [...points];
+  const [moved] = next.splice(currentIndex, 1);
+  const targetIndex = clamp(insertionIndex > currentIndex ? insertionIndex - 1 : insertionIndex, 0, next.length);
+  next.splice(targetIndex, 0, moved);
+  return next;
+}
+
 export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld, onBack }: QuestPathPageProps) {
   const [view, setView] = useState<ViewMode>('world');
   const [world, setWorld] = useState<QuestPathWorld>(() => cloneWorld(sampleQuestWorld));
@@ -126,11 +153,20 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
   const [activeQuestionState, setActiveQuestionState] = useState<{ islandId: string; pointId: string; selected: number[] } | null>(null);
   const [dragState, setDragState] = useState<DragState>(null);
   const dragRef = useRef<DragState>(null);
+  const pointListRef = useRef<HTMLDivElement>(null);
+  const suppressPointClickRef = useRef(false);
 
   const selectedIsland = useMemo(
     () => world.islands.find((island) => island.id === selectedIslandId) ?? null,
     [selectedIslandId, world.islands],
   );
+  const activePointCount = selectedIsland?.points.length ?? 0;
+
+  const selectIsland = (islandId: string | null) => {
+    setSelectedIslandId(islandId);
+    setSelectedPointId(null);
+    setActiveQuestionState(null);
+  };
 
   useEffect(() => {
     saveJson('questmapper.questpath.worldview.v1', worldView);
@@ -183,10 +219,44 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
               : island,
           ),
         }));
+        return;
+      }
+      if (drag.kind === 'point-list') {
+        const list = pointListRef.current;
+        if (!list) return;
+        const rect = list.getBoundingClientRect();
+        const slotHeight = drag.itemHeight + 10;
+        const relativeY = event.clientY - rect.top + list.scrollTop;
+        const insertionIndex = clamp(Math.floor(relativeY / slotHeight), 0, activePointCount);
+        const moved = Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4;
+        const nextDrag = { ...drag, currentX: event.clientX, currentY: event.clientY, insertionIndex, dragged: drag.dragged || moved };
+        dragRef.current = nextDrag;
+        setDragState(nextDrag);
       }
     };
 
     const handleUp = () => {
+      const drag = dragRef.current;
+      if (drag && drag.kind === 'point-list') {
+        const wasDragged = drag.dragged;
+        if (wasDragged) {
+          setWorld((prev) => ({
+            ...prev,
+            islands: prev.islands.map((island) =>
+              island.id === drag.islandId
+                ? {
+                    ...island,
+                    points: reorderPoints(island.points, drag.pointId, drag.insertionIndex),
+                  }
+                : island,
+            ),
+          }));
+        }
+        suppressPointClickRef.current = wasDragged;
+        window.setTimeout(() => {
+          suppressPointClickRef.current = false;
+        }, 80);
+      }
       setDragState(null);
     };
 
@@ -196,11 +266,11 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
     };
-  }, [islandView.scale, worldView.scale]);
+  }, [activePointCount, islandView.scale, worldView.scale]);
 
   const openIsland = (islandId: string) => {
-    setSelectedIslandId(islandId);
-    setSelectedPointId(null);
+    selectIsland(islandId);
+    setDragState(null);
     setIslandView({ x: 0, y: 0, scale: 1 });
     setView('world');
   };
@@ -218,7 +288,7 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
     const next = cloneWorld(entry.data);
     setWorld(next);
     setWorldView({ x: next.offsetX ?? 0, y: next.offsetY ?? 0, scale: next.scale ?? 1 });
-    setSelectedIslandId(next.islands[0]?.id ?? null);
+    selectIsland(next.islands[0]?.id ?? null);
     setView('world');
   };
 
@@ -236,7 +306,7 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
       points: [makeDefaultPoint('Frage 1', 18, 22), makeDefaultPoint('Frage 2', 52, 46), makeDefaultPoint('Frage 3', 78, 18)],
     };
     setWorld((prev) => ({ ...prev, islands: [...prev.islands, newIsland] }));
-    setSelectedIslandId(newIsland.id);
+    selectIsland(newIsland.id);
   };
 
   const updateIsland = (islandId: string, patch: Partial<QuestIsland>) => {
@@ -247,9 +317,14 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
   };
 
   const deleteIsland = (islandId: string) => {
-    setWorld((prev) => ({ ...prev, islands: prev.islands.filter((island) => island.id !== islandId) }));
+    let nextIslands: QuestIsland[] = [];
+    setWorld((prev) => {
+      nextIslands = prev.islands.filter((island) => island.id !== islandId);
+      return { ...prev, islands: nextIslands };
+    });
     if (selectedIslandId === islandId) {
-      setSelectedIslandId(world.islands[0]?.id ?? null);
+      setDragState(null);
+      selectIsland(nextIslands[0]?.id ?? null);
     }
   };
 
@@ -285,7 +360,7 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
   };
 
   const startPlayingIsland = (islandId: string) => {
-    setSelectedIslandId(islandId);
+    selectIsland(islandId);
     setIslandEditMode(false);
     setView('world');
   };
@@ -426,7 +501,7 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
                     <strong>{island.name}</strong>
                     <span>{island.description}</span>
                     <div className="row-actions">
-                      <GameButton size="sm" variant="secondary" onClick={() => setSelectedIslandId(island.id)}>
+                      <GameButton size="sm" variant="secondary" onClick={() => selectIsland(island.id)}>
                         Auswaehlen
                       </GameButton>
                       <GameButton size="sm" variant="ghost" onClick={() => deleteIsland(island.id)}>
@@ -447,6 +522,7 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
             onPointerDown={(event) => {
               if (event.button !== 0) return;
               if ((event.target as HTMLElement).closest('.island-card')) return;
+              selectIsland(null);
               setDragState({
                 kind: 'world-pan',
                 startX: event.clientX,
@@ -465,7 +541,7 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
                   style={{ left: island.x, top: island.y, background: islandGradient(island.style) }}
                   onClick={() => {
                     if (worldEditMode) {
-                      setSelectedIslandId(island.id);
+                      selectIsland(island.id);
                       return;
                     }
                     openIsland(island.id);
@@ -484,7 +560,7 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
                   }}
                 >
                   <span className="island-card__badge">{islandEmoji(island.style)}</span>
-                  <h3 className="island-card__title">{island.name}</h3>
+                  <h3 className="island-card__title" style={{ marginTop: 12 }}>{island.name}</h3>
                   <div className="island-card__meta">
                     <span>{island.description}</span>
                     <span>{island.progress}% Fortschritt</span>
@@ -509,12 +585,14 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
                 <span className="muted">{selectedIsland.description}</span>
                 <span className="status-pill status-pill--good">{selectedIsland.progress}% erledigt</span>
                 <div className="row-actions">
-                  <GameButton variant="secondary" size="sm" onClick={() => setSelectedIslandId(selectedIsland.id)}>
+                  <GameButton variant="secondary" size="sm" onClick={() => selectIsland(selectedIsland.id)}>
                     Im Fokus
                   </GameButton>
-                  <GameButton size="sm" onClick={() => startPlayingIsland(selectedIsland.id)}>
-                    Spielen
-                  </GameButton>
+                  {!worldEditMode && view !== 'editor' ? (
+                    <GameButton size="sm" onClick={() => startPlayingIsland(selectedIsland.id)}>
+                      Spielen
+                    </GameButton>
+                  ) : null}
                   <GameButton variant="ghost" size="sm" onClick={nextIsland}>
                     Naechste Insel <ChevronRight size={14} />
                   </GameButton>
@@ -527,13 +605,14 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
 
           <div className="glass sidebar-block">
             <h3>Fragepunkte</h3>
-            <div className="sidebar-list">
+            <div className="sidebar-list" ref={pointListRef}>
               {activePoints.map((point) => (
                 <button
                   key={point.id}
                   type="button"
                   className={`sidebar-item ${point.status === 'correct' ? 'point-card--correct' : point.status === 'wrong' ? 'point-card--wrong' : ''}`}
                   onClick={() => {
+                    if (suppressPointClickRef.current) return;
                     setSelectedPointId(point.id);
                     if (!islandEditMode) {
                       setActiveQuestionState({ islandId: activeIsland!.id, pointId: point.id, selected: [] });
@@ -542,16 +621,52 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
                   onPointerDown={(event) => {
                     if (!islandEditMode || event.button !== 0 || !activeIsland) return;
                     event.stopPropagation();
-                    setDragState({
-                      kind: 'point',
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    suppressPointClickRef.current = false;
+                    setSelectedPointId(point.id);
+                    const nextDrag: Extract<NonNullable<DragState>, { kind: 'point-list' }> = {
+                      kind: 'point-list',
                       islandId: activeIsland.id,
                       pointId: point.id,
+                      pointerId: event.pointerId,
                       startX: event.clientX,
                       startY: event.clientY,
-                      originX: point.x,
-                      originY: point.y,
-                    });
+                      currentX: event.clientX,
+                      currentY: event.clientY,
+                      grabOffsetX: event.clientX - rect.left,
+                      grabOffsetY: event.clientY - rect.top,
+                      sourceIndex: activePoints.findIndex((item) => item.id === point.id),
+                      insertionIndex: activePoints.findIndex((item) => item.id === point.id),
+                      itemWidth: rect.width,
+                      itemHeight: rect.height,
+                      dragged: false,
+                    };
+                    dragRef.current = nextDrag;
+                    setDragState(nextDrag);
+                    event.currentTarget.setPointerCapture(event.pointerId);
                   }}
+                  style={
+                    dragState?.kind === 'point-list' && dragState.pointId === point.id
+                      ? { opacity: 0.15, transform: 'scale(0.98)' }
+                      : dragState?.kind === 'point-list'
+                        ? (() => {
+                            const slotHeight = dragState.itemHeight + 10;
+                            const sourceIndex = dragState.sourceIndex;
+                            const insertionIndex = dragState.insertionIndex;
+                            const index = activePoints.findIndex((item) => item.id === point.id);
+                            const shift =
+                              insertionIndex > sourceIndex && index > sourceIndex && index < insertionIndex
+                                ? -slotHeight
+                                : insertionIndex < sourceIndex && index >= insertionIndex && index < sourceIndex
+                                  ? slotHeight
+                                  : 0;
+                            return {
+                              transform: shift ? `translateY(${shift}px)` : undefined,
+                              transition: 'transform 180ms ease, opacity 180ms ease, box-shadow 180ms ease',
+                            };
+                          })()
+                        : undefined
+                  }
                 >
                   <span>
                     <strong>{point.title}</strong>
@@ -562,6 +677,31 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
                 </button>
               ))}
             </div>
+            {dragState?.kind === 'point-list' ? (
+              <div
+                aria-hidden="true"
+                style={{
+                  position: 'fixed',
+                  left: dragState.currentX - dragState.grabOffsetX,
+                  top: dragState.currentY - dragState.grabOffsetY,
+                  width: dragState.itemWidth,
+                  pointerEvents: 'none',
+                  zIndex: 80,
+                  transform: 'scale(1.02)',
+                }}
+              >
+                <div className="sidebar-item" style={{ boxShadow: '0 16px 40px rgba(15, 23, 42, 0.22)', opacity: 0.98 }}>
+                  <span>
+                    <strong>{activePoints.find((item) => item.id === dragState.pointId)?.title}</strong>
+                    <br />
+                    <span className="muted">
+                      {activePoints.find((item) => item.id === dragState.pointId)?.points ?? 0} Punkte
+                    </span>
+                  </span>
+                  <span>•</span>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -590,6 +730,7 @@ export default function QuestPathPage({ savedWorlds, onSaveWorld, onDeleteWorld,
             point={selectedIsland.points.find((item) => item.id === selectedPointId)!}
             onSave={(patch) => updatePoint(selectedIsland.id, selectedPointId, patch)}
             onDelete={() => {
+              setActiveQuestionState(null);
               updateIsland(selectedIsland.id, {
                 points: selectedIsland.points.filter((item) => item.id !== selectedPointId),
               });
