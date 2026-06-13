@@ -20695,14 +20695,50 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
             return
         set_selected_point(point_index)
         point = points[point_index]
-        point_name_field = ft.TextField(label="Punktname", value=str(point.get("name", "")), width=360, autofocus=True)
-        question_field = ft.TextField(label="Frage", value=str(point.get("question", "")), width=360, min_lines=3, max_lines=6, multiline=True)
+        field_width = 430
+        point_name_field = ft.TextField(
+            label="Punktname",
+            value=str(point.get("name", "")),
+            width=field_width,
+            autofocus=True,
+            bgcolor="#F8FAFC",
+            border_color="#CBD5E1",
+            focused_border_color=theme["accent"],
+            color="#111827",
+        )
+        question_field = ft.TextField(
+            label="Frage",
+            value=str(point.get("question", "")),
+            width=field_width,
+            min_lines=3,
+            max_lines=6,
+            multiline=True,
+            bgcolor="#F8FAFC",
+            border_color="#CBD5E1",
+            focused_border_color=theme["accent"],
+            color="#111827",
+        )
         answer_values = _questions_path_normalize_answers(point.get("answers", []))
-        answer_fields = [ft.TextField(label=f"Antwort {ANSWER_LETTERS[idx]}", value=answer_values[idx], width=360) for idx in range(4)]
+        answer_fields = [
+            ft.TextField(
+                label=f"Antwort {ANSWER_LETTERS[idx]}",
+                value=answer_values[idx],
+                width=field_width,
+                bgcolor="#F8FAFC",
+                border_color="#CBD5E1",
+                focused_border_color=theme["accent"],
+                color="#111827",
+            )
+            for idx in range(4)
+        ]
         correct_dropdown = ft.Dropdown(
             label="Richtige Antwort",
             value=str(point.get("correct", 0)),
-            width=220,
+            width=field_width,
+            bgcolor="#F8FAFC",
+            border_color="#CBD5E1",
+            focused_border_color=theme["accent"],
+            color="#111827",
             options=[ft.dropdown.Option(str(i), ANSWER_LETTERS[i]) for i in range(4)],
         )
         dialog_ref = [None]
@@ -20731,22 +20767,56 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
             close_dialog()
             render_again()
 
+        action_row = ft.Row(
+            [
+                _game_menu_button(
+                    "Löschen",
+                    delete_point,
+                    "#DC2626",
+                    width=125,
+                    height=42,
+                ),
+                _game_menu_button(
+                    "Abbrechen",
+                    lambda e: close_dialog(),
+                    "#64748B",
+                    width=135,
+                    height=42,
+                ),
+                _game_menu_button(
+                    "Speichern",
+                    save_point,
+                    theme["accent"],
+                    width=140,
+                    height=42,
+                ),
+            ],
+            spacing=12,
+            alignment=ft.MainAxisAlignment.END,
+        )
+
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text(f"Pfadpunkt {point_index + 1} bearbeiten"),
+            bgcolor="#FFFFFF",
             content=ft.Container(
-                width=420,
+                width=500,
+                padding=ft.Padding(4, 2, 4, 0),
                 content=ft.Column(
-                    [point_name_field, question_field, ft.Text("Antworten", size=13, weight="bold", color="#111827"), *answer_fields, correct_dropdown],
-                    spacing=10,
+                    [
+                        ft.Text(f"Pfadpunkt {point_index + 1} bearbeiten", size=24, weight="bold", color="#111827"),
+                        ft.Divider(color="#E5E7EB"),
+                        point_name_field,
+                        question_field,
+                        ft.Text("Antworten", size=13, weight="bold", color="#334155"),
+                        *answer_fields,
+                        correct_dropdown,
+                        ft.Divider(color="#E5E7EB"),
+                        action_row,
+                    ],
+                    spacing=12,
                     tight=True,
                 ),
             ),
-            actions=[
-                ft.TextButton("Löschen", on_click=delete_point),
-                ft.TextButton("Abbrechen", on_click=lambda e: close_dialog()),
-                ft.TextButton("Speichern", on_click=save_point),
-            ],
         )
         dialog_ref[0] = dialog
         open_page_dialog(page, dialog)
