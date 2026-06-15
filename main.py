@@ -9205,13 +9205,17 @@ def build_welcome_view(page: ft.Page, state: dict) -> ft.Control:
 
 
 def _menu_button(label: str, on_click, color: str) -> ft.Control:
-    return ft.Container(
+    button = ft.Container(
         content=ft.Text(label, size=18, weight="bold", color="white"),
-        on_click=on_click,
         bgcolor=color,
         border_radius=50,
         padding=ft.Padding(40, 14, 40, 14),
         shadow=ft.BoxShadow(blur_radius=12, color="#40000000"),
+    )
+    return ft.GestureDetector(
+        content=button,
+        on_tap=on_click,
+        mouse_cursor=ft.MouseCursor.CLICK,
     )
 
 
@@ -9236,7 +9240,6 @@ def _game_menu_button(
             display_label, size=14, weight="bold", color="white",
             text_align=ft.TextAlign.CENTER, max_lines=2, no_wrap=False,
         ),
-        on_click=on_click,
         bgcolor=bgcolor,
         border_radius=30,
         padding=ft.Padding(12, 8, 12, 8),
@@ -9253,7 +9256,11 @@ def _game_menu_button(
         e.control.update()
     btn.on_hover = on_hover
     btn.animate_scale = ft.Animation(140, ft.AnimationCurve.EASE_OUT)
-    return btn
+    return ft.GestureDetector(
+        content=btn,
+        on_tap=on_click,
+        mouse_cursor=ft.MouseCursor.CLICK,
+    )
 
 
 def show_game_start_menu(page: ft.Page, state: dict, saved: dict | None = None):
@@ -11306,11 +11313,10 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
     )
 
     def portal_card(title: str, subtitle: str, accent: str, icon: str, on_click):
-        return ft.Container(
+        card = ft.Container(
             width=card_width,
             height=card_height,
             border_radius=26,
-            on_click=on_click,
             bgcolor="#07110DDF",
             border=ft.border.Border.all(1.6, accent),
             shadow=ft.BoxShadow(blur_radius=24, color=f"#44{accent[1:]}", spread_radius=1),
@@ -11331,6 +11337,11 @@ def build_game_portal_view(page: ft.Page, state: dict) -> ft.Control:
                 ],
                 spacing=8,
             ),
+        )
+        return ft.GestureDetector(
+            content=card,
+            on_tap=on_click,
+            mouse_cursor=ft.MouseCursor.CLICK,
         )
 
     cards = ft.Column(

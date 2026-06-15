@@ -55,6 +55,17 @@ except ImportError:
     credentials = None
     firestore = None
 
+
+def is_production_environment() -> bool:
+    return os.getenv("RENDER", "").lower() == "true" or bool(os.getenv("RENDER_SERVICE_ID"))
+
+
+def configure_flet_server_port():
+    port = os.getenv("PORT", "").strip()
+    if port:
+        os.environ.setdefault("FLET_SERVER_PORT", port)
+    os.environ.setdefault("FLET_SERVER_IP", "0.0.0.0")
+
 # ---------- Persistent Database ----------
 DB_FILE = "user_data.json"
 ENV_FILE = ".env"
@@ -608,7 +619,7 @@ def play_tts(page: ft.Page, text: str, state: dict | None = None):
                 page.overlay.append(audio)
                 page.update()
             except AttributeError:
-                print("ft.Audio not available - TTS audio playback disabled")
+                return
         except Exception as e:
             print(f"TTS Error: {e}")
 
@@ -630,7 +641,6 @@ def init_bg_music(page: ft.Page):
     try:
         audio_cls = getattr(ft, "Audio", None)
         if audio_cls is None:
-            print("ft.Audio not available in this Flet version - audio disabled")
             return None
         audio_kwargs = {
             "autoplay": True,
@@ -660,7 +670,6 @@ def init_bg_music(page: ft.Page):
             pass  # ignore on read-only filesystems
         return bg
     except AttributeError:
-        print("ft.Audio not available in this Flet version - audio disabled")
         return None
 
 
@@ -711,7 +720,7 @@ def get_firestore_client():
 
             if service_account_json:
                 cred = credentials.Certificate(json.loads(service_account_json))
-            elif os.path.exists(service_account_file):
+            elif not is_production_environment() and os.path.exists(service_account_file):
                 cred = credentials.Certificate(service_account_file)
             else:
                 return None
@@ -956,7 +965,7 @@ async def restore_remembered_login(page: ft.Page, state: dict):
     email = await storage_get(page, AUTH_EMAIL_KEY)
     uid = await storage_get(page, AUTH_UID_KEY)
 
-    print(f"[auto-login] token={'yes' if refresh_token else 'no'}, email={email}, uid={uid}")
+    print(f"[auto-login] token={'yes' if refresh_token else 'no'}")
 
     if not refresh_token or not email or not uid:
         print("[auto-login] No stored credentials – showing guest menu.")
@@ -979,10 +988,10 @@ async def restore_remembered_login(page: ft.Page, state: dict):
         # Persist updated tokens back to storage.
         await storage_set(page, AUTH_UID_KEY, new_uid)
         await storage_set(page, AUTH_REFRESH_TOKEN_KEY, new_token)
-        print(f"[auto-login] Success – logged in as {email}")
+        print("[auto-login] Success – logged in from stored session.")
         open_main_menu(page, state)
     except Exception as e:
-        print(f"[auto-login] Token refresh failed: {e} – showing guest menu.")
+        print(f"[auto-login] Token refresh failed: {type(e).__name__} – showing guest menu.")
         open_main_menu(page, state)
 
 
@@ -2653,6 +2662,400 @@ def render_questions_path_game(page: ft.Page, state: dict):
                             ),
                         ),
                     ),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_render_active_game_view(page: ft.Page, state: dict):
+    scene = str(state.get("questions_path_scene", "") or "")
+    if scene == "play_world":
+        _questions_path_render_world_play(page, state, str(state.get("questions_path_selected_world_id") or ""))
+        return
+    if scene == "play_island_map":
+        _questions_path_render_island_play(
+            page,
+            state,
+            str(state.get("questions_path_selected_world_id") or ""),
+            str(state.get("_questions_path_play_island_id") or ""),
+        )
+        return
+    render_questions_path_game(page, state)
+
+
+def _questions_path_render_world_play(page: ft.Page, state: dict, world_id: str | None):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    profile = _questions_path_active_profile(state)
+    world = _questions_path_world_by_id(state, world_id)
+    if world is None:
+        _questions_path_render_owned(page, state)
+        return
+    islands = _questions_path_editor_normalize_islands(world, profile)
+    if not islands:
+        page.snack_bar = ft.SnackBar(content=ft.Text("Diese Welt enthalt noch keine Inseln."), open=True)
+        page.update()
+        _questions_path_render_owned(page, state)
+        return
+
+    page_w, page_h = _page_size(page)
+    viewport_w = max(320, int(page_w - 48))
+    viewport_h = max(380, int(page_h - 92))
+    canvas_w, canvas_h = QUESTIONS_PATH_EDITOR_CANVAS_W, QUESTIONS_PATH_EDITOR_CANVAS_H
+    fit_zoom = min(1.0, max(0.15, min(viewport_w / canvas_w, viewport_h / canvas_h)))
+    min_zoom, max_zoom = fit_zoom, 6.0
+    zoom_key = f"_qpp_zoom_{world['id']}"
+    pan_x_key = f"_qpp_pan_x_{world['id']}"
+    pan_y_key = f"_qpp_pan_y_{world['id']}"
+    init_key = f"_qpp_ready_centered_{world['id']}"
+    pan_drag_key = f"_qpp_pan_drag_{world['id']}"
+
+    def clamp_zoom(value: float) -> float:
+        return max(min_zoom, min(max_zoom, float(value)))
+
+    def zoom() -> float:
+        return clamp_zoom(float(state.get(zoom_key, 1.0) or 1.0))
+
+    def display_size() -> tuple[float, float]:
+        current = zoom()
+        return canvas_w * current, canvas_h * current
+
+    def clamp_pan(x: float, y: float) -> tuple[float, float]:
+        display_w, display_h = display_size()
+        span_x = max(0.0, (display_w - viewport_w) / 2.0)
+        span_y = max(0.0, (display_h - viewport_h) / 2.0)
+        return max(-span_x, min(span_x, float(x))), max(-span_y, min(span_y, float(y)))
+
+    if state.get(init_key) != "1":
+        state[zoom_key] = 1.0
+        state[pan_x_key] = 0.0
+        state[pan_y_key] = 0.0
+        state[init_key] = "1"
+
+    pan_x, pan_y = clamp_pan(float(state.get(pan_x_key, 0.0) or 0.0), float(state.get(pan_y_key, 0.0) or 0.0))
+    state[pan_x_key], state[pan_y_key] = pan_x, pan_y
+
+    canvas = ft.Stack(width=canvas_w, height=canvas_h)
+
+    def sync_canvas_transform():
+        canvas.left = (viewport_w - canvas_w) / 2.0 + float(state.get(pan_x_key, 0.0) or 0.0)
+        canvas.top = (viewport_h - canvas_h) / 2.0 + float(state.get(pan_y_key, 0.0) or 0.0)
+        canvas.scale = zoom()
+        try:
+            canvas.update()
+        except Exception:
+            pass
+
+    def set_zoom(new_zoom: float):
+        state[zoom_key] = clamp_zoom(new_zoom)
+        state[pan_x_key], state[pan_y_key] = clamp_pan(float(state.get(pan_x_key, 0.0) or 0.0), float(state.get(pan_y_key, 0.0) or 0.0))
+        sync_canvas_transform()
+
+    def scroll_pan_map(e):
+        dx = _scroll_delta_x(e)
+        dy = _scroll_delta_y(e)
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+        state[pan_x_key], state[pan_y_key] = clamp_pan(
+            float(state.get(pan_x_key, pan_x) or 0.0) - dx,
+            float(state.get(pan_y_key, pan_y) or 0.0) - dy,
+        )
+        sync_canvas_transform()
+
+    def pan_start(e):
+        state[pan_drag_key] = {"position": _gesture_position_xy(e), "delta": _gesture_delta_xy(e)}
+
+    def pan_map(e):
+        drag_info = state.get(pan_drag_key)
+        if not isinstance(drag_info, dict):
+            drag_info = {"position": None, "delta": (0.0, 0.0)}
+            state[pan_drag_key] = drag_info
+        position = _gesture_position_xy(e)
+        if position is not None and drag_info.get("position") is not None:
+            previous = drag_info.get("position")
+            dx = float(position[0]) - float(previous[0])
+            dy = float(position[1]) - float(previous[1])
+            drag_info["position"] = position
+        else:
+            delta = _gesture_delta_xy(e)
+            previous_delta = drag_info.get("delta") or (0.0, 0.0)
+            dx = float(delta[0]) - float(previous_delta[0])
+            dy = float(delta[1]) - float(previous_delta[1])
+            drag_info["delta"] = delta
+            if position is not None:
+                drag_info["position"] = position
+        state[pan_x_key], state[pan_y_key] = clamp_pan(
+            float(state.get(pan_x_key, pan_x) or 0.0) + dx,
+            float(state.get(pan_y_key, pan_y) or 0.0) + dy,
+        )
+        sync_canvas_transform()
+
+    def pan_end(e):
+        state.pop(pan_drag_key, None)
+
+    def island_pixel_bounds(island: dict) -> tuple[float, float, float, float, float]:
+        base_width = max(40.0, float(island.get("base_w", DEFAULT_IMAGE_ISLAND_BASE_WIDTH) or DEFAULT_IMAGE_ISLAND_BASE_WIDTH))
+        base_height = max(40.0, float(island.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT))
+        island_scale = max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)))
+        width = base_width * island_scale
+        image_height = base_height * island_scale
+        label_height = 42.0 if str(island.get("name", "") or "").strip() else 0.0
+        total_height = image_height + (label_height + 8.0 if label_height else 0.0)
+        left = canvas_w * float(island.get("x", 50.0)) / 100.0 - width / 2.0
+        top = canvas_h * float(island.get("y", 50.0)) / 100.0 - image_height / 2.0
+        return left, top, width, image_height, total_height
+
+    def island_visual(island: dict, width: float, image_height: float) -> ft.Control:
+        template = str(island.get("template", "circle"))
+        cfg = _questions_path_editor_template_cfg(template, profile)
+        island_label = str(island.get("name", "") or "").strip()
+        image_control = (
+            ft.Container(
+                width=width,
+                height=image_height,
+                bgcolor="transparent",
+                content=ft.Image(src=str(island.get("src") or cfg.get("src") or ""), fit=ft.BoxFit.CONTAIN, width=width, height=image_height),
+            )
+            if str(island.get("type") or cfg.get("type") or "shape") == "image"
+            else ft.Container(
+                width=width,
+                height=image_height,
+                bgcolor=cfg["fill"],
+                border=ft.border.Border.all(2, cfg["outline"]),
+                border_radius=999 if template in ("circle", "oval") else 18,
+                alignment=ft.Alignment(0, 0),
+            )
+        )
+        label_control = (
+            ft.Container(
+                padding=ft.Padding(22, 10, 22, 10),
+                border_radius=999,
+                bgcolor="#FFFDE7",
+                border=ft.border.Border.all(1.5, "#CBD5E1"),
+                content=ft.Text(island_label, size=14, weight="bold", color="#111827", text_align=ft.TextAlign.CENTER, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+            )
+            if island_label
+            else None
+        )
+        return ft.Column(
+            [image_control, *( [label_control] if label_control else [] )],
+            spacing=8 if label_control else 0,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
+        )
+
+    def island_control(island: dict) -> ft.Control:
+        left, top, width, image_height, total_height = island_pixel_bounds(island)
+        island_id = str(island.get("id"))
+        return ft.Container(
+            left=left,
+            top=top,
+            width=width,
+            height=total_height,
+            content=ft.GestureDetector(
+                on_tap=lambda e, item_id=island_id: start_questions_path_game(e.page, state, f"{world['id']}::{item_id}"),
+                on_scroll=scroll_pan_map,
+                content=island_visual(island, width, image_height),
+            ),
+        )
+
+    background = ft.GestureDetector(
+        drag_interval=16,
+        on_pan_start=pan_start,
+        on_pan_update=pan_map,
+        on_pan_end=pan_end,
+        on_scroll=scroll_pan_map,
+        content=ft.Container(
+            width=canvas_w,
+            height=canvas_h,
+            bgcolor="#FFFFFF",
+            border_radius=28,
+            border=ft.border.Border.all(1.5, "#D7DEE7"),
+        ),
+    )
+    canvas.controls = [background, *[island_control(island) for island in islands]]
+    sync_canvas_transform()
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            bgcolor="#F3F5F7",
+            padding=14,
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            _game_menu_button("Zurück", lambda e: _questions_path_render_owned(e.page, state), "#64748B", width=130, height=38),
+                            ft.Text(str(world.get("name", "Inselwelt")).strip() or "Inselwelt", size=24, weight="bold", color="#20242A"),
+                            ft.Row(
+                                [
+                                    _game_menu_button("-", lambda e: set_zoom(zoom() / 1.18), "#64748B", width=46, height=38),
+                                    _game_menu_button("+", lambda e: set_zoom(zoom() * 1.18), "#64748B", width=46, height=38),
+                                ],
+                                spacing=8,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Container(
+                        expand=True,
+                        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                        bgcolor="#FFFFFF",
+                        border_radius=24,
+                        border=ft.border.Border.all(1.5, "#D7DEE7"),
+                        content=ft.Stack([canvas], expand=True),
+                    ),
+                ],
+                spacing=12,
+            ),
+        )
+    )
+    page.update()
+    page.run_task(_sync_bg_music_async, page, state)
+
+
+def _questions_path_render_island_play(page: ft.Page, state: dict, world_id: str | None, island_id: str | None):
+    page.bgcolor = "#F3F5F7"
+    theme = get_theme(state)
+    world = _questions_path_world_by_id(state, world_id)
+    island = _questions_path_island_by_id(world, island_id)
+    game = state.get("questions_path_game") or {}
+    if world is None or island is None or not game:
+        _questions_path_render_world_play(page, state, world_id)
+        return
+    map_cfg = _questions_path_game_map_cfg(state, f"{world_id}::{island_id}")
+    points = list(map_cfg.get("points", []))
+    questions = list(game.get("questions", []))
+    node_states = dict(game.get("node_states", {}) or {})
+    active_node = state.get("_questions_path_active_node")
+    current_idx = int(active_node if active_node is not None else 0)
+    current_idx = max(0, min(current_idx, max(len(questions) - 1, 0)))
+    page_w, page_h = _page_size(page)
+    map_w = max(520, min(1120, int(page_w - 40)))
+    map_h = max(420, min(760, int(page_h - 110)))
+    raw_map_src = str(world.get("background_image") or "Fragenpfad/waldmap_1.png").strip().replace("\\", "/")
+    lower_map_src = raw_map_src.lower()
+    if "/assets/" in lower_map_src:
+        raw_map_src = raw_map_src[lower_map_src.index("/assets/") + len("/assets/"):]
+    elif lower_map_src.startswith("assets/"):
+        raw_map_src = raw_map_src[7:]
+    map_src = raw_map_src if raw_map_src else "Fragenpfad/waldmap_1.png"
+
+    def open_node(point_index: int):
+        state["_questions_path_active_node"] = point_index
+        _questions_path_render_island_play(page, state, world_id, island_id)
+
+    def close_node(e):
+        state.pop("_questions_path_active_node", None)
+        _questions_path_render_island_play(e.page, state, world_id, island_id)
+
+    def node_control(point_index: int, point: dict) -> ft.Control:
+        left = (map_w * float(point.get("x", 50.0)) / 100.0) - 14.0
+        top = (map_h * float(point.get("y", 50.0)) / 100.0) - 14.0
+        node_state = dict(node_states.get(str(point_index), {}) or {})
+        status = str(node_state.get("status", "idle"))
+        active = point_index == active_node
+        marker_color = "#22C55E" if status == "correct" else "#EF4444" if status == "wrong" else "#38BDF8" if active else "#2563EB"
+        border_color = "#DCFCE7" if status == "correct" else "#FECACA" if status == "wrong" else "#BFDBFE"
+        return ft.Container(
+            left=left,
+            top=top,
+            width=28,
+            height=28,
+            content=ft.Container(
+                width=28,
+                height=28,
+                shape=ft.BoxShape.CIRCLE,
+                bgcolor=marker_color,
+                border=ft.border.Border.all(3 if active else 2, "#FFFFFF" if active else border_color),
+                shadow=ft.BoxShadow(blur_radius=16 if active else 10, color="#552563EB", offset=ft.Offset(0, 3)),
+                alignment=ft.Alignment(0, 0),
+                on_click=lambda e, idx=point_index: open_node(idx),
+                content=ft.Text("✓" if status == "correct" else "✕" if status == "wrong" else str(point_index + 1), size=10, weight="bold", color="white"),
+            ),
+        )
+
+    question_panel = ft.Container(
+        expand=True,
+        padding=18,
+        border_radius=24,
+        bgcolor="#00000088",
+        visible=active_node is not None and bool(questions),
+        content=ft.Container(
+            width=min(560, max(320, int(page_w - 28))),
+            padding=24,
+            bgcolor="#FFFFFF",
+            border_radius=24,
+            border=ft.border.Border.all(1.5, "#D7DEE7"),
+            content=ft.Column(
+                [
+                    ft.Text(
+                        f"Punkt {current_idx + 1}: {str(points[current_idx].get('name', '')) if current_idx < len(points) else ''}",
+                        size=12,
+                        color=theme["accent"],
+                    ),
+                    ft.Text(questions[current_idx].get("question", "?") if current_idx < len(questions) else "Keine Frage", size=20, weight="bold", color="#111827", text_align="center"),
+                    ft.Container(height=6),
+                    _questions_path_answer_buttons(page, state, current_idx, questions[current_idx], map_cfg) if current_idx < len(questions) else ft.Container(),
+                    ft.Container(height=8),
+                    _game_menu_button("Schließen", close_node, "#64748B", width=220, height=40),
+                ],
+                spacing=10,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        ),
+    )
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            bgcolor="#F3F5F7",
+            padding=14,
+            content=ft.Stack(
+                [
+                    ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    _game_menu_button("Zurück", lambda e: _questions_path_render_world_play(e.page, state, world_id), "#64748B", width=130, height=38),
+                                    ft.Text(str(island.get("name", "")).strip() or str(world.get("name", "Insel")).strip() or "Insel", size=24, weight="bold", color="#20242A"),
+                                    ft.Container(width=130),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            ),
+                            ft.Container(
+                                expand=True,
+                                bgcolor="#FFFFFF",
+                                border_radius=20,
+                                border=ft.border.Border.all(1.5, "#D7DEE7"),
+                                padding=12,
+                                content=ft.Stack(
+                                    [
+                                        ft.Container(
+                                            width=map_w,
+                                            height=map_h,
+                                            border_radius=18,
+                                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                            border=ft.border.Border.all(1.5, "#D7DEE7"),
+                                            content=ft.Image(src=map_src, fit=ft.BoxFit.COVER, expand=True),
+                                        ),
+                                        *[node_control(idx, point) for idx, point in enumerate(points)],
+                                    ],
+                                    width=map_w,
+                                    height=map_h,
+                                ),
+                            ),
+                        ],
+                        spacing=12,
+                        expand=True,
+                    ),
+                    question_panel,
                 ],
                 expand=True,
             ),
@@ -17567,6 +17970,25 @@ def _questions_path_make_world_editor_map(world: dict) -> dict:
     }
 
 
+def _questions_path_make_island_editor_map(world: dict, island: dict) -> dict:
+    points = _questions_path_normalize_points(island.get("points", []))
+    island["points"] = [dict(point) for point in points]
+    return {
+        "title": str(island.get("name", "")).strip() or str(world.get("name", "Insel")).strip() or "Insel",
+        "subtitle": "Eigene Insel",
+        "topic": "natur",
+        "icon": "Map",
+        "accent": _questions_path_preset_cfg(world.get("background_preset", "forest"))["colors"][1],
+        "panel": "#0A1320E8",
+        "border": _questions_path_preset_cfg(world.get("background_preset", "forest"))["colors"][2],
+        "line": "#D1FAE5",
+        "image": _questions_path_map_art_asset(),
+        "points": points,
+        "_world": world,
+        "_island": island,
+    }
+
+
 def _questions_path_worlds_for_profile(state: dict) -> list[dict]:
     profile = _questions_path_active_profile(state)
     worlds = profile.get("worlds", [])
@@ -17581,6 +18003,27 @@ def _questions_path_world_by_id(state: dict, world_id: str | None) -> dict | Non
         if str(world.get("id")) == str(world_id):
             return world
     return None
+
+
+def _questions_path_island_by_id(world: dict | None, island_id: str | None) -> dict | None:
+    if not world or not island_id:
+        return None
+    for island in list(world.get("islands", []) or []):
+        if str(island.get("id")) == str(island_id):
+            return island
+    return None
+
+
+def _questions_path_split_custom_map_key(map_key: str | None) -> tuple[str, str] | None:
+    raw_key = str(map_key or "").strip()
+    if "::" not in raw_key:
+        return None
+    world_id, island_id = raw_key.split("::", 1)
+    world_id = str(world_id or "").strip()
+    island_id = str(island_id or "").strip()
+    if not world_id or not island_id:
+        return None
+    return world_id, island_id
 
 
 def _questmapper_web_url() -> str:
@@ -17984,6 +18427,13 @@ def _questions_path_render_owned(page: ft.Page, state: dict):
 
 
 def _questions_path_game_map_cfg(state: dict, map_key: str) -> dict:
+    custom_island_key = _questions_path_split_custom_map_key(map_key)
+    if custom_island_key is not None:
+        world_id, island_id = custom_island_key
+        world = _questions_path_world_by_id(state, world_id)
+        island = _questions_path_island_by_id(world, island_id)
+        if world and island:
+            return _questions_path_make_island_editor_map(world, island)
     world = _questions_path_world_by_id(state, map_key)
     if world:
         points = list(world.get("points", []) or [])
@@ -18073,7 +18523,7 @@ def _questions_path_answer_buttons(page: ft.Page, state: dict, node_idx: int, qu
                     save_questions_path_game(state)
                     render_questions_path_complete(e.page, state)
                     return
-                render_questions_path_game(e.page, state)
+                _questions_path_render_active_game_view(e.page, state)
             else:
                 node_state["status"] = "wrong"
                 node_state["selected_idx"] = idx
@@ -18082,7 +18532,7 @@ def _questions_path_answer_buttons(page: ft.Page, state: dict, node_idx: int, qu
                 save_questions_path_game(state)
                 e.page.snack_bar = ft.SnackBar(content=ft.Text("Noch nicht ganz - probier es nochmal."), open=True)
                 e.page.update()
-                render_questions_path_game(e.page, state)
+                _questions_path_render_active_game_view(e.page, state)
         return _handler
 
     for idx, answer in enumerate(answers):
@@ -18677,6 +19127,15 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
 
 
 def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
+    custom_island_key = _questions_path_split_custom_map_key(map_key)
+    if custom_island_key is None:
+        custom_world = _questions_path_world_by_id(state, map_key)
+        if custom_world is not None:
+            state["questions_path_scene"] = "play_world"
+            state["questions_path_selected_world_id"] = str(custom_world.get("id"))
+            state.pop("_questions_path_active_node", None)
+            _questions_path_render_world_play(page, state, str(custom_world.get("id")))
+            return
     map_cfg = _questions_path_game_map_cfg(state, map_key)
     profile = _questions_path_active_profile(state)
     age = profile.get("selected_age", state.get("questions_path_age", "mid"))
@@ -18714,10 +19173,13 @@ def start_questions_path_game(page: ft.Page, state: dict, map_key: str):
                 }
             )
     state["questions_path_game"] = game
-    state["questions_path_scene"] = "game"
+    state["questions_path_scene"] = "play_island_map" if custom_island_key is not None else "game"
+    if custom_island_key is not None:
+        state["questions_path_selected_world_id"] = custom_island_key[0]
+        state["_questions_path_play_island_id"] = custom_island_key[1]
     state.pop("_questions_path_active_node", None)
     save_questions_path_game(state)
-    render_questions_path_game(page, state)
+    _questions_path_render_active_game_view(page, state)
 
 
 def render_questions_path_game(page: ft.Page, state: dict):
@@ -19839,7 +20301,7 @@ def _questions_path_editor_normalize_islands(world: dict, profile: dict | None =
         normalized.append(
             {
                 "id": str(island.get("id") or uuid.uuid4()),
-                "name": str(island.get("name") or f"Insel {idx + 1}").strip() or f"Insel {idx + 1}",
+                "name": str(island.get("name") or "").strip(),
                 "template": template_key,
                 "type": str(island.get("type") or template_cfg.get("type") or "shape"),
                 "src": str(island.get("src") or template_cfg.get("src") or ""),
@@ -20368,9 +20830,11 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         base_height = max(40.0, float(island.get("base_h", DEFAULT_IMAGE_ISLAND_BASE_HEIGHT) or DEFAULT_IMAGE_ISLAND_BASE_HEIGHT))
         island_scale = max(MIN_ISLAND_SCALE, min(MAX_ISLAND_SCALE, float(island.get("scale", DEFAULT_ISLAND_SCALE) or DEFAULT_ISLAND_SCALE)))
         width = base_width * island_scale
-        height = base_height * island_scale
+        image_height = base_height * island_scale
+        label_height = 42.0 if str(island.get("name", "") or "").strip() else 0.0
+        height = image_height + (label_height + 8.0 if label_height else 0.0)
         left = canvas_w * float(island.get("x", 50.0)) / 100.0 - width / 2.0
-        top = canvas_h * float(island.get("y", 50.0)) / 100.0 - height / 2.0
+        top = canvas_h * float(island.get("y", 50.0)) / 100.0 - image_height / 2.0
         return left, top, width, height
 
     def island_drag_state_key(island_id: str) -> str:
@@ -20386,16 +20850,16 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
         if island is None:
             return
         raw_name = str(island_name_field_ref.current.value or "").strip() if island_name_field_ref.current else ""
-        island["name"] = raw_name or str(island.get("name") or "Insel")
+        island["name"] = raw_name
         refresh_island_host(str(island.get("id")))
         persist_world()
         update_selection_ui()
 
     def update_selection_ui():
         selected = selected_island()
-        selection_text.value = str(selected.get("name")) if selected else "Keine Insel"
+        selection_text.value = (str(selected.get("name", "")).strip() or "Ohne Namen") if selected else "Keine Insel"
         if island_name_field_ref.current:
-            island_name_field_ref.current.value = str(selected.get("name")) if selected else ""
+            island_name_field_ref.current.value = str(selected.get("name", "")).strip() if selected else ""
         scale_value = float(selected.get("scale", DEFAULT_ISLAND_SCALE)) if selected else DEFAULT_ISLAND_SCALE
         island_scale_label.value = f"{int(scale_value * 100)}%"
         try:
@@ -20520,52 +20984,56 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
     def island_shape(island: dict, width: float, height: float, selected: bool) -> ft.Control:
         template = str(island.get("template", "circle"))
         cfg = _questions_path_editor_template_cfg(template, profile)
-        island_label = str(island.get("name", "Insel")).strip() or "Insel"
-        label_chip = ft.Container(
-            left=8,
-            right=8,
-            bottom=8,
-            padding=ft.Padding(8, 4, 8, 4),
-            border_radius=999,
-            bgcolor="#F8FAFCE6",
-            border=ft.border.Border.all(1.0, "#CBD5E1"),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Text(island_label, size=11, weight="bold", color="#111827", text_align=ft.TextAlign.CENTER, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+        island_label = str(island.get("name", "") or "").strip()
+        label_height = 42.0 if island_label else 0.0
+        image_height = height - (label_height + 8.0 if label_height else 0.0)
+        label_chip = (
+            ft.Container(
+                padding=ft.Padding(18, 10, 18, 10),
+                border_radius=999,
+                bgcolor="#FFFDE7",
+                border=ft.border.Border.all(1.4, "#CBD5E1"),
+                alignment=ft.Alignment(0, 0),
+                content=ft.Text(island_label, size=11, weight="bold", color="#111827", text_align=ft.TextAlign.CENTER, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+            )
+            if island_label
+            else None
         )
         if str(island.get("type") or cfg.get("type") or "shape") == "image":
-            return ft.Container(
-                width=width,
-                height=height,
-                bgcolor="transparent",
-                border=ft.border.Border.all(1.5, "#38BDF8") if selected else None,
-                shadow=ft.BoxShadow(blur_radius=12, color="#1838BDF8", offset=ft.Offset(0, 2)) if selected else None,
-                content=ft.Stack(
-                    [
-                        ft.Image(src=str(island.get("src") or cfg.get("src") or ""), fit=ft.BoxFit.CONTAIN, width=width, height=height),
-                        label_chip,
-                    ],
-                    expand=True,
-                ),
+            return ft.Column(
+                [
+                    ft.Container(
+                        width=width,
+                        height=image_height,
+                        bgcolor="transparent",
+                        border=ft.border.Border.all(1.5, "#38BDF8") if selected else None,
+                        shadow=ft.BoxShadow(blur_radius=12, color="#1838BDF8", offset=ft.Offset(0, 2)) if selected else None,
+                        content=ft.Image(src=str(island.get("src") or cfg.get("src") or ""), fit=ft.BoxFit.CONTAIN, width=width, height=image_height),
+                    ),
+                    *([label_chip] if label_chip else []),
+                ],
+                spacing=8 if label_chip else 0,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
             )
         radius = 999 if template in ("circle", "oval") else 8
         shape_kwargs = {"shape": ft.BoxShape.CIRCLE} if template == "circle" else {"border_radius": radius}
-        return ft.Container(
-            width=width,
-            height=height,
-            content=ft.Stack(
-                [
-                    ft.Container(
-                        expand=True,
-                        bgcolor=cfg["fill"],
-                        border=ft.border.Border.all(3 if selected else 2, "#FFFFFF" if selected else cfg["outline"]),
-                        shadow=ft.BoxShadow(blur_radius=14, color="#33000000", offset=ft.Offset(0, 5)),
-                        alignment=ft.Alignment(0, 0),
-                        **shape_kwargs,
-                    ),
-                    label_chip,
-                ],
-                expand=True,
-            ),
+        return ft.Column(
+            [
+                ft.Container(
+                    width=width,
+                    height=image_height,
+                    bgcolor=cfg["fill"],
+                    border=ft.border.Border.all(3 if selected else 2, "#FFFFFF" if selected else cfg["outline"]),
+                    shadow=ft.BoxShadow(blur_radius=14, color="#33000000", offset=ft.Offset(0, 5)),
+                    alignment=ft.Alignment(0, 0),
+                    **shape_kwargs,
+                ),
+                *([label_chip] if label_chip else []),
+            ],
+            spacing=8 if label_chip else 0,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
         )
 
     def island_control(island: dict) -> ft.Control:
@@ -20703,7 +21171,7 @@ def _questions_path_render_world_editor(page: ft.Page, state: dict, world_id: st
                             ft.Row(
                                 [
                                     _game_menu_button("Reset", reset_view, "#64748B", width=90, height=38),
-                                    _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, world["id"]), theme["success"], width=110, height=38),
+                                    _game_menu_button("Spielen", lambda e: start_questions_path_game(e.page, state, f"{world['id']}::{island['id']}"), theme["success"], width=110, height=38),
                                 ],
                                 spacing=8,
                             ),
@@ -20823,12 +21291,8 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
     state["questions_path_selected_world_id"] = world["id"]
     state["_questions_path_editor_selected_island_id"] = str(island.get("id"))
     map_src = normalize_map_src(world.get("background_image") or "Fragenpfad/waldmap_1.png")
-    raw_points = island.get("points", [])
-    if not raw_points and isinstance(world.get("points"), list):
-        raw_points = world.get("points", [])
-    points = _questions_path_normalize_points(raw_points)
+    points = _questions_path_normalize_points(island.get("points", []))
     island["points"] = points
-    world["points"] = [dict(point) for point in points]
 
     page_w, page_h = _page_size(page)
     sidebar_w = 320 if page_w >= 960 else max(250, min(320, int(page_w * 0.9)))
@@ -20838,12 +21302,12 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
     canvas_w, canvas_h = QUESTIONS_PATH_EDITOR_CANVAS_W, QUESTIONS_PATH_EDITOR_CANVAS_H
     compact_layout = page_w < 980
     drag_key_prefix = f"_qpe_point_drag_{world['id']}_{island['id']}_"
+    point_list_hosts: dict[int, ft.Container] = {}
 
     def persist_points():
         normalized_points = _questions_path_normalize_points(points)
         points[:] = normalized_points
         island["points"] = [dict(point) for point in normalized_points]
-        world["points"] = [dict(point) for point in normalized_points]
         _questions_path_save_world(state, world)
 
     def render_again():
@@ -21067,6 +21531,13 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
             "total_y": 0.0,
         }
         set_selected_point(point_index)
+        host = point_list_hosts.get(point_index)
+        if host is not None:
+            host.offset = ft.Offset(0, 0)
+            host.scale = 1.03
+            host.shadow = ft.BoxShadow(blur_radius=20, color="#260F172A", offset=ft.Offset(0, 8))
+            host.bgcolor = "#DBEAFE"
+            host.update()
 
     def point_list_drag_update(point_index: int, e):
         drag_info = state.get(point_list_drag_state_key)
@@ -21085,9 +21556,20 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
             if position is not None:
                 drag_info["position"] = position
         drag_info["total_y"] = float(drag_info.get("total_y", 0.0) or 0.0) + dy
+        host = point_list_hosts.get(point_index)
+        if host is not None:
+            host.offset = ft.Offset(0, float(drag_info.get("total_y", 0.0) or 0.0) / 78.0)
+            host.update()
 
     def point_list_drag_end(point_index: int, e):
         drag_info = state.pop(point_list_drag_state_key, None)
+        host = point_list_hosts.get(point_index)
+        if host is not None:
+            host.offset = ft.Offset(0, 0)
+            host.scale = 1.0
+            host.shadow = None
+            host.bgcolor = "#EFF6FF" if point_index == int(state.get("_questions_path_editor_selected_point", -1) or -1) else "#F8FAFC"
+            host.update()
         if not isinstance(drag_info, dict) or int(drag_info.get("start_index", -1)) != point_index:
             return
         if not (0 <= point_index < len(points)):
@@ -21181,6 +21663,39 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
         point_name = str(point.get("name", f"Punkt {idx + 1}")).strip() or f"Punkt {idx + 1}"
         question_preview = str(point.get("question") or "").strip() or "Tippen zum Bearbeiten, halten und ziehen zum Verschieben."
         is_selected_point = idx == int(state.get("_questions_path_editor_selected_point", -1) or -1)
+        row_container = ft.Container(
+            border_radius=14,
+            bgcolor="#EFF6FF" if is_selected_point else "#F8FAFC",
+            border=ft.border.Border.all(1.4, "#38BDF8" if is_selected_point else "#D7DEE7"),
+            padding=10,
+            animate_offset=ft.Animation(90, ft.AnimationCurve.EASE_OUT),
+            animate_scale=ft.Animation(90, ft.AnimationCurve.EASE_OUT),
+            content=ft.Row(
+                [
+                    ft.Container(
+                        width=34,
+                        height=34,
+                        border_radius=10,
+                        bgcolor="#DBEAFE" if is_selected_point else "#E2E8F0",
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Text("≡", size=16, weight="bold", color="#475569"),
+                    ),
+                    ft.Column(
+                        [
+                            ft.Text(f"{idx + 1}. {point_name}", size=13, weight="bold", color="#111827"),
+                            ft.Text(question_preview, size=11, color="#64748B", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                        ],
+                        spacing=2,
+                        expand=True,
+                        tight=True,
+                    ),
+                    ft.Text("Bearbeiten", size=11, weight="bold", color=theme["accent"]),
+                ],
+                alignment=ft.MainAxisAlignment.START,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        )
+        point_list_hosts[idx] = row_container
         point_list_controls.append(
             ft.GestureDetector(
                 drag_interval=16,
@@ -21188,36 +21703,7 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
                 on_pan_start=lambda e, point_idx=idx: point_list_drag_start(point_idx, e),
                 on_pan_update=lambda e, point_idx=idx: point_list_drag_update(point_idx, e),
                 on_pan_end=lambda e, point_idx=idx: point_list_drag_end(point_idx, e),
-                content=ft.Container(
-                    border_radius=14,
-                    bgcolor="#EFF6FF" if is_selected_point else "#F8FAFC",
-                    border=ft.border.Border.all(1.4, "#38BDF8" if is_selected_point else "#D7DEE7"),
-                    padding=10,
-                    content=ft.Row(
-                        [
-                            ft.Container(
-                                width=34,
-                                height=34,
-                                border_radius=10,
-                                bgcolor="#DBEAFE" if is_selected_point else "#E2E8F0",
-                                alignment=ft.Alignment(0, 0),
-                                content=ft.Text("?", size=16, weight="bold", color="#475569"),
-                            ),
-                            ft.Column(
-                                [
-                                    ft.Text(f"{idx + 1}. {point_name}", size=13, weight="bold", color="#111827"),
-                                    ft.Text(question_preview, size=11, color="#64748B", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                                ],
-                                spacing=2,
-                                expand=True,
-                                tight=True,
-                            ),
-                            ft.Text("Bearbeiten", size=11, weight="bold", color=theme["accent"]),
-                        ],
-                        alignment=ft.MainAxisAlignment.START,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                ),
+                content=row_container,
             )
         )
 
@@ -21320,4 +21806,5 @@ def _questions_path_render_island_map_editor(page: ft.Page, state: dict, world_i
 
 
 if __name__ == "__main__":
+    configure_flet_server_port()
     ft.run(main, assets_dir="assets", upload_dir="assets")

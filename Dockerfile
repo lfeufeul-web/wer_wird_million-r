@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["sh", "-c", "FLET_SERVER_PORT=${PORT:-8000} python main-DESKTOP-3SJ00FD.py"]
+CMD ["sh", "-c", "FLET_SERVER_PORT=${PORT:-8000} python main.py"]
