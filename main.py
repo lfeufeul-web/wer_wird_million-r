@@ -12003,8 +12003,9 @@ def show_points_quiz_question(page: ft.Page, state: dict):
         show_points_quiz_board(page, state)
         return
     theme = get_theme(state)
-    page_w, _ = _page_size(page)
+    page_w, page_h = _page_size(page)
     panel_width = min(860, max(320, int(page_w - 36)))
+    panel_max_height = max(360, int(page_h - 36))
     solution_width = min(panel_width - 40, max(260, int(page_w - 48)))
     btn_width = 210 if page_w < 900 else 240
     teams = session.get("teams", [])
@@ -12060,6 +12061,7 @@ def show_points_quiz_question(page: ft.Page, state: dict):
                         padding=18,
                         content=ft.Container(
                             width=panel_width,
+                            height=panel_max_height,
                             padding=26,
                             border_radius=24,
                             bgcolor="#08120DE8",
@@ -12122,6 +12124,7 @@ def show_points_quiz_question(page: ft.Page, state: dict):
                                 ],
                                 spacing=10,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                scroll=ft.ScrollMode.AUTO,
                             ),
                         ),
                     ),
