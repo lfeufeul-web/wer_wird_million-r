@@ -646,6 +646,7 @@ def default_user(email: str, uid: str | None = None) -> dict:
         "avatar": default_avatar_profile(),
         "question_profile": {"recent_prompts": [], "performance": {}},
         "custom_points_quizzes": [],
+        "active_points_quiz_session": None,
         "questions_path_profiles": [],
     }
     if uid:
@@ -1316,6 +1317,7 @@ def ensure_social_defaults(user: dict):
     user.setdefault("weekly_stats", {"week": "", "money_level": 0, "games_won": 0})
     user.setdefault("custom_quizzes", [])
     user.setdefault("custom_points_quizzes", [])
+    user.setdefault("active_points_quiz_session", None)
     user.setdefault("questions_path_profiles", [])
     ensure_question_profile_defaults(user)
 
@@ -11061,8 +11063,91 @@ def upsert_points_quiz(state: dict, quiz: dict, mark_finished: bool = False) -> 
 
 
 def delete_points_quiz(state: dict, quiz_id: str):
+    active_payload = get_active_points_quiz_session(state, quiz_id)
+    if active_payload:
+        clear_active_points_quiz_session(state)
     quizzes = [q for q in get_user_points_quizzes(state) if q.get("id") != quiz_id]
     persist_user_points_quizzes(state, quizzes)
+
+
+def _points_quiz_saved_session_payload(state: dict) -> dict | None:
+    session = state.get("points_quiz_session")
+    if not isinstance(session, dict) or not session.get("quiz") or not session.get("teams"):
+        return None
+    payload = {
+        "session": copy.deepcopy(session),
+        "active_question": copy.deepcopy(state.get("active_points_question")),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return payload
+
+
+def save_active_points_quiz_session(state: dict):
+    email = state.get("current_user_email")
+    payload = _points_quiz_saved_session_payload(state)
+    if not email or not payload:
+        return
+    db = load_db()
+    user = db.get("users", {}).get(email)
+    if not user:
+        return
+    ensure_social_defaults(user)
+    user["active_points_quiz_session"] = payload
+    save_db(db)
+
+
+def get_active_points_quiz_session(state: dict, quiz_id: str | None = None) -> dict | None:
+    email = state.get("current_user_email")
+    if not email:
+        return None
+    db = load_db()
+    user = db.get("users", {}).get(email)
+    if not user:
+        return None
+    ensure_social_defaults(user)
+    payload = user.get("active_points_quiz_session")
+    if not isinstance(payload, dict):
+        return None
+    session = payload.get("session")
+    if not isinstance(session, dict) or session.get("finished"):
+        return None
+    quiz = normalize_points_quiz(session.get("quiz", {}))
+    if quiz_id and str(quiz.get("id")) != str(quiz_id):
+        return None
+    session["quiz"] = quiz
+    payload["session"] = session
+    return payload
+
+
+def clear_active_points_quiz_session(state: dict, keep_memory: bool = False):
+    email = state.get("current_user_email")
+    if not keep_memory:
+        state.pop("points_quiz_session", None)
+        state.pop("active_points_question", None)
+    if not email:
+        return
+    db = load_db()
+    user = db.get("users", {}).get(email)
+    if not user:
+        return
+    ensure_social_defaults(user)
+    user["active_points_quiz_session"] = None
+    save_db(db)
+
+
+def resume_points_quiz_session(page: ft.Page, state: dict, payload: dict):
+    session = copy.deepcopy(payload.get("session") or {})
+    if not session:
+        show_points_quiz_hub(page, state)
+        return
+    state["points_quiz_session"] = session
+    active = copy.deepcopy(payload.get("active_question"))
+    if isinstance(active, dict):
+        state["active_points_question"] = active
+        show_points_quiz_question(page, state)
+    else:
+        state.pop("active_points_question", None)
+        show_points_quiz_board(page, state)
 
 
 def points_quiz_is_playable(quiz: dict) -> bool:
@@ -11122,6 +11207,16 @@ def _points_quiz_used_cells(session: dict) -> int:
 
 def _points_quiz_team_label(index: int) -> str:
     return f"Team {index + 1}"
+
+
+def _points_quiz_saved_at_label(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return str(value)
 
 
 def _game_portal_back_overlay(page: ft.Page, state: dict) -> ft.Container:
@@ -11595,6 +11690,14 @@ def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict, default_
     _set_resize_view(state, show_points_quiz_team_setup, quiz, default_age)
     quiz = normalize_points_quiz(quiz)
     is_random_quiz = quiz.get("source") == "random"
+    saved_payload = get_active_points_quiz_session(state, None if is_random_quiz else quiz.get("id"))
+    if is_random_quiz and saved_payload:
+        saved_quiz = normalize_points_quiz(saved_payload.get("session", {}).get("quiz", {}))
+        if saved_quiz.get("source") != "random":
+            saved_payload = None
+    if saved_payload:
+        show_points_quiz_resume_choice(page, state, quiz, saved_payload, default_age)
+        return
     selected_age = default_age if default_age in {opt[0] for opt in POINTS_QUIZ_AGE_OPTIONS} else str(quiz.get("age_group", "mid"))
     if selected_age not in {opt[0] for opt in POINTS_QUIZ_AGE_OPTIONS}:
         selected_age = "mid"
@@ -11717,6 +11820,77 @@ def show_points_quiz_team_setup(page: ft.Page, state: dict, quiz: dict, default_
     page.update()
 
 
+def show_points_quiz_resume_choice(page: ft.Page, state: dict, quiz: dict, saved_payload: dict, default_age: str = "mid"):
+    _set_resize_view(state, show_points_quiz_resume_choice, quiz, saved_payload, default_age)
+    theme = get_theme(state)
+    page_w, _ = _page_size(page)
+    panel_width = min(560, max(320, int(page_w - 36)))
+    saved_session = saved_payload.get("session", {})
+    saved_quiz = normalize_points_quiz(saved_session.get("quiz", quiz))
+    teams = saved_session.get("teams", [])
+    used_count = _points_quiz_used_cells(saved_session)
+    total_cells = _points_quiz_total_cells(saved_quiz)
+    updated = saved_payload.get("updated_at")
+    scores = ", ".join(f"{team.get('name', 'Team')}: {team.get('score', 0)}" for team in teams[:4])
+    if len(teams) > 4:
+        scores += " ..."
+
+    def continue_old(e):
+        resume_points_quiz_session(e.page, state, saved_payload)
+
+    def start_new(e):
+        clear_active_points_quiz_session(state)
+        show_points_quiz_team_setup(e.page, state, quiz, default_age)
+
+    page.controls.clear()
+    page.add(
+        ft.Container(
+            expand=True,
+            content=ft.Stack(
+                [
+                    _themed_screen_background(page, theme, "#00000092"),
+                    ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        padding=20,
+                        content=ft.Container(
+                            width=panel_width,
+                            padding=24,
+                            bgcolor="#08120DE8",
+                            border_radius=22,
+                            border=ft.border.Border.all(1.5, theme["gold"]),
+                            content=ft.Column(
+                                [
+                                    ft.Text("Spiel fortsetzen?", size=28, weight="w900", color="white", text_align=ft.TextAlign.CENTER),
+                                    ft.Text(saved_quiz.get("title", "Punkte-Quiz"), size=16, color=theme["gold"], weight="bold", text_align=ft.TextAlign.CENTER),
+                                    ft.Text(f"{used_count} / {total_cells} Felder gespielt", size=13, color=theme_txt(theme, "secondary"), text_align=ft.TextAlign.CENTER),
+                                    ft.Text(scores or "Punktestand gespeichert.", size=13, color="white", text_align=ft.TextAlign.CENTER),
+                                    ft.Text(f"Zuletzt gespeichert: {_points_quiz_saved_at_label(updated)}" if updated else "", size=11, color=theme_txt(theme, "muted"), text_align=ft.TextAlign.CENTER),
+                                    ft.Row(
+                                        [
+                                            _game_menu_button("Altes Spiel fortsetzen", continue_old, theme["success"], width=230, height=46),
+                                            _game_menu_button("Neues Spiel", start_new, theme["gold"], width=170, height=46),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        spacing=12,
+                                        wrap=True,
+                                    ),
+                                    _game_menu_button("Zurück", lambda e: show_points_quiz_hub(e.page, state), theme["danger"], width=170, height=40),
+                                ],
+                                spacing=14,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ),
+                    _game_portal_back_overlay(page, state),
+                ],
+                expand=True,
+            ),
+        )
+    )
+    page.update()
+
+
 def start_points_quiz_session(page: ft.Page, state: dict, quiz: dict, teams: list[dict]):
     state["points_quiz_session"] = {
         "quiz": normalize_points_quiz(quiz),
@@ -11728,6 +11902,7 @@ def start_points_quiz_session(page: ft.Page, state: dict, quiz: dict, teams: lis
         "finished": False,
     }
     state.pop("active_points_question", None)
+    save_active_points_quiz_session(state)
     show_points_quiz_board(page, state)
 
 
@@ -11777,6 +11952,7 @@ def show_points_quiz_board(page: ft.Page, state: dict):
         teams[team_index]["score"] = value
         session["teams"] = teams
         state["points_quiz_session"] = session
+        save_active_points_quiz_session(state)
 
     def _sync_manual_score_change(team_index: int, control: ft.TextField):
         raw_value = str(control.value or "").strip()
@@ -11992,6 +12168,7 @@ def open_points_question(page: ft.Page, state: dict, cat_idx: int, q_idx: int):
         "question": question,
         "category_name": quiz["categories"][cat_idx]["name"],
     }
+    save_active_points_quiz_session(state)
     show_points_quiz_question(page, state)
 
 
@@ -12031,11 +12208,13 @@ def show_points_quiz_question(page: ft.Page, state: dict):
             session["used_cells"].append(key)
         state["points_quiz_session"] = session
         if _points_quiz_used_cells(session) >= _points_quiz_total_cells(session.get("quiz", {})):
+            clear_active_points_quiz_session(state, keep_memory=True)
             show_points_quiz_summary(page, state, finished_early=False)
             return
         session["current_team_idx"] = (session.get("current_team_idx", 0) + 1) % max(1, len(teams))
         state["points_quiz_session"] = session
         state.pop("active_points_question", None)
+        save_active_points_quiz_session(state)
         page.snack_bar = ft.SnackBar(
             content=ft.Text(f"{current_team['name']}: {'+' if delta >= 0 else ''}{delta} Punkte"),
             bgcolor=theme["success"] if delta >= 0 else theme["danger"],
@@ -12046,6 +12225,7 @@ def show_points_quiz_question(page: ft.Page, state: dict):
     def toggle_solution(e):
         active["solution_revealed"] = not active.get("solution_revealed", False)
         state["active_points_question"] = active
+        save_active_points_quiz_session(state)
         show_points_quiz_question(page, state)
 
     page.controls.clear()
@@ -12209,6 +12389,7 @@ def show_points_quiz_summary(page: ft.Page, state: dict, finished_early: bool):
     if not session:
         show_points_quiz_hub(page, state)
         return
+    clear_active_points_quiz_session(state, keep_memory=True)
     if not session.get("stats_recorded"):
         db = load_db()
         g = db.setdefault("global_stats", DEFAULT_GLOBAL_STATS.copy())
