@@ -724,32 +724,23 @@ def load_db() -> dict:
         return load_local_db()
 
 
-def save_db(db: dict, sync_firestore: bool = True, firestore_users: list[str] | None = None, sync_global: bool = True):
+def save_db(db: dict):
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(db, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"Error saving db: {e}")
 
-    if not sync_firestore:
-        return
-
     client = get_firestore_client()
     if client is None:
         return
 
     try:
-        if sync_global:
-            client.collection(FIREBASE_APP_COLLECTION).document(FIREBASE_GLOBAL_STATS_DOC).set(
-                db.get("global_stats", DEFAULT_GLOBAL_STATS.copy()),
-                merge=True,
-            )
-        users = db.get("users", {})
-        user_items = users.items()
-        if firestore_users is not None:
-            wanted = set(firestore_users)
-            user_items = [(email, users[email]) for email in wanted if email in users]
-        for email, user in user_items:
+        client.collection(FIREBASE_APP_COLLECTION).document(FIREBASE_GLOBAL_STATS_DOC).set(
+            db.get("global_stats", DEFAULT_GLOBAL_STATS.copy()),
+            merge=True,
+        )
+        for email, user in db.get("users", {}).items():
             uid = user.get("uid")
             if not uid:
                 continue
@@ -10984,26 +10975,19 @@ def get_user_points_quizzes(state: dict) -> list[dict]:
     if not user:
         return []
     ensure_social_defaults(user)
-    quizzes = [normalize_points_quiz(q) for q in list(user.get("custom_points_quizzes", []) or [])]
-    state["points_quiz_quizzes_cache"] = quizzes
-    return quizzes
+    return [normalize_points_quiz(q) for q in list(user.get("custom_points_quizzes", []) or [])]
 
 
 def persist_user_points_quizzes(state: dict, quizzes: list[dict]):
     email = state.get("current_user_email")
     if not email:
         return
-    normalized_quizzes = [normalize_points_quiz(q) for q in quizzes]
-    state["points_quiz_quizzes_cache"] = normalized_quizzes
     db = load_db()
-    db.setdefault("users", {})
-    if email not in db["users"]:
-        db["users"][email] = default_user(email, state.get("current_user_uid"))
-    elif state.get("current_user_uid"):
-        db["users"][email]["uid"] = state.get("current_user_uid")
+    if email not in db.get("users", {}):
+        return
     ensure_social_defaults(db["users"][email])
-    db["users"][email]["custom_points_quizzes"] = normalized_quizzes
-    save_db(db, firestore_users=[email], sync_global=False)
+    db["users"][email]["custom_points_quizzes"] = [normalize_points_quiz(q) for q in quizzes]
+    save_db(db)
 
 
 def find_points_quiz(quizzes: list[dict], quiz_id: str) -> dict | None:
@@ -11018,8 +11002,7 @@ def upsert_points_quiz(state: dict, quiz: dict, mark_finished: bool = False) -> 
     quiz["updated_at"] = datetime.now(timezone.utc).isoformat()
     if mark_finished:
         quiz["is_draft"] = False
-    cached_quizzes = state.get("points_quiz_quizzes_cache")
-    quizzes = [normalize_points_quiz(q) for q in cached_quizzes] if isinstance(cached_quizzes, list) else get_user_points_quizzes(state)
+    quizzes = get_user_points_quizzes(state)
     replaced = False
     for idx, existing in enumerate(quizzes):
         if existing.get("id") == quiz.get("id"):
@@ -12751,7 +12734,7 @@ def show_points_quiz_cell_editor(page: ft.Page, state: dict, cat_idx: int, q_idx
         quiz_local["categories"][cat_idx]["questions"][q_idx]["answer"] = (answer_field.value or "").strip()
         quiz_local["categories"][cat_idx]["questions"][q_idx]["question_media"] = _normalize_points_quiz_media_list(question_media)
         quiz_local["categories"][cat_idx]["questions"][q_idx]["answer_media"] = _normalize_points_quiz_media_list(answer_media)
-        state["editing_points_quiz"] = quiz_local
+        state["editing_points_quiz"] = upsert_points_quiz(state, quiz_local, mark_finished=False)
 
     question_field.on_change = lambda e: _sync_editor_draft()
     answer_field.on_change = lambda e: _sync_editor_draft()
