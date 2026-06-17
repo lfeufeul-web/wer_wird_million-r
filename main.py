@@ -10842,25 +10842,8 @@ def _cleanup_points_quiz_cell_media_pickers(page: ft.Page, state: dict):
 
 async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tuple[list[dict], int, str | None]:
     picker = ft.FilePicker()
-    result_holder: dict[str, list] = {"files": []}
-
-    def on_result(e):
-        result_holder["files"] = list(getattr(e, "files", []) or [])
-
-    picker.on_result = on_result
-
-    def _remove_picker():
-        try:
-            if picker in page.overlay:
-                page.overlay.remove(picker)
-                page.update()
-        except Exception:
-            pass
-
     extensions = [ext.lstrip(".") for ext in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS]
     try:
-        page.overlay.append(picker)
-        page.update()
         pick_call = picker.pick_files(
             dialog_title="Dateien für Punkte-Quiz auswählen",
             allow_multiple=True,
@@ -10884,22 +10867,13 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
                     allowed_extensions=extensions,
                 )
             except Exception:
-                _remove_picker()
                 return [], 0, "Dateiauswahl konnte nicht geöffnet werden."
     except Exception as ex:
-        _remove_picker()
         return [], 0, f"Dateiauswahl konnte nicht geöffnet werden: {ex}"
 
     picked_files = await pick_call if inspect.isawaitable(pick_call) else pick_call
-    if picked_files is None:
-        for _ in range(80):
-            await asyncio.sleep(0.1)
-            if result_holder["files"]:
-                break
-        picked_files = result_holder["files"]
     picked_files = list(picked_files or [])
     if not picked_files:
-        _remove_picker()
         return [], 0, None
 
     added_items: list[dict] = []
@@ -10937,7 +10911,6 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
             invalid_count += 1
 
     if added_items:
-        _remove_picker()
         return _normalize_points_quiz_media_list(added_items), invalid_count, None
 
     # Last fallback for older picker variants: try upload API when bytes/path were unavailable.
@@ -10973,7 +10946,6 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
                     )
                 )
         if not upload_jobs:
-            _remove_picker()
             return [], invalid_count, None
         try:
             upload_call = picker.upload(files=upload_jobs)
@@ -10981,10 +10953,8 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
             upload_call = picker.upload(upload_jobs)
         if inspect.isawaitable(upload_call):
             await upload_call
-        _remove_picker()
         return _normalize_points_quiz_media_list(expected_items), invalid_count, None
     except Exception:
-        _remove_picker()
         return [], invalid_count, "Dateien konnten nicht übernommen werden. Bitte erneut versuchen."
 
 
