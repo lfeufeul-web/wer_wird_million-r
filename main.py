@@ -10995,7 +10995,7 @@ def persist_user_points_quizzes(state: dict, quizzes: list[dict]):
         return
     normalized_quizzes = [normalize_points_quiz(q) for q in quizzes]
     state["points_quiz_quizzes_cache"] = normalized_quizzes
-    db = load_local_db()
+    db = load_db()
     db.setdefault("users", {})
     if email not in db["users"]:
         db["users"][email] = default_user(email, state.get("current_user_uid"))
