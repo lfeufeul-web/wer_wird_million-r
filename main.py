@@ -10547,6 +10547,8 @@ POINTS_QUIZ_MEDIA_DIR = os.path.join("assets", "points_quiz_media")
 POINTS_QUIZ_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 POINTS_QUIZ_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v", ".avi", ".mkv"}
 POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS = sorted(POINTS_QUIZ_IMAGE_EXTENSIONS | POINTS_QUIZ_VIDEO_EXTENSIONS)
+POINTS_QUIZ_IMAGE_MAX_EDGE = 1200
+POINTS_QUIZ_IMAGE_TARGET_BYTES = 260_000
 
 
 def _points_quiz_media_kind(filename: str) -> str | None:
@@ -10561,6 +10563,41 @@ def _points_quiz_media_kind(filename: str) -> str | None:
 def _sanitize_filename_part(value: str) -> str:
     clean = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value or "").strip())
     return clean.strip("._-") or "file"
+
+
+def _points_quiz_prepare_image_bytes(raw_bytes: bytes, filename: str) -> tuple[bytes, str] | None:
+    ext = os.path.splitext(str(filename or ""))[1].lower()
+    mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+    }.get(ext, "image/jpeg")
+    if ext == ".gif" or Image is None:
+        return raw_bytes, mime
+    try:
+        image = Image.open(io.BytesIO(raw_bytes))
+        image.load()
+        image.thumbnail((POINTS_QUIZ_IMAGE_MAX_EDGE, POINTS_QUIZ_IMAGE_MAX_EDGE), Image.Resampling.LANCZOS)
+        if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            background.paste(image.convert("RGBA"), mask=image.convert("RGBA").split()[-1])
+            image = background
+        else:
+            image = image.convert("RGB")
+        for max_edge, quality in ((1200, 78), (1000, 74), (850, 70), (700, 66)):
+            if max(image.size) > max_edge:
+                image.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=quality, optimize=True, progressive=True)
+            data = buffer.getvalue()
+            if len(data) <= POINTS_QUIZ_IMAGE_TARGET_BYTES:
+                return data, "image/jpeg"
+        return data, "image/jpeg"
+    except Exception:
+        return raw_bytes, mime
 
 
 def _points_quiz_media_to_data_url(raw_bytes: bytes | bytearray, filename: str) -> str | None:
@@ -10586,7 +10623,12 @@ def _points_quiz_media_to_data_url(raw_bytes: bytes | bytearray, filename: str) 
         ".avi": "video/x-msvideo",
         ".mkv": "video/x-matroska",
     }.get(ext, "application/octet-stream")
-    encoded = base64.b64encode(bytes(raw_bytes)).decode("ascii")
+    payload = bytes(raw_bytes)
+    if kind == "image":
+        prepared = _points_quiz_prepare_image_bytes(payload, filename)
+        if prepared:
+            payload, mime = prepared
+    encoded = base64.b64encode(payload).decode("ascii")
     return f"data:{mime};base64,{encoded}"
 
 
@@ -10800,8 +10842,25 @@ def _cleanup_points_quiz_cell_media_pickers(page: ft.Page, state: dict):
 
 async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tuple[list[dict], int, str | None]:
     picker = ft.FilePicker()
+    result_holder: dict[str, list] = {"files": []}
+
+    def on_result(e):
+        result_holder["files"] = list(getattr(e, "files", []) or [])
+
+    picker.on_result = on_result
+
+    def _remove_picker():
+        try:
+            if picker in page.overlay:
+                page.overlay.remove(picker)
+                page.update()
+        except Exception:
+            pass
+
     extensions = [ext.lstrip(".") for ext in POINTS_QUIZ_ALLOWED_MEDIA_EXTENSIONS]
     try:
+        page.overlay.append(picker)
+        page.update()
         pick_call = picker.pick_files(
             dialog_title="Dateien für Punkte-Quiz auswählen",
             allow_multiple=True,
@@ -10818,17 +10877,29 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
                 allowed_extensions=extensions,
             )
         except TypeError:
-            pick_call = picker.pick_files(
-                allow_multiple=True,
-                file_type=ft.FilePickerFileType.CUSTOM,
-                allowed_extensions=extensions,
-            )
+            try:
+                pick_call = picker.pick_files(
+                    allow_multiple=True,
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=extensions,
+                )
+            except Exception:
+                _remove_picker()
+                return [], 0, "Dateiauswahl konnte nicht geöffnet werden."
     except Exception as ex:
+        _remove_picker()
         return [], 0, f"Dateiauswahl konnte nicht geöffnet werden: {ex}"
 
     picked_files = await pick_call if inspect.isawaitable(pick_call) else pick_call
+    if picked_files is None:
+        for _ in range(80):
+            await asyncio.sleep(0.1)
+            if result_holder["files"]:
+                break
+        picked_files = result_holder["files"]
     picked_files = list(picked_files or [])
     if not picked_files:
+        _remove_picker()
         return [], 0, None
 
     added_items: list[dict] = []
@@ -10866,6 +10937,7 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
             invalid_count += 1
 
     if added_items:
+        _remove_picker()
         return _normalize_points_quiz_media_list(added_items), invalid_count, None
 
     # Last fallback for older picker variants: try upload API when bytes/path were unavailable.
@@ -10901,6 +10973,7 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
                     )
                 )
         if not upload_jobs:
+            _remove_picker()
             return [], invalid_count, None
         try:
             upload_call = picker.upload(files=upload_jobs)
@@ -10908,8 +10981,10 @@ async def _points_quiz_pick_and_upload_media(page: ft.Page, quiz_id: str) -> tup
             upload_call = picker.upload(upload_jobs)
         if inspect.isawaitable(upload_call):
             await upload_call
+        _remove_picker()
         return _normalize_points_quiz_media_list(expected_items), invalid_count, None
     except Exception:
+        _remove_picker()
         return [], invalid_count, "Dateien konnten nicht übernommen werden. Bitte erneut versuchen."
 
 
